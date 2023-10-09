@@ -35,7 +35,7 @@ pub enum Command {
     /// The runtime shown on the line beginning with `=>` is the default, i.e.
     /// the runtime that will be used when creating a new cluster.
     #[clap(display_order = 3)]
-    Runtimes,
+    Runtimes(RuntimeArgs),
 }
 
 #[derive(Args)]
@@ -111,6 +111,15 @@ pub struct DatabaseArgs {
         display_order = 2
     )]
     pub name: String,
+}
+
+#[derive(Args)]
+pub struct RuntimeArgs {
+    /// Select the default runtime.
+    ///
+    /// This is used when creating new clusters.
+    #[clap(long = "runtime", display_order = 80)]
+    pub runtime: Option<String>,
 }
 
 #[derive(Args)]

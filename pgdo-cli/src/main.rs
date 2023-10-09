@@ -14,6 +14,7 @@ use color_eyre::{Help, SectionExt};
 use pgdo::{
     cluster, coordinate, lock,
     runtime::{self, strategy::Strategy},
+    version,
 };
 
 fn main() -> Result<()> {
@@ -49,8 +50,24 @@ fn main() -> Result<()> {
                 )
             },
         ),
-        cli::Command::Runtimes => {
+        cli::Command::Runtimes(cli::RuntimeArgs { runtime: constraint }) => {
             let strategy = runtime::strategy::default();
+            let constraint: Option<version::PartialVersion> =
+                constraint.and_then(|c| c.parse().ok());
+            let strategy = if let Some(version) = constraint {
+                if let Some(fallback) = strategy.select(&version) {
+                    Box::new(
+                        runtime::strategy::StrategySet::new()
+                            .push_front(fallback)
+                            .push_back(strategy),
+                    ) as Box<dyn Strategy>
+                } else {
+                    Box::new(strategy)
+                }
+            } else {
+                Box::new(strategy)
+            };
+
             let mut runtimes: Vec<_> = strategy.runtimes().collect();
             let default = strategy.fallback();
 

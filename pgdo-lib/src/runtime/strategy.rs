@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::env;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -165,7 +166,25 @@ impl Strategy for RuntimesOnPlatform {
 }
 
 /// Combine multiple runtime strategies, in order of preference.
-pub struct StrategySet(Vec<Box<dyn Strategy>>);
+pub struct StrategySet(VecDeque<Box<dyn Strategy>>);
+
+impl StrategySet {
+    pub fn new() -> Self {
+        Self(VecDeque::new())
+    }
+
+    #[must_use]
+    pub fn push_front<S: Strategy>(mut self, strategy: S) -> Self {
+        self.0.push_front(Box::new(strategy));
+        self
+    }
+
+    #[must_use]
+    pub fn push_back<S: Strategy>(mut self, strategy: S) -> Self {
+        self.0.push_back(Box::new(strategy));
+        self
+    }
+}
 
 impl Strategy for StrategySet {
     /// Runtimes known to all strategies, in the same order as each strategy
@@ -200,10 +219,10 @@ impl Strategy for StrategySet {
 /// Select runtimes from on `PATH` followed by platform-specific runtimes.
 impl Default for StrategySet {
     fn default() -> Self {
-        Self(vec![
-            Box::new(RuntimesOnPath::Env),
-            Box::new(RuntimesOnPlatform),
-        ])
+        let mut strategies: VecDeque<Box<dyn Strategy>> = VecDeque::new();
+        strategies.push_front(Box::new(RuntimesOnPath::Env));
+        strategies.push_back(Box::new(RuntimesOnPlatform));
+        Self(strategies)
     }
 }
 

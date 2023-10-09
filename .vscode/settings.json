@@ -11,6 +11,7 @@
         "datnames",
         "dbname",
         "dealias",
+        "Deque",
         "doctest",
         "dtolnay",
         "EAGAIN",
