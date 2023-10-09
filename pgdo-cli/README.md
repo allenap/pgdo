@@ -1,4 +1,4 @@
-# pgdo
+# pgdo-cli
 
 A [Rust](https://www.rust-lang.org/) command-line tool for creating standalone
 PostgreSQL clusters and databases with a focus on convenience and rapid
@@ -6,14 +6,14 @@ prototyping – such as one sees using SQLite. Scaling down the developer
 experience to meet individuals working to build something new, build something
 rapidly, is a key goal of this project.
 
-This is the front-end to [pgdo-lib][]; there's a lot more information over there
+This is the front-end to [pgdo-lib][]; in that package there's more information
 about the project as a whole.
 
 [pgdo-lib]: ../pgdo-lib
 
 ## Getting started
 
-After [installing Cargo][install-cargo], `cargo install pgdo` will install a
+After [installing Cargo][install-cargo], `cargo install pgdo-cli` will install a
 `pgdo` binary in `~/.cargo/bin`, which the Cargo installation process will
 probably have added to your `PATH`.
 

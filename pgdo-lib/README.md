@@ -20,10 +20,11 @@ key to [making MAAS's test suites faster][maas-faster-tests].
 
 ## Command-line application
 
-There is a [pgdo][] command-line application that uses this library. That may be
-the easiest way to see how pgdo might help you.
+There is a [`pgdo`](../pgdo-cli) command-line application that uses this
+library. That may be the easiest way to see how pgdo works.
 
-[pgdo]: ../pgdo
+It's published as **pgdo-cli** on [Crates.io](https://crates.io/crates/pgdo-cli)
+and [Lib.rs](https://lib.rs/crates/pgdo-cli).
 
 ## Use as a library
 
@@ -102,22 +103,23 @@ $ brew install postgresql  # Latest version.
 $ brew install postgresql@{9.{4,5,6},10,11,12,13}  # Adjust as necessary.
 ```
 
-### Releasing new versions of pgdo and pgdo-lib
+### Releasing new versions of pgdo-cli and pgdo-lib
 
 The packages in this workspace are released together, with the same version
 number, and they must be uploaded in a certain order.
 
 1. Bump the version in the top-level (workspace) `Cargo.toml`.
-2. In `pgdo/Cargo.toml`, update the dependency on `pgdo-lib` to match the new
-   version from the previous step.
-3. Paste updated `-h` output into pgdo's `README.md`. On macOS the command
+2. In `pgdo-cli/Cargo.toml`, update the dependency on `pgdo-lib` to match the
+   new version from the previous step.
+3. Paste updated `-h` output into pgdo-cli's `README.md`. On macOS the command
    `cargo run -- -h | pbcopy` is helpful. **Note** that `--help` output is not
    the same as `-h` output: it's more verbose and too much for an overview.
 4. Build, test, docs: `cargo build && cargo test && cargo doc --no-deps`.
 5. Commit with message "Bump version to `$VERSION`."
 6. Tag with "v`$VERSION`", e.g. `git tag v1.0.10`.
 7. Push: `git push && git push --tags`.
-8. Publish: `cargo publish --package pgdo-lib && cargo publish --package pgdo`.
+8. Publish library: `cargo publish --package pgdo-lib`.
+9. Publish binary: `cargo publish --package pgdo-cli`.
 
 ## License
 

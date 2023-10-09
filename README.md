@@ -2,8 +2,8 @@
 
 > The convenience of SQLite – but with PostgreSQL.
 
-See [pgdo](pgdo) for the command-line application, or [pgdo-lib](pgdo-lib) for
-the Rust library.
+See [pgdo-cli](pgdo-cli) for the command-line application, or
+[pgdo-lib](pgdo-lib) for the Rust library.
 
 ## License
 
