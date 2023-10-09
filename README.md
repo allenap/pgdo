@@ -1,6 +1,8 @@
 # The pgdo project
 
-See [pgdo][pgdo] for the command-line application, or [pgdo-lib][pgdo-lib] for
+> The convenience of SQLite – but with PostgreSQL.
+
+See [pgdo](pgdo) for the command-line application, or [pgdo-lib](pgdo-lib) for
 the Rust library.
 
 ## License

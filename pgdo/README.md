@@ -9,7 +9,7 @@ rapidly, is a key goal of this project.
 This is the front-end to [pgdo-lib][]; there's a lot more information over there
 about the project as a whole.
 
-[pgdo-lib]: https://crates.io/crates/pgdo-lib
+[pgdo-lib]: ../pgdo-lib
 
 ## Getting started
 
@@ -62,7 +62,7 @@ $ pgdo exec pg_dump
 
 If you feel the urge to hack on this code, here's how to get started:
 
-- [Install cargo][install-cargo],
+- [Install Cargo][install-cargo],
 - Clone this repository,
 - Build it: `cargo build`.
 

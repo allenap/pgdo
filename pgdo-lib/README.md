@@ -23,7 +23,7 @@ key to [making MAAS's test suites faster][maas-faster-tests].
 There is a [pgdo][] command-line application that uses this library. That may be
 the easiest way to see how pgdo might help you.
 
-[pgdo]: https://crates.io/crates/pgdo
+[pgdo]: ../pgdo
 
 ## Use as a library
 
@@ -58,7 +58,7 @@ safely share a single on-demand cluster.
 
 If you feel the urge to hack on this code, here's how to get started:
 
-- [Install cargo][install-cargo],
+- [Install Cargo][install-cargo],
 - Clone this repository,
 - Build it: `cargo build`.
 
@@ -107,14 +107,17 @@ $ brew install postgresql@{9.{4,5,6},10,11,12,13}  # Adjust as necessary.
 The packages in this workspace are released together, with the same version
 number, and they must be uploaded in a certain order.
 
-1. Bump the version in `pgdo/Cargo.toml` and `pgdo-lib/Cargo.toml`.
+1. Bump the version in the top-level (workspace) `Cargo.toml`.
 2. In `pgdo/Cargo.toml`, update the dependency on `pgdo-lib` to match the new
    version from the previous step.
-3. Build, test, docs: `cargo build && cargo test && cargo doc --no-deps`.
-4. Commit with message "Bump version to `$VERSION`."
-5. Tag with "v`$VERSION`", e.g. `git tag v1.0.10`.
-6. Push: `git push && git push --tags`.
-7. Publish: `cargo publish --package pgdo-lib && cargo publish --package pgdo`.
+3. Paste updated `-h` output into pgdo's `README.md`. On macOS the command
+   `cargo run -- -h | pbcopy` is helpful. **Note** that `--help` output is not
+   the same as `-h` output: it's more verbose and too much for an overview.
+4. Build, test, docs: `cargo build && cargo test && cargo doc --no-deps`.
+5. Commit with message "Bump version to `$VERSION`."
+6. Tag with "v`$VERSION`", e.g. `git tag v1.0.10`.
+7. Push: `git push && git push --tags`.
+8. Publish: `cargo publish --package pgdo-lib && cargo publish --package pgdo`.
 
 ## License
 
