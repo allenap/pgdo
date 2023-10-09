@@ -49,9 +49,10 @@ for runtime in runtime::strategy::default().runtimes() {
 ```
 
 **However**, you may want to use this with the functions in the `coordinate`
-module like `run_and_stop` and `run_and_destroy`. These add locking to the setup
-and teardown steps of using a cluster so that multiple processes can safely
-share a single on-demand cluster.
+module like [`run_and_stop`][`coordinate::run_and_stop`] and
+[`run_and_destroy`][`coordinate::run_and_destroy`]. These add locking to the
+setup and teardown steps of using a cluster so that multiple processes can
+safely share a single on-demand cluster.
 
 ## Contributing
 
@@ -75,12 +76,12 @@ coverage. Specifically this means:
 - Install multiple versions of PostgreSQL on your machine. Read on for
   platform-specific notes.
 
-- [`pgdo::runtime::strategy::default()`] may be able to automatically find those
+- [`runtime::strategy::default()`] may be able to automatically find those
   installed runtimes – this is the function used by tests.
 
 - If pgdo's platform-specific knowledge doesn't cover your platform, have a go
-  at adding to it. [`pgdo::runtime::strategy::RuntimesOnPlatform`] is a good
-  place to start.
+  at adding to it. [`runtime::strategy::RuntimesOnPlatform`] is a good place to
+  start.
 
 #### Debian & Ubuntu
 
