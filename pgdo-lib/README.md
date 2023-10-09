@@ -1,10 +1,10 @@
-# pgdo
+# pgdo-lib
 
-A [Rust](https://www.rust-lang.org/) library and command-line tool for creating
-standalone PostgreSQL clusters and databases with a focus on convenience and
-rapid prototyping – such as one sees using SQLite. Scaling down the developer
-experience to meet individuals working to build something new, build something
-rapidly, is a key goal of this project.
+A [Rust](https://www.rust-lang.org/) library for creating standalone PostgreSQL
+clusters and databases with a focus on convenience and rapid prototyping – such
+as one sees using SQLite. Scaling down the developer experience to meet
+individuals working to build something new, build something rapidly, is a key
+goal of this project.
 
 It inherits code from the [rust-postgresfixture][] project but deviates from
 that project's goals and design. Way back, we can trace this tool's origins to
@@ -18,52 +18,12 @@ key to [making MAAS's test suites faster][maas-faster-tests].
 [postgresfixture]: https://pypi.python.org/pypi/postgresfixture
 [maas-faster-tests]: https://allenap.me/post/the-way-to-run-tests-quickly-in-maas
 
-## Command-line utility
+## Command-line application
 
-After [installing Cargo][install-cargo], `cargo install pgdo` will install a
-`pgdo` binary in `~/.cargo/bin`, which the Cargo installation process will
-probably have added to your `PATH`.
+There is a [pgdo][] command-line application that uses this library. That may be
+the easiest way to see how pgdo might help you.
 
-**Note** that this tool does _not_ (yet) come with any PostgreSQL runtimes. You
-must install these yourself. The `pgdo` command has some platform-specific
-smarts and might be able to find those installed runtimes without further
-configuration. To check, use the `runtimes` subcommand. If the runtime you want
-to use doesn't show up, add its `bin` directory to `PATH`.
-
-```shellsession
-$ pgdo --help
-Easily create and manage PostgreSQL clusters on demand for testing and development.
-
-Usage: pgdo <COMMAND>
-
-Commands:
-  shell     Start a psql shell, creating and starting the cluster as necessary
-  exec      Execute an arbitrary command, creating and starting the cluster as necessary
-  runtimes  List discovered PostgreSQL runtimes
-  help      Print this message or the help of the given subcommand(s)
-
-Options:
-  -h, --help     Print help
-  -V, --version  Print version
-
-$ pgdo runtimes
-   10.22      /opt/homebrew/Cellar/postgresql@10/10.22_6/bin
-   11.21      /opt/homebrew/Cellar/postgresql@11/11.21/bin
-   12.16      /opt/homebrew/Cellar/postgresql@12/12.16/bin
-   13.12      /opt/homebrew/Cellar/postgresql@13/13.12/bin
-   14.9       /opt/homebrew/Cellar/postgresql@14/14.9/bin
-   15.4       /opt/homebrew/Cellar/postgresql@15/15.4/bin
-=> 16.0       /opt/homebrew/bin
-
-$ pgdo shell
-postgres=# select …
-
-$ pgdo exec pg_dump
---
--- PostgreSQL database dump
---
-…
-```
+[pgdo]: https://crates.io/crates/pgdo
 
 ## Use as a library
 
@@ -124,7 +84,7 @@ coverage. Specifically this means:
 
 #### Debian & Ubuntu
 
-From https://wiki.postgresql.org/wiki/Apt:
+From <https://wiki.postgresql.org/wiki/Apt>:
 
 ```shellsession
 $ sudo apt-get install -y postgresql-common
@@ -144,17 +104,14 @@ $ brew install postgresql@{9.{4,5,6},10,11,12,13}  # Adjust as necessary.
 ### Making a release
 
 1. Bump version in [`Cargo.toml`](Cargo.toml).
-2. Paste updated `--help` output into [`README.md`](README.md) (this file; see
-   near the top). On macOS the command `cargo run -- --help | pbcopy` is
-   helpful.
-3. Build **and** test: `cargo build && cargo test`. The latter on its own does
+2. Build **and** test: `cargo build && cargo test`. The latter on its own does
    do a build, but a test build can hide warnings about dead code, so do both.
-4. Commit with message "Bump version to `$VERSION`."
-5. Tag with "v`$VERSION`", e.g. `git tag v1.0.10`.
-6. Push: `git push && git push --tags`.
-7. Publish: `cargo publish`.
+3. Commit with message "Bump version to `$VERSION`."
+4. Tag with "v`$VERSION`", e.g. `git tag v1.0.10`.
+5. Push: `git push && git push --tags`.
+6. Publish: `cargo publish`.
 
 ## License
 
 This project is licensed under the Apache 2.0 License. See the
-[LICENSE](LICENSE) file for details.
+[LICENSE](../LICENSE) file for details.
