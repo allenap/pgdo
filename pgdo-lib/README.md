@@ -104,7 +104,7 @@ $ brew install postgresql@{9.{4,5,6},10,11,12,13}  # Adjust as necessary.
 
 ### Making a release
 
-1. Bump version in [`Cargo.toml`](Cargo.toml).
+1. Bump version in `Cargo.toml`.
 2. Build **and** test: `cargo build && cargo test`. The latter on its own does
    do a build, but a test build can hide warnings about dead code, so do both.
 3. Commit with message "Bump version to `$VERSION`."
@@ -114,5 +114,6 @@ $ brew install postgresql@{9.{4,5,6},10,11,12,13}  # Adjust as necessary.
 
 ## License
 
-This project is licensed under the Apache 2.0 License. See the
-[LICENSE](../LICENSE) file for details.
+This package is licensed under the [Apache 2.0 License][].
+
+[Apache 2.0 License]: https://www.apache.org/licenses/LICENSE-2.0

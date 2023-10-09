@@ -77,7 +77,7 @@ installing runtimes.
 
 ### Making a release
 
-1. Bump version in [`Cargo.toml`](Cargo.toml).
+1. Bump version in `Cargo.toml`.
 2. Paste updated `--help` output into [`README.md`](README.md) (this file; see
    near the top). On macOS the command `cargo run -- --help | pbcopy` is
    helpful.
@@ -90,5 +90,6 @@ installing runtimes.
 
 ## License
 
-This project is licensed under the Apache 2.0 License. See the
-[LICENSE](../LICENSE) file for details.
+This package is licensed under the [Apache 2.0 License][].
+
+[Apache 2.0 License]: https://www.apache.org/licenses/LICENSE-2.0
