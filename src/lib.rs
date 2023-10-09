@@ -13,7 +13,7 @@
 //! versions that are not supported upstream).
 //!
 //! ```rust
-//! use postgresfixture::prelude::*;
+//! use pgdo::prelude::*;
 //! for runtime in runtime::strategy::default().runtimes() {
 //!   let data_dir = tempdir::TempDir::new("data")?;
 //!   let cluster = Cluster::new(&data_dir, runtime)?;

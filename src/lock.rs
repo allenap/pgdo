@@ -4,7 +4,7 @@
 //!
 //! ```rust
 //! let lock_dir = tempdir::TempDir::new("locks")?;
-//! # use postgresfixture::lock::UnlockedFile;
+//! # use pgdo::lock::UnlockedFile;
 //! let mut lock = UnlockedFile::try_from(lock_dir.path().join("foo").as_path())?;
 //! let lock = lock.lock_shared()?;
 //! let lock = lock.lock_exclusive()?;
@@ -64,7 +64,7 @@ impl TryFrom<&Uuid> for UnlockedFile {
     fn try_from(uuid: &Uuid) -> std::io::Result<Self> {
         let mut buffer = Uuid::encode_buffer();
         let uuid = uuid.simple().encode_lower(&mut buffer);
-        let filename = ".postgresfixture.".to_owned() + uuid;
+        let filename = ".pgdo.".to_owned() + uuid;
         let path = std::env::temp_dir().join(filename);
         UnlockedFile::try_from(&*path)
     }

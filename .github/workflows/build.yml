@@ -1,4 +1,4 @@
-name: rust-postgresfixture CI
+name: pgdo CI
 
 on:
   push:
@@ -30,8 +30,7 @@ jobs:
           # for all available versions. At present only version 11 and above are
           # officially supported upstream (and version 11 will get its final
           # release in November 2023 and officially enter EOL), but there is
-          # still logic in rust-postgresfixture that works with versions as old
-          # as 9.0.
+          # still logic in pgdo that works with versions as old as 9.0.
           sudo apt-get install -y postgresql-{9.{0,1,2,3,4,5,6},10,11,12,13,14,15,16}
       - name: Set PATH for all PostgreSQL runtimes
         run: |

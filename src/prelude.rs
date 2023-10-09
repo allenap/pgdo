@@ -1,4 +1,4 @@
-//! Basic prelude for `postgresfixture`.
+//! Prelude for `pgdo`.
 
 pub use crate::{
     cluster::{self, Cluster, ClusterError},

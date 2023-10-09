@@ -9,7 +9,7 @@ use clap::Parser;
 use color_eyre::eyre::{bail, Result, WrapErr};
 use color_eyre::{Help, SectionExt};
 
-use postgresfixture::{
+use pgdo::{
     cluster, coordinate, lock,
     runtime::{self, strategy::Strategy},
 };

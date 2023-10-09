@@ -19,7 +19,7 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           name: aarch64-apple-darwin
-          path: target/aarch64-apple-darwin/release/postgresfixture
+          path: target/aarch64-apple-darwin/release/pgdo
           if-no-files-found: error
 
   x86_64-apple-darwin:
@@ -35,7 +35,7 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           name: x86_64-apple-darwin
-          path: target/x86_64-apple-darwin/release/postgresfixture
+          path: target/x86_64-apple-darwin/release/pgdo
           if-no-files-found: error
 
   macos-universal:
@@ -46,23 +46,23 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
           name: x86_64-apple-darwin
-          path: postgresfixture-x86_64-apple-darwin
+          path: pgdo-x86_64-apple-darwin
       - uses: actions/download-artifact@v3
         with:
           name: aarch64-apple-darwin
-          path: postgresfixture-aarch64-apple-darwin
+          path: pgdo-aarch64-apple-darwin
       - name: debug
         run: find .
       - name: Build Universal macOS Binary
         run: |
           lipo -create \
-            -output postgresfixture-apple-darwin \
-            postgresfixture-x86_64-apple-darwin/postgresfixture \
-            postgresfixture-aarch64-apple-darwin/postgresfixture
+            -output pgdo-apple-darwin \
+            pgdo-x86_64-apple-darwin/pgdo \
+            pgdo-aarch64-apple-darwin/pgdo
       - uses: actions/upload-artifact@v3
         with:
           name: apple-darwin
-          path: postgresfixture-apple-darwin
+          path: pgdo-apple-darwin
           if-no-files-found: error
 
   build-linux:
@@ -78,7 +78,7 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           name: linux
-          path: target/x86_64-unknown-linux-musl/release/postgresfixture
+          path: target/x86_64-unknown-linux-musl/release/pgdo
           if-no-files-found: error
 
   create-release:
@@ -95,11 +95,11 @@ jobs:
           name: apple-darwin
       - name: Rename executables
         run: |
-          mv -v linux/postgresfixture postgresfixture-linux
+          mv -v linux/pgdo pgdo-linux
           find .
       - uses: softprops/action-gh-release@v1
         with:
           files: |
-            postgresfixture-apple-darwin
-            postgresfixture-linux
+            pgdo-apple-darwin
+            pgdo-linux
           fail_on_unmatched_files: true

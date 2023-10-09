@@ -10,21 +10,18 @@ description = "Easily create and manage PostgreSQL clusters on demand for testin
 edition = "2021"
 keywords = ["database", "postgres", "postgresql"]
 license = "Apache-2.0"
-name = "postgresfixture"
+name = "pgdo"
 readme = "README.md"
-repository = "https://github.com/allenap/rust-postgresfixture"
+repository = "https://github.com/allenap/pgdo"
 version = "0.5.0"
 
-[badges]
-travis-ci = { repository = "allenap/rust-postgresfixture", branch = "master" }
-
 [lib]
-name = "postgresfixture"
+name = "pgdo"
 path = "src/lib.rs"
 
 [[bin]]
 doc = false
-name = "postgresfixture"
+name = "pgdo"
 path = "src/main.rs"
 
 [dependencies]

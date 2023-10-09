@@ -77,8 +77,8 @@ pub struct ClusterArgs {
     ///
     /// The mode is STICKY. Running with a mode reconfigures the cluster, and it
     /// will continue to run in that mode. To find out which mode the cluster is
-    /// configured for, open a `psql` shell (e.g. `postgresfixture shell`) and
-    /// run `SHOW fsync; SHOW full_page_writes; SHOW synchronous_commit;`.
+    /// configured for, open a `psql` shell (e.g. `pgdo shell`) and run `SHOW
+    /// fsync; SHOW full_page_writes; SHOW synchronous_commit;`.
     #[clap(long = "mode", display_order = 4)]
     pub mode: Option<Mode>,
 }

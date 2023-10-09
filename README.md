@@ -1,4 +1,4 @@
-# rust-postgresfixture
+# pgdo
 
 A [Rust](https://www.rust-lang.org/) library and command-line tool for creating
 standalone PostgreSQL clusters and databases, useful for experimentation,
@@ -25,9 +25,9 @@ be upgraded, or use something automated like [Dependabot][dependabot].
 
 ## Command-line utility
 
-After [installing Cargo][install-cargo], `cargo install postgresfixture` will
-install a `postgresfixture` binary in `~/.cargo/bin`, which the Cargo
-installation process will probably have added to your `PATH`.
+After [installing Cargo][install-cargo], `cargo install pgdo` will install a
+`pgdo` binary in `~/.cargo/bin`, which the Cargo installation process will
+probably have added to your `PATH`.
 
 **Note** that this tool does _not_ come with any PostgreSQL runtimes. You must
 install these yourself and add their `bin` directories to `PATH`. To select a
@@ -36,10 +36,10 @@ before any others. The `runtimes` subcommand can show you what is available and
 what runtime will actually be used.
 
 ```shellsession
-$ postgresfixture --help
+$ pgdo --help
 Easily create and manage PostgreSQL clusters on demand for testing and development.
 
-Usage: postgresfixture <COMMAND>
+Usage: pgdo <COMMAND>
 
 Commands:
   shell     Start a psql shell, creating and starting the cluster as necessary
@@ -51,7 +51,7 @@ Options:
   -h, --help     Print help
   -V, --version  Print version
 
-$ postgresfixture runtimes
+$ pgdo runtimes
    10.22      /opt/homebrew/Cellar/postgresql@10/10.22_6/bin
    11.21      /opt/homebrew/Cellar/postgresql@11/11.21/bin
    12.16      /opt/homebrew/Cellar/postgresql@12/12.16/bin
@@ -60,10 +60,10 @@ $ postgresfixture runtimes
    15.4       /opt/homebrew/Cellar/postgresql@15/15.4/bin
 => 16.0       /opt/homebrew/bin
 
-$ postgresfixture shell
+$ pgdo shell
 postgres=# select …
 
-$ postgresfixture exec pg_dump
+$ pgdo exec pg_dump
 --
 -- PostgreSQL database dump
 --
@@ -78,7 +78,7 @@ PostgreSQL clusters of any officially supported version (and a few older
 versions that are not supported upstream).
 
 ```rust
-use postgresfixture::prelude::*;
+use pgdo::prelude::*;
 for runtime in runtime::strategy::default().runtimes() {
   let data_dir = tempdir::TempDir::new("data")?;
   let cluster = Cluster::new(&data_dir, runtime)?;
@@ -119,9 +119,9 @@ them.
 
 First you must install multiple versions of PostgreSQL on your machine. Read on
 for platform-specific notes. Once you've installed the versions you want,
-[`postgresfixture::runtime::strategy::default()`] may be able to automatically
-find them – and, since this function is used by tests, those runtimes will
-automatically be tested.
+[`pgdo::runtime::strategy::default()`] may be able to automatically find them –
+and, since this function is used by tests, those runtimes will automatically be
+tested.
 
 #### Debian & Ubuntu
 
