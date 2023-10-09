@@ -20,8 +20,10 @@ fn main() -> Result<()> {
     color_eyre::install()?;
 
     let cli = cli::Cli::parse();
-    let result = match cli.command {
-        cli::Commands::Shell { cluster, database, lifecycle } => run(
+    // `Shell` is the default command when none is specified.
+    let command = cli.command.unwrap_or(cli::Command::Shell(cli.shell));
+    let result = match command {
+        cli::Command::Shell(cli::ShellArgs { cluster, database, lifecycle }) => run(
             cluster.dir,
             &database.name,
             lifecycle.destroy,
@@ -34,7 +36,7 @@ fn main() -> Result<()> {
                 )
             },
         ),
-        cli::Commands::Exec { cluster, database, command, args, lifecycle } => run(
+        cli::Command::Exec(cli::ExecArgs { cluster, database, command, args, lifecycle }) => run(
             cluster.dir,
             &database.name,
             lifecycle.destroy,
@@ -47,7 +49,7 @@ fn main() -> Result<()> {
                 )
             },
         ),
-        cli::Commands::Runtimes => {
+        cli::Command::Runtimes => {
             let strategy = runtime::strategy::default();
             let mut runtimes: Vec<_> = strategy.runtimes().collect();
             let default = strategy.fallback();

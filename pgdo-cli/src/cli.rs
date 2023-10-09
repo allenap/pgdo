@@ -8,45 +8,27 @@ use clap::{Args, Parser, Subcommand};
 #[clap(author, version, about = "The convenience of SQLite – but with PostgreSQL", long_about = None)]
 pub struct Cli {
     #[clap(subcommand)]
-    pub command: Commands,
+    pub command: Option<Command>,
+
+    // Default command, `shell`. Note that `ShellArgs` appears here AND in the
+    // `Shell` subcommand. This pattern (along with `next_help_heading`) is a
+    // way to have a default subcommand with clap.
+    // https://github.com/clap-rs/clap/issues/975#issuecomment-1426424232
+    #[clap(flatten)]
+    pub shell: ShellArgs,
 }
 
 #[derive(Subcommand)]
-pub enum Commands {
-    /// Start a psql shell, creating and starting the cluster as necessary.
+pub enum Command {
+    /// Start a psql shell, creating and starting the cluster as necessary
+    /// (DEFAULT).
     #[clap(display_order = 1)]
-    Shell {
-        #[clap(flatten)]
-        cluster: ClusterArgs,
-
-        #[clap(flatten)]
-        database: DatabaseArgs,
-
-        #[clap(flatten)]
-        lifecycle: LifecycleArgs,
-    },
+    Shell(ShellArgs),
 
     /// Execute an arbitrary command, creating and starting the cluster as
     /// necessary.
     #[clap(display_order = 2)]
-    Exec {
-        #[clap(flatten)]
-        cluster: ClusterArgs,
-
-        #[clap(flatten)]
-        database: DatabaseArgs,
-
-        #[clap(flatten)]
-        lifecycle: LifecycleArgs,
-
-        /// The executable to invoke. By default it will start a shell.
-        #[clap(env = "SHELL", value_name = "COMMAND")]
-        command: OsString,
-
-        /// Arguments to pass to the executable.
-        #[clap(value_name = "ARGUMENTS")]
-        args: Vec<OsString>,
-    },
+    Exec(ExecArgs),
 
     /// List discovered PostgreSQL runtimes.
     ///
@@ -54,6 +36,40 @@ pub enum Commands {
     /// the runtime that will be used when creating a new cluster.
     #[clap(display_order = 3)]
     Runtimes,
+}
+
+#[derive(Args)]
+#[clap(next_help_heading = Some("Options for shell"))]
+pub struct ShellArgs {
+    #[clap(flatten)]
+    pub cluster: ClusterArgs,
+
+    #[clap(flatten)]
+    pub database: DatabaseArgs,
+
+    #[clap(flatten)]
+    pub lifecycle: LifecycleArgs,
+}
+
+#[derive(Args)]
+#[clap(next_help_heading = Some("Options for exec"))]
+pub struct ExecArgs {
+    #[clap(flatten)]
+    pub cluster: ClusterArgs,
+
+    #[clap(flatten)]
+    pub database: DatabaseArgs,
+
+    #[clap(flatten)]
+    pub lifecycle: LifecycleArgs,
+
+    /// The executable to invoke. By default it will start a shell.
+    #[clap(env = "SHELL", value_name = "COMMAND", display_order = 999)]
+    pub command: OsString,
+
+    /// Arguments to pass to the executable.
+    #[clap(value_name = "ARGUMENTS", display_order = 1000)]
+    pub args: Vec<OsString>,
 }
 
 #[derive(Args)]
