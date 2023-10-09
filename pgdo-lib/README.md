@@ -111,15 +111,16 @@ number, and they must be uploaded in a certain order.
 1. Bump the version in the top-level (workspace) `Cargo.toml`.
 2. In `pgdo-cli/Cargo.toml`, update the dependency on `pgdo-lib` to match the
    new version from the previous step.
-3. Paste updated `-h` output into pgdo-cli's `README.md`. On macOS the command
+3. Run `cargo update --workspace` to ensure that `Cargo.lock` is up to date.
+4. Paste updated `-h` output into pgdo-cli's `README.md`. On macOS the command
    `cargo run -- -h | pbcopy` is helpful. **Note** that `--help` output is not
    the same as `-h` output: it's more verbose and too much for an overview.
-4. Build, test, docs: `cargo build && cargo test && cargo doc --no-deps`.
-5. Commit with message "Bump version to `$VERSION`."
-6. Tag with "v`$VERSION`", e.g. `git tag v1.0.10`.
-7. Push: `git push && git push --tags`.
-8. Publish library: `cargo publish --package pgdo-lib`.
-9. Publish binary: `cargo publish --package pgdo-cli`.
+5. Build, test, docs: `cargo build && cargo test && cargo doc --no-deps`.
+6. Commit everything with the message "Bump version to `$VERSION`."
+7. Tag with "v`$VERSION`", e.g. `git tag v1.0.10`.
+8. Push: `git push && git push --tags`.
+9. Publish library: `cargo publish --package pgdo-lib`.
+10. Publish binary: `cargo publish --package pgdo-cli`.
 
 ## License
 
