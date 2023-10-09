@@ -1,27 +1,22 @@
 # pgdo
 
 A [Rust](https://www.rust-lang.org/) library and command-line tool for creating
-standalone PostgreSQL clusters and databases, useful for experimentation,
-development, and testing.
+standalone PostgreSQL clusters and databases with a focus on convenience and
+rapid prototyping – such as one sees using SQLite. Scaling down the developer
+experience to meet individuals working to build something new, build something
+rapidly, is a key goal of this project.
 
-It's based on the Python [postgresfixture][] library which saw heavy use in
+It inherits code from the [rust-postgresfixture][] project but deviates from
+that project's goals and design. Way back, we can trace this tool's origins to
+ideas in the Python [postgresfixture][] library which saw heavy use in
 [MAAS](https://maas.io/). That was (and is) a useful tool when experimenting
 with PostgreSQL. For example we could use it to bring up a cluster to run a
 development server. However, it came into its own in MAAS's test suites, and was
 key to [making MAAS's test suites faster][maas-faster-tests].
 
+[rust-postgresfixture]: https://github.com/allenap/rust-postgresfixture
 [postgresfixture]: https://pypi.python.org/pypi/postgresfixture
 [maas-faster-tests]: https://allenap.me/post/the-way-to-run-tests-quickly-in-maas
-
-This Rust version started out as a straightforward port but it has deviated
-significantly from the design of its Python counterpart.
-
-This code works and seems to be reliable, but the command-line and API may
-change before 1.0, potentially causing breakage. If this is a problem I suggest
-pinning on a specific version and checking back once in a while to see if it can
-be upgraded, or use something automated like [Dependabot][dependabot].
-
-[dependabot]: https://github.com/dependabot
 
 ## Command-line utility
 
@@ -29,11 +24,11 @@ After [installing Cargo][install-cargo], `cargo install pgdo` will install a
 `pgdo` binary in `~/.cargo/bin`, which the Cargo installation process will
 probably have added to your `PATH`.
 
-**Note** that this tool does _not_ come with any PostgreSQL runtimes. You must
-install these yourself and add their `bin` directories to `PATH`. To select a
-specific runtime you must set `PATH` such that the runtime you want to use is
-before any others. The `runtimes` subcommand can show you what is available and
-what runtime will actually be used.
+**Note** that this tool does _not_ (yet) come with any PostgreSQL runtimes. You
+must install these yourself. The `pgdo` command has some platform-specific
+smarts and might be able to find those installed runtimes without further
+configuration. To check, use the `runtimes` subcommand. If the runtime you want
+to use doesn't show up, add its `bin` directory to `PATH`.
 
 ```shellsession
 $ pgdo --help
@@ -93,15 +88,14 @@ for runtime in runtime::strategy::default().runtimes() {
 # Ok::<(), ClusterError>(())
 ```
 
-You may want to use this with the functions in the `coordinate` module like
-`run_and_stop` and `run_and_destroy`. These add locking to the setup and
-teardown steps of using a cluster so that multiple processes can safely share a
-single on-demand cluster.
+**However**, you may want to use this with the functions in the `coordinate`
+module like `run_and_stop` and `run_and_destroy`. These add locking to the setup
+and teardown steps of using a cluster so that multiple processes can safely
+share a single on-demand cluster.
 
 ## Contributing
 
-If you feel the urge to hack on this code, here's
-how to get started:
+If you feel the urge to hack on this code, here's how to get started:
 
 - [Install cargo][install-cargo],
 - Clone this repository,
@@ -113,15 +107,20 @@ how to get started:
 
 After installing the source (see above) run tests with: `cargo test`.
 
-**However**, it's important to test against multiple versions of PostgreSQL. The
-tests will look for all PostgreSQL runtimes on `PATH` and run tests for all of
-them.
+Most tests use pgdo's platform-specific knowledge to test against all of the
+PostgreSQL runtimes that are installed. When writing new tests, try to mimic the
+pattern in preexisting tests to ensure that those tests are getting the broadest
+coverage. Specifically this means:
 
-First you must install multiple versions of PostgreSQL on your machine. Read on
-for platform-specific notes. Once you've installed the versions you want,
-[`pgdo::runtime::strategy::default()`] may be able to automatically find them –
-and, since this function is used by tests, those runtimes will automatically be
-tested.
+- Install multiple versions of PostgreSQL on your machine. Read on for
+  platform-specific notes.
+
+- [`pgdo::runtime::strategy::default()`] may be able to automatically find those
+  installed runtimes – this is the function used by tests.
+
+- If pgdo's platform-specific knowledge doesn't cover your platform, have a go
+  at adding to it. [`pgdo::runtime::strategy::RuntimesOnPlatform`] is a good
+  place to start.
 
 #### Debian & Ubuntu
 
