@@ -38,7 +38,7 @@
 #[macro_use]
 extern crate lazy_static;
 
-#[doc = include_str!("../README.md")]
+#[doc = include_str!("../../README.md")]
 #[cfg(doctest)]
 pub struct README;
 
