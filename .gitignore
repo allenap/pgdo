@@ -1,8 +1,3 @@
-# At present, Cargo.lock is not tracked. I think this is mostly beneficial for
-# those folks who use pgdo as a library, but can mean that it may not build as a
-# binary, e.g. via `cargo install pgdo`.
-/Cargo.lock
-
 # The default PGDATA for the `pgdo` binary – or `cargo run` – is `cluster`.
 # Ignore it by default; like it or not, it's going to get created when mucking
 # around.
