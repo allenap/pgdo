@@ -5,7 +5,7 @@ use clap::{Args, Parser, Subcommand};
 
 /// Work with ephemeral PostgreSQL clusters.
 #[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
+#[clap(author, version, about = "The convenience of SQLite – but with PostgreSQL", long_about = None)]
 pub struct Cli {
     #[clap(subcommand)]
     pub command: Commands,

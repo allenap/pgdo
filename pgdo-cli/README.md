@@ -25,7 +25,7 @@ to use doesn't show up, add its `bin` directory to `PATH`.
 
 ```shellsession
 $ pgdo --help
-Easily create and manage PostgreSQL clusters on demand for testing and development.
+The convenience of SQLite – but with PostgreSQL
 
 Usage: pgdo <COMMAND>
 
