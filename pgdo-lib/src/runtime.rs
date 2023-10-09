@@ -40,7 +40,7 @@ impl Runtime {
     /// PostgreSQL runtime.
     ///
     /// ```rust
-    /// # use postgresfixture::runtime::{self, RuntimeError, Strategy};
+    /// # use pgdo::runtime::{self, RuntimeError, Strategy};
     /// # let runtime = runtime::strategy::default().fallback().unwrap();
     /// let version = runtime.execute("pg_ctl").arg("--version").output()?;
     /// # Ok::<(), RuntimeError>(())
@@ -65,7 +65,7 @@ impl Runtime {
     /// [`Self::bindir`].
     ///
     /// ```rust
-    /// # use postgresfixture::runtime::{self, RuntimeError, Strategy};
+    /// # use pgdo::runtime::{self, RuntimeError, Strategy};
     /// # let runtime = runtime::strategy::default().fallback().unwrap();
     /// let version = runtime.command("bash").arg("-c").arg("echo hello").output();
     /// # Ok::<(), RuntimeError>(())

@@ -24,6 +24,7 @@
         "PGDATA",
         "PGDATABASE",
         "pgdg",
+        "pgdo",
         "PGHOST",
         "pidfile",
         "POSIX",

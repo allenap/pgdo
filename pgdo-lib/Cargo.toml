@@ -1,0 +1,31 @@
+[package]
+authors.workspace = true
+categories.workspace = true
+description = "The convenience of SQLite – but with PostgreSQL (Library package)"
+edition.workspace = true
+keywords.workspace = true
+license.workspace = true
+name = "pgdo-lib"
+readme = "README.md"
+repository.workspace = true
+version.workspace = true
+
+[lib]
+name = "pgdo"
+path = "src/lib.rs"
+
+[dependencies]
+either = "^1.9.0"
+glob = "^0.3.1"
+lazy_static = "^1.4.0"
+nix = { version = "^0.27.1", features = ["fs"] }
+postgres = "^0.19.7"
+postgres-protocol = "^0.6.6"
+rand = "^0.8.5"
+regex = "^1.9.6"
+shell-quote = "^0.3.1"
+uuid = { version = "^1.4.1", features = ["v5"] }
+
+[dev-dependencies]
+rand = "^0.8.5"
+tempdir = "^0.3.7"

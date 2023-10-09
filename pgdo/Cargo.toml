@@ -1,0 +1,23 @@
+[package]
+authors.workspace = true
+categories.workspace = true
+description = "The convenience of SQLite – but with PostgreSQL (Command-line application)"
+edition.workspace = true
+keywords.workspace = true
+license.workspace = true
+name = "pgdo"
+readme = "README.md"
+repository.workspace = true
+version.workspace = true
+
+[[bin]]
+doc = false
+name = "pgdo"
+path = "src/main.rs"
+
+[dependencies]
+pgdo-lib = { version = "0.1.0", path = "../pgdo-lib" }
+clap = { version = "4.4.6", features = ["derive", "env"] }
+color-eyre = "0.6.2"
+ctrlc = { version = "3.4.1", features = ["termination"] }
+uuid = { version = "1.4.1", features = ["v5"] }

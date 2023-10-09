@@ -5,7 +5,7 @@
 //! safely start and use the cluster, then stop it when it's no longer needed:
 //!
 //! ```rust
-//! use postgresfixture::prelude::*;
+//! use pgdo::prelude::*;
 //! let cluster_dir = tempdir::TempDir::new("cluster")?;
 //! let data_dir = cluster_dir.path().join("data");
 //! let runtime = runtime::strategy::default();
