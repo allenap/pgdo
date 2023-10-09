@@ -102,15 +102,19 @@ $ brew install postgresql  # Latest version.
 $ brew install postgresql@{9.{4,5,6},10,11,12,13}  # Adjust as necessary.
 ```
 
-### Making a release
+### Releasing new versions of pgdo and pgdo-lib
 
-1. Bump version in `Cargo.toml`.
-2. Build **and** test: `cargo build && cargo test`. The latter on its own does
-   do a build, but a test build can hide warnings about dead code, so do both.
-3. Commit with message "Bump version to `$VERSION`."
-4. Tag with "v`$VERSION`", e.g. `git tag v1.0.10`.
-5. Push: `git push && git push --tags`.
-6. Publish: `cargo publish`.
+The packages in this workspace are released together, with the same version
+number, and they must be uploaded in a certain order.
+
+1. Bump the version in `pgdo/Cargo.toml` and `pgdo-lib/Cargo.toml`.
+2. In `pgdo/Cargo.toml`, update the dependency on `pgdo-lib` to match the new
+   version from the previous step.
+3. Build, test, docs: `cargo build && cargo test && cargo doc --no-deps`.
+4. Commit with message "Bump version to `$VERSION`."
+5. Tag with "v`$VERSION`", e.g. `git tag v1.0.10`.
+6. Push: `git push && git push --tags`.
+7. Publish: `cargo publish --package pgdo-lib && cargo publish --package pgdo`.
 
 ## License
 
