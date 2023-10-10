@@ -1,6 +1,6 @@
 use std::{error, fmt, str::FromStr};
 
-use globset::{self, Glob, GlobBuilder, GlobMatcher};
+use globset::{Error as GlobError, Glob, GlobBuilder, GlobMatcher};
 
 use crate::version::{self, PartialVersion, VersionError};
 
@@ -8,7 +8,7 @@ use super::Runtime;
 
 #[derive(Debug)]
 pub enum ConstraintError {
-    GlobError(globset::Error),
+    GlobError(GlobError),
     VersionError(version::VersionError),
 }
 
@@ -35,8 +35,8 @@ impl error::Error for ConstraintError {
     }
 }
 
-impl From<globset::Error> for ConstraintError {
-    fn from(error: globset::Error) -> ConstraintError {
+impl From<GlobError> for ConstraintError {
+    fn from(error: GlobError) -> ConstraintError {
         ConstraintError::GlobError(error)
     }
 }
@@ -77,7 +77,7 @@ impl Constraint {
     /// - empty alternators, e.g. `{,.rs}` are allowed.
     ///
     /// Use [`glob`][`Self::glob`] if you want to select your own rules.
-    pub fn path(pattern: &str) -> Result<Self, globset::Error> {
+    pub fn path(pattern: &str) -> Result<Self, GlobError> {
         Ok(Self::BinDir(
             GlobBuilder::new(pattern)
                 .literal_separator(true)
