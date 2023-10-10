@@ -98,13 +98,23 @@ impl Constraint {
     }
 
     /// Match **any** of the given constraints.
+    ///
+    /// If there are no constraints, this returns [`Self::Nothing`].
     pub fn any<C: IntoIterator<Item = Constraint>>(constraints: C) -> Self {
-        constraints.into_iter().fold(Self::Nothing, |a, b| a | b)
+        constraints
+            .into_iter()
+            .reduce(|a, b| a | b)
+            .unwrap_or(Self::Nothing)
     }
 
     /// Match **all** of the given constraints.
+    ///
+    /// If there are no constraints, this returns [`Self::Anything`].
     pub fn all<C: IntoIterator<Item = Constraint>>(constraints: C) -> Self {
-        constraints.into_iter().fold(Self::Anything, |a, b| a & b)
+        constraints
+            .into_iter()
+            .reduce(|a, b| a & b)
+            .unwrap_or(Self::Anything)
     }
 
     /// Does the given runtime match this constraint?
@@ -285,6 +295,7 @@ mod test_constraints {
 
     #[test]
     fn test_any() {
+        assert!(matches!(Constraint::any([]), Constraint::Nothing));
         assert!(matches!(
             Constraint::any([
                 Constraint::Anything,
@@ -315,6 +326,7 @@ mod test_constraints {
 
     #[test]
     fn test_all() {
+        assert!(matches!(Constraint::all([]), Constraint::Anything));
         assert!(matches!(
             Constraint::all([
                 Constraint::Anything,
