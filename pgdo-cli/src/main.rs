@@ -17,6 +17,7 @@ use pgdo::{
         self,
         strategy::{Strategy, StrategyLike},
     },
+    version,
 };
 
 fn main() -> Result<()> {
@@ -56,7 +57,7 @@ fn main() -> Result<()> {
             let strategy = runtime::strategy::Strategy::default();
             let fallback: Option<_> = constraint
                 .and_then(|c| c.parse().ok())
-                .and_then(|version| strategy.select(&version));
+                .and_then(|version: version::PartialVersion| strategy.select(&version.into()));
             let strategy = match fallback {
                 Some(fallback) => strategy.push_front(fallback),
                 None => strategy,

@@ -7,6 +7,7 @@
 //! finding and selecting runtimes.
 
 mod cache;
+mod constraint;
 mod error;
 pub mod strategy;
 

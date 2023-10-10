@@ -58,7 +58,7 @@ impl Cluster {
                 .ok_or_else(|| ClusterError::RuntimeDefaultNotFound),
             Some(version) => self
                 .strategy
-                .select(&version)
+                .select(&version.into())
                 .ok_or_else(|| ClusterError::RuntimeNotFound(version)),
         }
     }

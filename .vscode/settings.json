@@ -2,6 +2,7 @@
     "cSpell.words": [
         "aarch",
         "bindir",
+        "bitand",
         "canonicalize",
         "clippy",
         "createdb",
@@ -17,6 +18,7 @@
         "EAGAIN",
         "errno",
         "fcntl",
+        "globset",
         "initdb",
         "lockpath",
         "logfile",

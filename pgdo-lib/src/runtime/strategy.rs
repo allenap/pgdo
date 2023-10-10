@@ -2,8 +2,7 @@ use std::collections::VecDeque;
 use std::env;
 use std::path::{Path, PathBuf};
 
-use crate::version;
-
+pub use super::constraint::Constraint;
 use super::Runtime;
 
 pub type Runtimes<'a> = Box<dyn Iterator<Item = Runtime> + 'a>;
@@ -14,7 +13,7 @@ pub type Runtimes<'a> = Box<dyn Iterator<Item = Runtime> + 'a>;
 ///
 /// 1. What runtimes are available?
 /// 2. Which of those runtimes is best suited to running a given cluster?
-/// 3. When there are no version constraints, what runtime should we use?
+/// 3. When there are no constraints, what runtime should we use?
 ///
 /// This trait models those questions, and provides default implementations for
 /// #2 and #3.
@@ -26,19 +25,19 @@ pub trait StrategyLike: std::panic::RefUnwindSafe + 'static {
     fn runtimes(&self) -> Runtimes;
 
     /// Determine the most appropriate runtime known to this strategy for the
-    /// given version constraint.
+    /// given constraint.
     ///
     /// The default implementation narrows the list of runtimes to those that
-    /// match the given version constraint, then chooses the one with the
-    /// highest version number. It might return [`None`].
-    fn select(&self, version: &version::PartialVersion) -> Option<Runtime> {
+    /// match the given constraint, then chooses the one with the highest
+    /// version number. It might return [`None`].
+    fn select(&self, constraint: &Constraint) -> Option<Runtime> {
         self.runtimes()
-            .filter(|runtime| version.compatible(runtime.version))
+            .filter(|runtime| constraint.matches(runtime))
             .max_by(|ra, rb| ra.version.cmp(&rb.version))
     }
 
-    /// The runtime to use when there are no version constraints, e.g. when
-    /// creating a new cluster.
+    /// The runtime to use when there are no constraints, e.g. when creating a
+    /// new cluster.
     ///
     /// The default implementation selects the runtime with the highest version
     /// number.
@@ -259,11 +258,11 @@ impl StrategyLike for Strategy {
     ///   runtime. The first non-[`None`] answer is selected.
     /// - For a [`Strategy::Delegated`], calls through to the wrapped strategy.
     /// - For a [`Strategy::Single`], returns the runtime if it's compatible.
-    fn select(&self, version: &version::PartialVersion) -> Option<Runtime> {
+    fn select(&self, constraint: &Constraint) -> Option<Runtime> {
         match self {
-            Self::Chain(chain) => chain.iter().find_map(|strategy| strategy.select(version)),
-            Self::Delegated(strategy) => strategy.select(version),
-            Self::Single(runtime) if version.compatible(runtime.version) => Some(runtime.clone()),
+            Self::Chain(c) => c.iter().find_map(|strategy| strategy.select(constraint)),
+            Self::Delegated(strategy) => strategy.select(constraint),
+            Self::Single(runtime) if constraint.matches(runtime) => Some(runtime.clone()),
             Self::Single(_) => None,
         }
     }
