@@ -1,5 +1,7 @@
 # pgdo-lib
 
+[![pgdo CI](https://github.com/allenap/pgdo/actions/workflows/build.yml/badge.svg)](https://github.com/allenap/pgdo/actions/workflows/build.yml)
+
 A [Rust](https://www.rust-lang.org/) library for creating standalone PostgreSQL
 clusters and databases with a focus on convenience and rapid prototyping – such
 as one sees using SQLite. Scaling down the developer experience to meet
