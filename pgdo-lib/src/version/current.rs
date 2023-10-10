@@ -56,29 +56,23 @@ impl FromStr for Version {
             static ref RE: Regex = Regex::new(r"(?x) \b (\d+) [.] (\d+) (?: [.] (\d+) )? \b")
                 .expect("invalid regex (for matching PostgreSQL versions)");
         }
+        let badly_formed = |_| VersionError::BadlyFormed { text: Some(s.into()) };
         match RE.captures(s) {
             Some(caps) => {
-                let a = caps[1].parse::<u32>()?;
-                let b = caps[2].parse::<u32>()?;
+                let a = caps[1].parse::<u32>().map_err(badly_formed)?;
+                let b = caps[2].parse::<u32>().map_err(badly_formed)?;
                 match caps.get(3) {
-                    Some(m) => {
-                        let c = m.as_str().parse::<u32>()?;
-                        if a >= 10 {
-                            Err(VersionError::BadlyFormed)
-                        } else {
-                            Ok(Version::Pre10(a, b, c))
-                        }
-                    }
-                    None => {
-                        if a < 10 {
-                            Err(VersionError::BadlyFormed)
-                        } else {
-                            Ok(Version::Post10(a, b))
-                        }
-                    }
+                    None if a >= 10 => Ok(Version::Post10(a, b)),
+                    None => Err(VersionError::BadlyFormed { text: Some(s.into()) }),
+                    Some(_) if a >= 10 => Err(VersionError::BadlyFormed { text: Some(s.into()) }),
+                    Some(m) => Ok(m
+                        .as_str()
+                        .parse::<u32>()
+                        .map(|c| Version::Pre10(a, b, c))
+                        .map_err(badly_formed)?),
                 }
             }
-            None => Err(VersionError::Missing),
+            None => Err(VersionError::NotFound { text: Some(s.into()) }),
         }
     }
 }
@@ -103,12 +97,15 @@ mod tests {
     #[test]
     fn parse_returns_error_when_version_is_invalid() {
         // 4294967295 is (2^32 + 1), so won't fit in a u32.
-        assert_eq!(Err(BadlyFormed), "4294967296.0".parse::<Version>());
+        assert!(matches!(
+            "4294967296.0".parse::<Version>(),
+            Err(BadlyFormed { .. })
+        ));
     }
 
     #[test]
     fn parse_returns_error_when_version_not_found() {
-        assert_eq!(Err(Missing), "foo".parse::<Version>());
+        assert!(matches!("foo".parse::<Version>(), Err(NotFound { .. })));
     }
 
     #[test]

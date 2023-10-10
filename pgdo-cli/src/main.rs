@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process::{exit, ExitStatus};
 
 use clap::Parser;
-use color_eyre::eyre::{bail, Result, WrapErr};
+use color_eyre::eyre::{bail, eyre, Result, WrapErr};
 use color_eyre::{Help, SectionExt};
 
 use pgdo::{
@@ -17,7 +17,6 @@ use pgdo::{
         self,
         strategy::{Strategy, StrategyLike},
     },
-    version,
 };
 
 fn main() -> Result<()> {
@@ -55,9 +54,15 @@ fn main() -> Result<()> {
         ),
         cli::Command::Runtimes(cli::RuntimeArgs { runtime: constraint }) => {
             let strategy = runtime::strategy::Strategy::default();
-            let fallback: Option<_> = constraint
-                .and_then(|c| c.parse().ok())
-                .and_then(|version: version::PartialVersion| strategy.select(&version.into()));
+            let fallback: Option<_> = match constraint {
+                Some(constraint) => match strategy.select(&constraint.parse()?) {
+                    Some(runtime) => Some(runtime),
+                    None => Err(eyre!("no runtime matches constraint {constraint:?}"))
+                        .with_context(|| "cannot select fallback runtime")
+                        .with_suggestion(|| "use `runtimes` to see available runtimes")?,
+                },
+                None => None,
+            };
             let strategy = match fallback {
                 Some(fallback) => strategy.push_front(fallback),
                 None => strategy,

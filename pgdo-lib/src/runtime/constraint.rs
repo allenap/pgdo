@@ -1,8 +1,51 @@
+use std::{error, fmt, str::FromStr};
+
 use globset::{self, Glob, GlobBuilder, GlobMatcher};
 
-use crate::version::{PartialVersion, VersionError};
+use crate::version::{self, PartialVersion, VersionError};
 
 use super::Runtime;
+
+#[derive(Debug)]
+pub enum ConstraintError {
+    GlobError(globset::Error),
+    VersionError(version::VersionError),
+}
+
+impl fmt::Display for ConstraintError {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        use ConstraintError::*;
+        match self {
+            GlobError(ref error) => write!(fmt, "could not parse constraint: {error}",),
+            VersionError(ref error) => write!(
+                fmt,
+                "could not parse version constraint {text:?}: {error}",
+                text = error.text().unwrap_or("<unknown>")
+            ),
+        }
+    }
+}
+
+impl error::Error for ConstraintError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match *self {
+            ConstraintError::GlobError(ref error) => Some(error),
+            ConstraintError::VersionError(ref error) => Some(error),
+        }
+    }
+}
+
+impl From<globset::Error> for ConstraintError {
+    fn from(error: globset::Error) -> ConstraintError {
+        ConstraintError::GlobError(error)
+    }
+}
+
+impl From<version::VersionError> for ConstraintError {
+    fn from(error: version::VersionError) -> ConstraintError {
+        ConstraintError::VersionError(error)
+    }
+}
 
 /// A constraint used when selecting a PostgreSQL runtime.
 #[derive(Clone, Debug)]
@@ -122,6 +165,22 @@ impl From<PartialVersion> for Constraint {
     /// Convert a [`PartialVersion`] into a [`Constraint::Version`].
     fn from(version: PartialVersion) -> Self {
         Self::Version(version)
+    }
+}
+
+impl FromStr for Constraint {
+    type Err = ConstraintError;
+
+    /// Parse a constraint from a string.
+    ///
+    /// If it contains a path separator, it will be parsed as a glob pattern,
+    /// otherwise it will be parsed as a version constraint.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.contains(std::path::MAIN_SEPARATOR) {
+            Ok(Self::path(s)?)
+        } else {
+            Ok(Self::version(s)?)
+        }
     }
 }
 
