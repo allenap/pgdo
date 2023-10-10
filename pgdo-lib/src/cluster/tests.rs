@@ -1,5 +1,8 @@
 use super::{exists, version, Cluster, ClusterError, State::*};
-use crate::runtime::{self, strategy::Strategy, Runtime};
+use crate::runtime::{
+    strategy::{Strategy, StrategyLike},
+    Runtime,
+};
 use crate::version::{PartialVersion, Version};
 
 use std::collections::HashSet;
@@ -10,7 +13,7 @@ use std::str::FromStr;
 type TestResult = Result<(), ClusterError>;
 
 fn runtimes() -> Box<dyn Iterator<Item = Runtime>> {
-    let runtimes = runtime::strategy::default().runtimes().collect::<Vec<_>>();
+    let runtimes = Strategy::default().runtimes().collect::<Vec<_>>();
     Box::new(runtimes.into_iter())
 }
 

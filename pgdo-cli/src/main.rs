@@ -13,8 +13,10 @@ use color_eyre::{Help, SectionExt};
 
 use pgdo::{
     cluster, coordinate, lock,
-    runtime::{self, strategy::Strategy},
-    version,
+    runtime::{
+        self,
+        strategy::{Strategy, StrategyLike},
+    },
 };
 
 fn main() -> Result<()> {
@@ -51,21 +53,13 @@ fn main() -> Result<()> {
             },
         ),
         cli::Command::Runtimes(cli::RuntimeArgs { runtime: constraint }) => {
-            let strategy = runtime::strategy::default();
-            let constraint: Option<version::PartialVersion> =
-                constraint.and_then(|c| c.parse().ok());
-            let strategy = if let Some(version) = constraint {
-                if let Some(fallback) = strategy.select(&version) {
-                    Box::new(
-                        runtime::strategy::StrategySet::new()
-                            .push_front(fallback)
-                            .push_back(strategy),
-                    ) as Box<dyn Strategy>
-                } else {
-                    Box::new(strategy)
-                }
-            } else {
-                Box::new(strategy)
+            let strategy = runtime::strategy::Strategy::default();
+            let fallback: Option<_> = constraint
+                .and_then(|c| c.parse().ok())
+                .and_then(|version| strategy.select(&version));
+            let strategy = match fallback {
+                Some(fallback) => strategy.push_front(fallback),
+                None => strategy,
             };
 
             let mut runtimes: Vec<_> = strategy.runtimes().collect();
@@ -138,7 +132,7 @@ where
         .wrap_err("Could not create UUID-based lock file")
         .with_section(|| lock_uuid.to_string().header("UUID for lock file:"))?;
 
-    let strategy = runtime::strategy::default();
+    let strategy = Strategy::default();
     let cluster = cluster::Cluster::new(&database_dir, strategy)?;
 
     let runner = if destroy {

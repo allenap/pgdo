@@ -14,7 +14,10 @@ use std::{env, fs, io};
 use nix::errno::Errno;
 use shell_quote::sh::escape_into;
 
-use crate::runtime;
+use crate::runtime::{
+    strategy::{Strategy, StrategyLike},
+    Runtime,
+};
 use crate::version;
 pub use error::ClusterError;
 
@@ -31,23 +34,23 @@ pub struct Cluster {
     /// Corresponds to the `PGDATA` environment variable.
     datadir: PathBuf,
     /// How to select the PostgreSQL installation to use with this cluster.
-    strategy: Box<dyn runtime::Strategy>,
+    strategy: Strategy,
 }
 
 impl Cluster {
     /// Represent a cluster at the given path.
-    pub fn new<P: AsRef<Path>, S: runtime::Strategy>(
+    pub fn new<P: AsRef<Path>, S: Into<Strategy>>(
         datadir: P,
         strategy: S,
     ) -> Result<Self, ClusterError> {
         Ok(Self {
             datadir: datadir.as_ref().to_owned(),
-            strategy: Box::new(strategy),
+            strategy: strategy.into(),
         })
     }
 
     /// Determine the runtime to use with this cluster.
-    fn runtime(&self) -> Result<runtime::Runtime, ClusterError> {
+    fn runtime(&self) -> Result<Runtime, ClusterError> {
         match version(self)? {
             None => self
                 .strategy
