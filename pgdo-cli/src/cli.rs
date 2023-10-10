@@ -3,6 +3,8 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
+use pgdo::runtime::constraint::Constraint;
+
 /// Work with ephemeral PostgreSQL clusters.
 #[derive(Parser)]
 #[clap(author, version, about = "The convenience of SQLite – but with PostgreSQL", long_about = None)]
@@ -49,6 +51,9 @@ pub struct ShellArgs {
 
     #[clap(flatten)]
     pub lifecycle: LifecycleArgs,
+
+    #[clap(flatten)]
+    pub runtime: RuntimeArgs,
 }
 
 #[derive(Args)]
@@ -62,6 +67,9 @@ pub struct ExecArgs {
 
     #[clap(flatten)]
     pub lifecycle: LifecycleArgs,
+
+    #[clap(flatten)]
+    pub runtime: RuntimeArgs,
 
     /// The executable to invoke. By default it will start a shell.
     #[clap(env = "SHELL", value_name = "COMMAND", display_order = 999)]
@@ -115,11 +123,13 @@ pub struct DatabaseArgs {
 
 #[derive(Args)]
 pub struct RuntimeArgs {
-    /// Select the default runtime.
-    ///
-    /// This is used when creating new clusters.
-    #[clap(long = "runtime", display_order = 80)]
-    pub runtime: Option<String>,
+    /// Select the default runtime, used when creating new clusters.
+    #[clap(
+        long = "runtime-default",
+        value_name = "CONSTRAINT",
+        display_order = 80
+    )]
+    pub fallback: Option<Constraint>,
 }
 
 #[derive(Args)]

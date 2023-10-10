@@ -15,6 +15,7 @@ use pgdo::{
     cluster, coordinate, lock,
     runtime::{
         self,
+        constraint::Constraint,
         strategy::{Strategy, StrategyLike},
     },
 };
@@ -26,9 +27,10 @@ fn main() -> Result<()> {
     // `Shell` is the default command when none is specified.
     let command = cli.command.unwrap_or(cli::Command::Shell(cli.shell));
     let result = match command {
-        cli::Command::Shell(cli::ShellArgs { cluster, database, lifecycle }) => run(
+        cli::Command::Shell(cli::ShellArgs { cluster, database, lifecycle, runtime }) => run(
             cluster.dir,
             &database.name,
+            determine_strategy(runtime.fallback)?,
             lifecycle.destroy,
             initialise(cluster.mode),
             |cluster| {
@@ -39,9 +41,17 @@ fn main() -> Result<()> {
                 )
             },
         ),
-        cli::Command::Exec(cli::ExecArgs { cluster, database, command, args, lifecycle }) => run(
+        cli::Command::Exec(cli::ExecArgs {
+            cluster,
+            database,
+            command,
+            args,
+            lifecycle,
+            runtime,
+        }) => run(
             cluster.dir,
             &database.name,
+            determine_strategy(runtime.fallback)?,
             lifecycle.destroy,
             initialise(cluster.mode),
             |cluster| {
@@ -52,30 +62,16 @@ fn main() -> Result<()> {
                 )
             },
         ),
-        cli::Command::Runtimes(cli::RuntimeArgs { runtime: constraint }) => {
-            let strategy = runtime::strategy::Strategy::default();
-            let fallback: Option<_> = match constraint {
-                Some(constraint) => match strategy.select(&constraint.parse()?) {
-                    Some(runtime) => Some(runtime),
-                    None => Err(eyre!("no runtime matches constraint {constraint:?}"))
-                        .with_context(|| "cannot select fallback runtime")
-                        .with_suggestion(|| "use `runtimes` to see available runtimes")?,
-                },
-                None => None,
-            };
-            let strategy = match fallback {
-                Some(fallback) => strategy.push_front(fallback),
-                None => strategy,
-            };
-
+        cli::Command::Runtimes(runtime) => {
+            let strategy = determine_strategy(runtime.fallback)?;
             let mut runtimes: Vec<_> = strategy.runtimes().collect();
-            let default = strategy.fallback();
+            let fallback = strategy.fallback();
 
             // Sort by version. Higher versions will sort last.
             runtimes.sort_by(|ra, rb| ra.version.cmp(&rb.version));
 
             for runtime in runtimes {
-                let default = match default {
+                let default = match fallback {
                     Some(ref default) if default == &runtime => "=>",
                     _ => "",
                 };
@@ -103,11 +99,30 @@ fn check_exit(status: ExitStatus) -> Result<i32> {
     }
 }
 
+fn determine_strategy(fallback: Option<Constraint>) -> Result<Strategy> {
+    let strategy = runtime::strategy::Strategy::default();
+    let fallback: Option<_> = match fallback {
+        Some(constraint) => match strategy.select(&constraint) {
+            Some(runtime) => Some(runtime),
+            None => Err(eyre!("no runtime matches constraint {constraint:?}"))
+                .with_context(|| "cannot select fallback runtime")
+                .with_suggestion(|| "use `runtimes` to see available runtimes")?,
+        },
+        None => None,
+    };
+    let strategy = match fallback {
+        Some(fallback) => strategy.push_front(fallback),
+        None => strategy,
+    };
+    Ok(strategy)
+}
+
 const UUID_NS: uuid::Uuid = uuid::Uuid::from_u128(93875103436633470414348750305797058811);
 
 fn run<INIT, ACTION>(
     database_dir: PathBuf,
     database_name: &str,
+    strategy: Strategy,
     destroy: bool,
     initialise: INIT,
     action: ACTION,
@@ -138,7 +153,6 @@ where
         .wrap_err("Could not create UUID-based lock file")
         .with_section(|| lock_uuid.to_string().header("UUID for lock file:"))?;
 
-    let strategy = Strategy::default();
     let cluster = cluster::Cluster::new(&database_dir, strategy)?;
 
     let runner = if destroy {

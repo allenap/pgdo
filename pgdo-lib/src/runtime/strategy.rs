@@ -2,8 +2,7 @@ use std::collections::VecDeque;
 use std::env;
 use std::path::{Path, PathBuf};
 
-pub use super::constraint::Constraint;
-use super::Runtime;
+use super::{constraint::Constraint, Runtime};
 
 pub type Runtimes<'a> = Box<dyn Iterator<Item = Runtime> + 'a>;
 
