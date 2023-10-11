@@ -92,6 +92,6 @@ fn version_from_binary<P: AsRef<Path>>(binary: P) -> Result<Version, RuntimeErro
         // "pg_ctl (PostgreSQL) 12.2" and get 12.2 out of it.
         Ok(version_string.parse()?)
     } else {
-        Err(VersionError::Missing)?
+        Err(VersionError::NotFound { text: None })?
     }
 }

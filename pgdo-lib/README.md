@@ -1,5 +1,7 @@
 # pgdo-lib
 
+[![pgdo CI](https://github.com/allenap/pgdo/actions/workflows/build.yml/badge.svg)](https://github.com/allenap/pgdo/actions/workflows/build.yml)
+
 A [Rust](https://www.rust-lang.org/) library for creating standalone PostgreSQL
 clusters and databases with a focus on convenience and rapid prototyping – such
 as one sees using SQLite. Scaling down the developer experience to meet
@@ -35,7 +37,7 @@ versions that are not supported upstream).
 
 ```rust
 use pgdo::prelude::*;
-for runtime in runtime::strategy::default().runtimes() {
+for runtime in runtime::strategy::Strategy::default().runtimes() {
   let data_dir = tempdir::TempDir::new("data")?;
   let cluster = Cluster::new(&data_dir, runtime)?;
   cluster.start()?;
@@ -77,8 +79,8 @@ coverage. Specifically this means:
 - Install multiple versions of PostgreSQL on your machine. Read on for
   platform-specific notes.
 
-- [`runtime::strategy::default()`] may be able to automatically find those
-  installed runtimes – this is the function used by tests.
+- [`runtime::strategy::Strategy::default()`] may be able to automatically find
+  those installed runtimes – this is the function used by tests.
 
 - If pgdo's platform-specific knowledge doesn't cover your platform, have a go
   at adding to it. [`runtime::strategy::RuntimesOnPlatform`] is a good place to

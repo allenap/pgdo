@@ -3,10 +3,11 @@
 //! You may have many versions of PostgreSQL installed on a system. For example,
 //! on an Ubuntu system, they may be in `/usr/lib/postgresql/*`. On macOS using
 //! Homebrew, you may find them in `/usr/local/Cellar/postgresql@*`. [`Runtime`]
-//! represents one such runtime; the [`Strategy`] trait represents how to find
-//! and select a runtime.
+//! represents one such runtime; and the [`strategy`] module has tools for
+//! finding and selecting runtimes.
 
 mod cache;
+pub mod constraint;
 mod error;
 pub mod strategy;
 
@@ -18,7 +19,6 @@ use std::process::Command;
 use crate::util;
 use crate::version;
 pub use error::RuntimeError;
-pub use strategy::Strategy;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Runtime {
@@ -40,8 +40,8 @@ impl Runtime {
     /// PostgreSQL runtime.
     ///
     /// ```rust
-    /// # use pgdo::runtime::{self, RuntimeError, Strategy};
-    /// # let runtime = runtime::strategy::default().fallback().unwrap();
+    /// # use pgdo::runtime::{RuntimeError, strategy::{Strategy, StrategyLike}};
+    /// # let runtime = Strategy::default().fallback().unwrap();
     /// let version = runtime.execute("pg_ctl").arg("--version").output()?;
     /// # Ok::<(), RuntimeError>(())
     /// ```
@@ -65,8 +65,8 @@ impl Runtime {
     /// [`Self::bindir`].
     ///
     /// ```rust
-    /// # use pgdo::runtime::{self, RuntimeError, Strategy};
-    /// # let runtime = runtime::strategy::default().fallback().unwrap();
+    /// # use pgdo::runtime::{RuntimeError, strategy::{Strategy, StrategyLike}};
+    /// # let runtime = Strategy::default().fallback().unwrap();
     /// let version = runtime.command("bash").arg("-c").arg("echo hello").output();
     /// # Ok::<(), RuntimeError>(())
     /// ```

@@ -90,7 +90,7 @@ impl PartialVersion {
         match self {
             Pre10m(a, ..) | Pre10mm(a, ..) if a < 10 => Ok(self),
             Post10m(a) | Post10mm(a, ..) if a >= 10 => Ok(self),
-            _ => Err(VersionError::BadlyFormed),
+            _ => Err(VersionError::BadlyFormed { text: Some(self.to_string()) }),
         }
     }
 
@@ -219,9 +219,9 @@ impl FromStr for PartialVersion {
                 (Some(a), Some(b), Some(c)) if a < 10 => Ok(Self::Pre10mm(a, b, c)),
                 (Some(a), None, None) if a >= 10 => Ok(Self::Post10m(a)),
                 (Some(a), Some(b), None) if a >= 10 => Ok(Self::Post10mm(a, b)),
-                _ => Err(VersionError::BadlyFormed),
+                _ => Err(VersionError::BadlyFormed { text: Some(s.into()) }),
             },
-            None => Err(VersionError::Missing),
+            None => Err(VersionError::NotFound { text: Some(s.into()) }),
         }
     }
 }
@@ -249,16 +249,28 @@ mod tests {
     #[test]
     fn parse_returns_error_when_version_is_invalid() {
         // 4294967295 is (2^32 + 1), so won't fit in a u32.
-        assert_eq!(Err(BadlyFormed), "4294967296.0".parse::<PartialVersion>());
+        assert!(matches!(
+            "4294967296.0".parse::<PartialVersion>(),
+            Err(BadlyFormed { .. })
+        ));
         // Before version 10, there are always at least two parts in a version.
-        assert_eq!(Err(BadlyFormed), "9".parse::<PartialVersion>());
+        assert!(matches!(
+            "9".parse::<PartialVersion>(),
+            Err(BadlyFormed { .. })
+        ));
         // From version 10 onwards, there are only two parts in a version.
-        assert_eq!(Err(BadlyFormed), "10.10.10".parse::<PartialVersion>());
+        assert!(matches!(
+            "10.10.10".parse::<PartialVersion>(),
+            Err(BadlyFormed { .. })
+        ));
     }
 
     #[test]
     fn parse_returns_error_when_version_not_found() {
-        assert_eq!(Err(Missing), "foo".parse::<PartialVersion>());
+        assert!(matches!(
+            "foo".parse::<PartialVersion>(),
+            Err(NotFound { .. })
+        ));
     }
 
     #[test]
@@ -273,10 +285,13 @@ mod tests {
     #[test]
     fn checked_returns_error_when_variant_is_invalid() {
         use PartialVersion::*;
-        assert_eq!(Err(BadlyFormed), Pre10m(10, 0).checked());
-        assert_eq!(Err(BadlyFormed), Pre10mm(10, 0, 0).checked());
-        assert_eq!(Err(BadlyFormed), Post10m(9).checked());
-        assert_eq!(Err(BadlyFormed), Post10mm(9, 0).checked());
+        assert!(matches!(Pre10m(10, 0).checked(), Err(BadlyFormed { .. })));
+        assert!(matches!(
+            Pre10mm(10, 0, 0).checked(),
+            Err(BadlyFormed { .. })
+        ));
+        assert!(matches!(Post10m(9).checked(), Err(BadlyFormed { .. })));
+        assert!(matches!(Post10mm(9, 0).checked(), Err(BadlyFormed { .. })));
     }
 
     #[test]
