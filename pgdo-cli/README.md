@@ -26,20 +26,27 @@ configuration. To check, use the `runtimes` subcommand. If the runtime you want
 to use doesn't show up, add its `bin` directory to `PATH`.
 
 ```shellsession
-$ pgdo --help
+$ pgdo -h
 The convenience of SQLite – but with PostgreSQL
 
-Usage: pgdo <COMMAND>
+Usage: pgdo [OPTIONS] [COMMAND]
 
 Commands:
-  shell     Start a psql shell, creating and starting the cluster as necessary
+  shell     Start a psql shell, creating and starting the cluster as necessary (DEFAULT)
   exec      Execute an arbitrary command, creating and starting the cluster as necessary
   runtimes  List discovered PostgreSQL runtimes
   help      Print this message or the help of the given subcommand(s)
 
 Options:
-  -h, --help     Print help
+  -h, --help     Print help (see more with '--help')
   -V, --version  Print version
+
+Options for shell:
+  -D, --datadir <PGDATA>              The directory in which to place, or find, the cluster [env: PGDATA=] [default: cluster]
+  -d, --database <PGDATABASE>         The database to connect to [env: PGDATABASE=] [default: postgres]
+      --mode <MODE>                   Run the cluster in a "safer" or "faster" mode [possible values: slower-but-safer, faster-but-less-safe]
+      --runtime-default <CONSTRAINT>  Select the default runtime, used when creating new clusters
+      --destroy                       Destroy the cluster after use. WARNING: This will DELETE THE DATA DIRECTORY. The default is to NOT destroy the cluster
 
 $ pgdo runtimes
    10.22      /opt/homebrew/Cellar/postgresql@10/10.22_6/bin
