@@ -16,7 +16,7 @@ name = "pgdo"
 path = "src/main.rs"
 
 [dependencies]
-pgdo-lib = { version = "0.3.0", path = "../pgdo-lib" }
+pgdo-lib = { version = "0.3.1", path = "../pgdo-lib" }
 clap = { version = "4.4.6", features = ["derive", "env"] }
 color-eyre = "0.6.2"
 ctrlc = { version = "3.4.1", features = ["termination"] }
