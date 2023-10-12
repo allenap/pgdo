@@ -21,10 +21,12 @@ path = "src/lib.rs"
 [dependencies]
 quote = "^1.0.33"
 syn = "^2.0.38"
+pgdo-lib = { version = "0.3.1", path = "../pgdo-lib" }
 
 [dev-dependencies]
 
 [build-dependencies]
+pgdo-lib = { version = "0.3.1", path = "../pgdo-lib" }
 prettyplease = "^0.2.15"
 quote = "^1.0.33"
 syn = "^2.0.38"
