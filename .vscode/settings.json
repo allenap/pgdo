@@ -32,6 +32,7 @@
         "pidfile",
         "POSIX",
         "postgresfixture",
+        "prettyplease",
         "psql",
         "runtimes",
         "rustfmt",
@@ -42,7 +43,8 @@
         "struct",
         "Swatinem",
         "synchronisation",
-        "tempdir"
+        "tempdir",
+        "unparse"
     ],
     "rust-analyzer.showUnlinkedFileNotification": false
 }

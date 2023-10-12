@@ -1,14 +1,17 @@
-use super::{exists, version, Cluster, ClusterError, State::*};
+use std::collections::HashSet;
+use std::fs::File;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+
+use pgdo_test::for_all_runtimes;
+
 use crate::runtime::{
     strategy::{Strategy, StrategyLike},
     Runtime,
 };
 use crate::version::{PartialVersion, Version};
 
-use std::collections::HashSet;
-use std::fs::File;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
+use super::{exists, version, Cluster, ClusterError, State::*};
 
 type TestResult = Result<(), ClusterError>;
 
@@ -17,14 +20,13 @@ fn runtimes() -> Box<dyn Iterator<Item = Runtime>> {
     Box::new(runtimes.into_iter())
 }
 
+#[for_all_runtimes]
 #[test]
 fn cluster_new() -> TestResult {
-    for runtime in runtimes() {
-        println!("{runtime:?}");
-        let cluster = Cluster::new("some/path", runtime)?;
-        assert_eq!(Path::new("some/path"), cluster.datadir);
-        assert!(!cluster.running()?);
-    }
+    println!("{runtime:?}");
+    let cluster = Cluster::new("some/path", runtime)?;
+    assert_eq!(Path::new("some/path"), cluster.datadir);
+    assert!(!cluster.running()?);
     Ok(())
 }
 
