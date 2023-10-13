@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::{ffi::OsString, process::ExitCode};
 
 use color_eyre::eyre::{Result, WrapErr};
 
@@ -28,7 +28,7 @@ pub struct Args {
     pub args: Vec<OsString>,
 }
 
-pub fn invoke(args: Args) -> Result<i32> {
+pub fn invoke(args: Args) -> Result<ExitCode> {
     let Args { cluster, database, command, args, lifecycle, runtime } = args;
 
     runner::run(

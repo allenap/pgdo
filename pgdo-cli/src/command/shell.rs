@@ -1,3 +1,5 @@
+use std::process::ExitCode;
+
 use color_eyre::eyre::{Result, WrapErr};
 
 use crate::{args, runner};
@@ -18,7 +20,7 @@ pub struct Args {
     pub runtime: args::RuntimeArgs,
 }
 
-pub fn invoke(args: Args) -> Result<i32> {
+pub fn invoke(args: Args) -> Result<ExitCode> {
     let Args { cluster, database, lifecycle, runtime } = args;
     runner::run(
         cluster.dir,

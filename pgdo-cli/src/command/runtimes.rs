@@ -1,3 +1,5 @@
+use std::process::ExitCode;
+
 use color_eyre::eyre::Result;
 
 use pgdo::runtime::strategy::StrategyLike;
@@ -10,7 +12,7 @@ pub struct Args {
     pub runtime: args::RuntimeArgs,
 }
 
-pub fn invoke(args: Args) -> Result<i32> {
+pub fn invoke(args: Args) -> Result<ExitCode> {
     let strategy = runner::determine_strategy(args.runtime.fallback)?;
     let mut runtimes: Vec<_> = strategy.runtimes().collect();
     let fallback = strategy.fallback();
@@ -30,5 +32,5 @@ pub fn invoke(args: Args) -> Result<i32> {
         )
     }
 
-    Ok(0)
+    Ok(ExitCode::SUCCESS)
 }

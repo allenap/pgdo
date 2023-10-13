@@ -1,6 +1,7 @@
 use std::fs;
 use std::io;
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::process::ExitStatus;
 
 use color_eyre::eyre::{bail, eyre, Result, WrapErr};
@@ -17,10 +18,12 @@ use pgdo::{
     },
 };
 
-pub(crate) fn check_exit(status: ExitStatus) -> Result<i32> {
+pub(crate) fn check_exit(status: ExitStatus) -> Result<ExitCode> {
     match status.code() {
-        Some(code) => Ok(code),
         None => bail!("Command terminated: {status}"),
+        Some(code) => Ok(u8::try_from(code)
+            .map(ExitCode::from)
+            .unwrap_or(ExitCode::FAILURE)),
     }
 }
 
@@ -51,10 +54,10 @@ pub(crate) fn run<INIT, ACTION>(
     destroy: bool,
     initialise: INIT,
     action: ACTION,
-) -> Result<i32>
+) -> Result<ExitCode>
 where
     INIT: std::panic::UnwindSafe + FnOnce(&cluster::Cluster) -> Result<(), cluster::ClusterError>,
-    ACTION: FnOnce(&cluster::Cluster) -> Result<i32> + std::panic::UnwindSafe,
+    ACTION: FnOnce(&cluster::Cluster) -> Result<ExitCode> + std::panic::UnwindSafe,
 {
     // Create the cluster directory first.
     match fs::create_dir(&database_dir) {
