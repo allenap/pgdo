@@ -2,9 +2,6 @@
 
 mod error;
 
-#[cfg(test)]
-mod tests;
-
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStringExt;
 use std::path::{Path, PathBuf};
@@ -32,9 +29,9 @@ pub struct Cluster {
     /// The data directory of the cluster.
     ///
     /// Corresponds to the `PGDATA` environment variable.
-    datadir: PathBuf,
+    pub datadir: PathBuf,
     /// How to select the PostgreSQL installation to use with this cluster.
-    strategy: Strategy,
+    pub strategy: Strategy,
 }
 
 impl Cluster {

@@ -3,9 +3,9 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use crate::version::{PartialVersion, Version};
-
-use super::{exists, version, Cluster, ClusterError, State::*};
+use pgdo::cluster::{exists, version, Cluster, ClusterError, State::*};
+use pgdo::version::{PartialVersion, Version};
+use pgdo_test::for_all_runtimes;
 
 type TestResult = Result<(), ClusterError>;
 
