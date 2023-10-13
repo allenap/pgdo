@@ -19,6 +19,7 @@ fn main() -> Result<ExitCode> {
     match command {
         cli::Command::Shell(args) => crate::command::shell::invoke(args),
         cli::Command::Exec(args) => crate::command::exec::invoke(args),
+        cli::Command::Clone(args) => crate::command::clone::invoke(args),
         cli::Command::Runtimes(runtime) => crate::command::runtimes::invoke(runtime),
     }
 }

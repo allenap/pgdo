@@ -29,10 +29,14 @@ pub enum Command {
     #[clap(display_order = 2)]
     Exec(command::exec::Args),
 
+    /// Clone a cluster even while it's running.
+    #[clap(display_order = 3)]
+    Clone(command::clone::Args),
+
     /// List discovered PostgreSQL runtimes.
     ///
     /// The runtime shown on the line beginning with `=>` is the default, i.e.
     /// the runtime that will be used when creating a new cluster.
-    #[clap(display_order = 3)]
+    #[clap(display_order = 4)]
     Runtimes(command::runtimes::Args),
 }
