@@ -10,6 +10,10 @@
 #[macro_use]
 extern crate lazy_static;
 
+#[cfg(test)]
+#[macro_use]
+extern crate pgdo_test;
+
 pub mod cluster;
 pub mod coordinate;
 pub mod lock;

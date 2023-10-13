@@ -1,5 +1,5 @@
 [workspace]
-members = ["pgdo-cli", "pgdo-lib"]
+members = ["pgdo-cli", "pgdo-lib", "pgdo-test"]
 resolver = "2"
 
 [workspace.package]

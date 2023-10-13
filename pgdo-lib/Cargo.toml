@@ -28,5 +28,6 @@ shell-quote = "^0.3.1"
 uuid = { version = "^1.4.1", features = ["v5"] }
 
 [dev-dependencies]
+pgdo-test = { path = "../pgdo-test" }
 rand = "^0.8.5"
 tempdir = "^0.3.7"

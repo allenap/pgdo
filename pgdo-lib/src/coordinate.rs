@@ -144,46 +144,36 @@ where
 mod tests {
     use super::{run_and_destroy, run_and_stop};
     use crate::prelude::*;
-    use crate::runtime::strategy::{Strategy, StrategyLike};
 
     type TestResult = Result<(), ClusterError>;
 
-    fn runtimes() -> Box<dyn Iterator<Item = Runtime>> {
-        let runtimes = Strategy::default().runtimes().collect::<Vec<_>>();
-        Box::new(runtimes.into_iter())
-    }
-
+    #[for_all_runtimes]
     #[test]
     fn run_and_stop_leaves_the_cluster_in_place() -> TestResult {
-        for runtime in runtimes() {
-            println!("{runtime:?}");
-            let tempdir = tempdir::TempDir::new("somewhere")?;
-            let datadir = tempdir.path().join("data");
-            let cluster = Cluster::new(&datadir, runtime)?;
-            let lockpath = tempdir.path().join("lock");
-            let lock = lock::UnlockedFile::try_from(&lockpath)?;
-            let databases = run_and_stop(&cluster, lock, Cluster::databases)??;
-            assert!(!databases.is_empty());
-            assert!(!cluster.running()?);
-            assert!(datadir.exists());
-        }
+        let tempdir = tempdir::TempDir::new("somewhere")?;
+        let datadir = tempdir.path().join("data");
+        let cluster = Cluster::new(&datadir, runtime)?;
+        let lockpath = tempdir.path().join("lock");
+        let lock = lock::UnlockedFile::try_from(&lockpath)?;
+        let databases = run_and_stop(&cluster, lock, Cluster::databases)??;
+        assert!(!databases.is_empty());
+        assert!(!cluster.running()?);
+        assert!(datadir.exists());
         Ok(())
     }
 
+    #[for_all_runtimes]
     #[test]
     fn run_and_destroy_removes_the_cluster() -> TestResult {
-        for runtime in runtimes() {
-            println!("{runtime:?}");
-            let tempdir = tempdir::TempDir::new("somewhere")?;
-            let datadir = tempdir.path().join("data");
-            let cluster = Cluster::new(&datadir, runtime)?;
-            let lockpath = tempdir.path().join("lock");
-            let lock = lock::UnlockedFile::try_from(&lockpath)?;
-            let databases = run_and_destroy(&cluster, lock, Cluster::databases)??;
-            assert!(!databases.is_empty());
-            assert!(!cluster.running()?);
-            assert!(!datadir.exists());
-        }
+        let tempdir = tempdir::TempDir::new("somewhere")?;
+        let datadir = tempdir.path().join("data");
+        let cluster = Cluster::new(&datadir, runtime)?;
+        let lockpath = tempdir.path().join("lock");
+        let lock = lock::UnlockedFile::try_from(&lockpath)?;
+        let databases = run_and_destroy(&cluster, lock, Cluster::databases)??;
+        assert!(!databases.is_empty());
+        assert!(!cluster.running()?);
+        assert!(!datadir.exists());
         Ok(())
     }
 }

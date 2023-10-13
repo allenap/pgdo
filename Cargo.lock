@@ -604,6 +604,7 @@ dependencies = [
  "globset",
  "lazy_static",
  "nix",
+ "pgdo-test",
  "postgres",
  "postgres-protocol",
  "rand 0.8.5",
@@ -611,6 +612,15 @@ dependencies = [
  "shell-quote",
  "tempdir",
  "uuid",
+]
+
+[[package]]
+name = "pgdo-test"
+version = "0.3.1"
+dependencies = [
+ "pgdo-lib",
+ "quote",
+ "syn",
 ]
 
 [[package]]
