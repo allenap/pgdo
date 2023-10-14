@@ -23,7 +23,7 @@ use std::time::Duration;
 use either::Either::{Left, Right};
 use rand::RngCore;
 
-use crate::cluster::{Cluster, ClusterError, State};
+use crate::cluster::{self, Cluster, ClusterError, State};
 use crate::lock;
 pub use error::CoordinateError;
 
@@ -43,6 +43,30 @@ where
     F: std::panic::UnwindSafe + FnOnce(&'a Cluster) -> T,
 {
     let lock = startup(cluster, lock)?;
+    let action_res = std::panic::catch_unwind(|| action(cluster));
+    let _: Option<State> = shutdown(cluster, lock, Cluster::stop)?;
+    match action_res {
+        Ok(result) => Ok(result),
+        Err(err) => std::panic::resume_unwind(err),
+    }
+}
+
+/// Perform `action` in `cluster` **if it exists**.
+///
+/// Using the given lock for synchronisation, this starts the cluster it if it's
+/// not running, performs the `action`, then (maybe) stops the cluster again,
+/// and finally returns the result of `action`. If there are other users of the
+/// cluster – i.e. if an exclusive lock cannot be acquired during the shutdown
+/// phase – then the cluster is left running.
+pub fn run_and_stop_if_exists<'a, F, T>(
+    cluster: &'a Cluster,
+    lock: lock::UnlockedFile,
+    action: F,
+) -> Result<T, CoordinateError>
+where
+    F: std::panic::UnwindSafe + FnOnce(&'a Cluster) -> T,
+{
+    let lock = startup_if_exists(cluster, lock)?;
     let action_res = std::panic::catch_unwind(|| action(cluster));
     let _: Option<State> = shutdown(cluster, lock, Cluster::stop)?;
     match action_res {
@@ -108,6 +132,49 @@ fn startup(
             Ok(Right(lock)) => {
                 // We have an exclusive lock, so try to start the cluster.
                 cluster.start()?;
+                // Once started, downgrade to a shared log.
+                return Ok(lock.lock_shared()?);
+            }
+            Err(err) => return Err(err.into()),
+        };
+    }
+}
+
+fn startup_if_exists(
+    cluster: &Cluster,
+    mut lock: lock::UnlockedFile,
+) -> Result<lock::LockedFileShared, CoordinateError> {
+    loop {
+        lock = match lock.try_lock_exclusive() {
+            Ok(Left(lock)) => {
+                // The cluster is locked exclusively by someone/something else.
+                // Switch to a shared lock optimistically. This blocks until we
+                // get the shared lock.
+                let lock = lock.lock_shared()?;
+                // The cluster may have been started while that exclusive lock
+                // was held, so we must check if the cluster is running now –
+                // otherwise we loop back to the top again.
+                if cluster.running()? {
+                    return Ok(lock);
+                }
+                // Release all locks then sleep for a random time between 200ms
+                // and 1000ms in an attempt to make sure that when there are
+                // many competing processes one of them rapidly acquires an
+                // exclusive lock and is able to create and start the cluster.
+                let lock = lock.unlock()?;
+                let delay = rand::thread_rng().next_u32();
+                let delay = 200 + (delay % 800);
+                let delay = Duration::from_millis(u64::from(delay));
+                std::thread::sleep(delay);
+                lock
+            }
+            Ok(Right(lock)) => {
+                // We have an exclusive lock, so try to start the cluster.
+                if cluster::exists(cluster) {
+                    cluster.start()?;
+                } else {
+                    return Err(CoordinateError::ClusterDoesNotExist);
+                }
                 // Once started, downgrade to a shared log.
                 return Ok(lock.lock_shared()?);
             }
