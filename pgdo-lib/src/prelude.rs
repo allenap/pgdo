@@ -2,7 +2,8 @@
 
 pub use crate::{
     cluster::{self, Cluster, ClusterError},
-    coordinate, lock,
+    coordinate::{self, CoordinateError},
+    lock,
     runtime::{self, Runtime, RuntimeError},
     version::{self, Version, VersionError},
 };

@@ -13,8 +13,10 @@
 //! let lock_file = cluster_dir.path().join("lock");
 //! let lock = lock::UnlockedFile::try_from(lock_file.as_path())?;
 //! assert!(coordinate::run_and_stop(&cluster, lock, cluster::exists)?);
-//! # Ok::<(), ClusterError>(())
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
+
+mod error;
 
 use std::time::Duration;
 
@@ -23,6 +25,7 @@ use rand::RngCore;
 
 use crate::cluster::{Cluster, ClusterError, State};
 use crate::lock;
+pub use error::CoordinateError;
 
 /// Perform `action` in `cluster`.
 ///
@@ -35,7 +38,7 @@ pub fn run_and_stop<'a, F, T>(
     cluster: &'a Cluster,
     lock: lock::UnlockedFile,
     action: F,
-) -> Result<T, ClusterError>
+) -> Result<T, CoordinateError>
 where
     F: std::panic::UnwindSafe + FnOnce(&'a Cluster) -> T,
 {
@@ -59,7 +62,7 @@ pub fn run_and_destroy<'a, F, T>(
     cluster: &'a Cluster,
     lock: lock::UnlockedFile,
     action: F,
-) -> Result<T, ClusterError>
+) -> Result<T, CoordinateError>
 where
     F: std::panic::UnwindSafe + FnOnce(&'a Cluster) -> T,
 {
@@ -67,7 +70,9 @@ where
     let action_res = std::panic::catch_unwind(|| action(cluster));
     let shutdown_res = shutdown(cluster, lock, Cluster::destroy);
     match action_res {
-        Ok(result) => shutdown_res.map(|_| result),
+        Ok(result) => shutdown_res
+            .map(|_| result)
+            .map_err(CoordinateError::ClusterError),
         Err(err) => std::panic::resume_unwind(err),
     }
 }

@@ -2,7 +2,7 @@ use pgdo::coordinate::{run_and_destroy, run_and_stop};
 use pgdo::prelude::*;
 use pgdo_test::for_all_runtimes;
 
-type TestResult = Result<(), ClusterError>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 #[for_all_runtimes]
 #[test]
