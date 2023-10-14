@@ -77,7 +77,7 @@ impl Cluster {
         let output = self.ctl()?.arg("status").output()?;
         let code = match output.status.code() {
             // Killed by signal; return early.
-            None => return Err(ClusterError::Other(output)),
+            None => return Err(ClusterError::CommandError(output)),
             // Success; return early (the server is running).
             Some(0) => return Ok(true),
             // More work required to decode what this means.
