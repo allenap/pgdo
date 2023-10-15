@@ -18,6 +18,13 @@ use crate::runtime::{
 use crate::version;
 pub use error::ClusterError;
 
+/// The database we assume is _always_ present in a PostgreSQL cluster.
+///
+/// We use this when we need to connect to a cluster to perform administrative
+/// tasks, for example, where the actual database to which we're connected is
+/// not relevant.
+pub static DEFAULT_DATABASE: &str = "template1";
+
 /// Representation of a PostgreSQL cluster.
 ///
 /// The cluster may not yet exist on disk. It may exist but be stopped, or it
@@ -256,24 +263,28 @@ impl Cluster {
     }
 
     /// Connect to this cluster.
-    pub fn connect(&self, database: &str) -> Result<postgres::Client, ClusterError> {
+    ///
+    /// When the database is not specified, connects to [`DEFAULT_DATABASE`].
+    pub fn connect(&self, database: Option<&str>) -> Result<postgres::Client, ClusterError> {
         let user = &env::var("USER").unwrap_or_else(|_| "USER-not-set".to_string());
         let host = self.datadir.to_string_lossy(); // postgres crate API limitation.
         let client = postgres::Client::configure()
             .user(user)
-            .dbname(database)
+            .dbname(database.unwrap_or(DEFAULT_DATABASE))
             .host(&host)
             .connect(postgres::NoTls)?;
         Ok(client)
     }
 
     /// Run `psql` against this cluster, in the given database.
-    pub fn shell(&self, database: &str) -> Result<ExitStatus, ClusterError> {
+    ///
+    /// When the database is not specified, connects to [`DEFAULT_DATABASE`].
+    pub fn shell(&self, database: Option<&str>) -> Result<ExitStatus, ClusterError> {
         let mut command = self.runtime()?.execute("psql");
         command.arg("--quiet");
         command.env("PGDATA", &self.datadir);
         command.env("PGHOST", &self.datadir);
-        command.env("PGDATABASE", database);
+        command.env("PGDATABASE", database.unwrap_or(DEFAULT_DATABASE));
         Ok(command.spawn()?.wait()?)
     }
 
@@ -281,9 +292,11 @@ impl Cluster {
     ///
     /// The command is run with the `PGDATA`, `PGHOST`, and `PGDATABASE`
     /// environment variables set appropriately.
+    ///
+    /// When the database is not specified, uses [`DEFAULT_DATABASE`].
     pub fn exec<T: AsRef<OsStr>>(
         &self,
-        database: &str,
+        database: Option<&str>,
         command: T,
         args: &[T],
     ) -> Result<ExitStatus, ClusterError> {
@@ -291,13 +304,13 @@ impl Cluster {
         command.args(args);
         command.env("PGDATA", &self.datadir);
         command.env("PGHOST", &self.datadir);
-        command.env("PGDATABASE", database);
+        command.env("PGDATABASE", database.unwrap_or(DEFAULT_DATABASE));
         Ok(command.spawn()?.wait()?)
     }
 
     /// The names of databases in this cluster.
     pub fn databases(&self) -> Result<Vec<String>, ClusterError> {
-        let mut conn = self.connect("template1")?;
+        let mut conn = self.connect(None)?;
         let rows = conn.query(
             "SELECT datname FROM pg_catalog.pg_database ORDER BY datname",
             &[],
@@ -312,8 +325,7 @@ impl Cluster {
             "CREATE DATABASE {}",
             postgres_protocol::escape::escape_identifier(database)
         );
-        self.connect("template1")?
-            .execute(statement.as_str(), &[])?;
+        self.connect(None)?.execute(statement.as_str(), &[])?;
         Ok(())
     }
 
@@ -323,8 +335,7 @@ impl Cluster {
             "DROP DATABASE {}",
             postgres_protocol::escape::escape_identifier(database)
         );
-        self.connect("template1")?
-            .execute(statement.as_str(), &[])?;
+        self.connect(None)?.execute(statement.as_str(), &[])?;
         Ok(())
     }
 

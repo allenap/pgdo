@@ -101,7 +101,7 @@ fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResu
     let data_dir = tempdir::TempDir::new("data")?;
     let cluster = Cluster::new(&data_dir, runtime.clone())?;
     cluster.start()?;
-    let mut conn = cluster.connect("postgres")?;
+    let mut conn = cluster.connect(Some("postgres"))?;
     let result = conn.query("SHOW ALL", &[])?;
     let params: std::collections::HashMap<String, String> = result
         .into_iter()
@@ -207,7 +207,7 @@ fn cluster_connect_connects() -> TestResult {
     let data_dir = tempdir::TempDir::new("data")?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
-    cluster.connect("template1")?;
+    cluster.connect(None)?;
     cluster.destroy()?;
     Ok(())
 }

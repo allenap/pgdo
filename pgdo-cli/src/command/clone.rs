@@ -38,7 +38,7 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
         |cluster| {
             runner::check_exit(
                 cluster
-                    .exec("template1", "pg_basebackup".as_ref(), args)
+                    .exec(None, "pg_basebackup".as_ref(), args)
                     .wrap_err("Executing command in cluster failed")?,
             )
         },

@@ -38,7 +38,7 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
         |cluster| {
             runner::check_exit(
                 cluster
-                    .shell(&database.name)
+                    .shell(Some(&database.name))
                     .wrap_err("Starting PostgreSQL shell in cluster failed")?,
             )
         },

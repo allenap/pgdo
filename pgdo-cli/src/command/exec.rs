@@ -47,7 +47,7 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
         |cluster| {
             runner::check_exit(
                 cluster
-                    .exec(&database.name, command, &args)
+                    .exec(Some(&database.name), command, &args)
                     .wrap_err("Executing command in cluster failed")?,
             )
         },

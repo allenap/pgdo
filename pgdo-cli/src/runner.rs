@@ -130,7 +130,7 @@ pub(crate) fn initialise(
     match mode {
         Some(args::ClusterMode::Fast) => {
             |cluster: &cluster::Cluster| {
-                let mut conn = cluster.connect("template1")?;
+                let mut conn = cluster.connect(None)?;
                 conn.execute("ALTER SYSTEM SET fsync = 'off'", &[])?;
                 conn.execute("ALTER SYSTEM SET full_page_writes = 'off'", &[])?;
                 conn.execute("ALTER SYSTEM SET synchronous_commit = 'off'", &[])?;
@@ -141,7 +141,7 @@ pub(crate) fn initialise(
         }
         Some(args::ClusterMode::Slow) => {
             |cluster: &cluster::Cluster| {
-                let mut conn = cluster.connect("template1")?;
+                let mut conn = cluster.connect(None)?;
                 conn.execute("ALTER SYSTEM RESET fsync", &[])?;
                 conn.execute("ALTER SYSTEM RESET full_page_writes", &[])?;
                 conn.execute("ALTER SYSTEM RESET synchronous_commit", &[])?;
