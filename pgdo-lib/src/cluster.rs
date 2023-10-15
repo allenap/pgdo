@@ -9,6 +9,7 @@ use std::process::{Command, ExitStatus};
 use std::{env, fs, io};
 
 use nix::errno::Errno;
+pub use postgres;
 use shell_quote::sh::escape_into;
 
 use crate::runtime::{
