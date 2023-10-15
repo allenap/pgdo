@@ -3,9 +3,9 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use crate::version::{PartialVersion, Version};
-
-use super::{exists, version, Cluster, ClusterError, State::*};
+use pgdo::cluster::{exists, version, Cluster, ClusterError, State::*};
+use pgdo::version::{PartialVersion, Version};
+use pgdo_test::for_all_runtimes;
 
 type TestResult = Result<(), ClusterError>;
 
@@ -101,7 +101,7 @@ fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResu
     let data_dir = tempdir::TempDir::new("data")?;
     let cluster = Cluster::new(&data_dir, runtime.clone())?;
     cluster.start()?;
-    let mut conn = cluster.connect("postgres")?;
+    let mut conn = cluster.connect(Some("postgres"))?;
     let result = conn.query("SHOW ALL", &[])?;
     let params: std::collections::HashMap<String, String> = result
         .into_iter()
@@ -207,7 +207,7 @@ fn cluster_connect_connects() -> TestResult {
     let data_dir = tempdir::TempDir::new("data")?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
-    cluster.connect("template1")?;
+    cluster.connect(None)?;
     cluster.destroy()?;
     Ok(())
 }
@@ -251,5 +251,30 @@ fn cluster_databases_with_non_plain_names_can_be_created_and_dropped() -> TestRe
     cluster.dropdb("foo-bar")?;
     cluster.dropdb("Foo-BAR")?;
     cluster.destroy()?;
+    Ok(())
+}
+
+#[for_all_runtimes]
+#[test]
+fn cluster_databases_that_already_exist_can_be_created_without_error() -> TestResult {
+    let data_dir = tempdir::TempDir::new("data")?;
+    let cluster = Cluster::new(&data_dir, runtime)?;
+    cluster.start()?;
+    assert!(matches!(cluster.createdb("foo-bar")?, Modified));
+    assert!(matches!(cluster.createdb("foo-bar")?, Unmodified));
+    cluster.stop()?;
+    Ok(())
+}
+
+#[for_all_runtimes]
+#[test]
+fn cluster_databases_that_do_not_exist_can_be_dropped_without_error() -> TestResult {
+    let data_dir = tempdir::TempDir::new("data")?;
+    let cluster = Cluster::new(&data_dir, runtime)?;
+    cluster.start()?;
+    cluster.createdb("foo-bar")?;
+    assert!(matches!(cluster.dropdb("foo-bar")?, Modified));
+    assert!(matches!(cluster.dropdb("foo-bar")?, Unmodified));
+    cluster.stop()?;
     Ok(())
 }

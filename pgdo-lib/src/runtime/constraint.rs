@@ -195,7 +195,7 @@ impl FromStr for Constraint {
 }
 
 #[cfg(test)]
-mod test_constraints {
+mod tests {
     use super::Constraint;
     use super::PartialVersion;
 

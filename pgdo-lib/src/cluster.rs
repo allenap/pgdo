@@ -2,9 +2,6 @@
 
 mod error;
 
-#[cfg(test)]
-mod tests;
-
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStringExt;
 use std::path::{Path, PathBuf};
@@ -21,6 +18,48 @@ use crate::runtime::{
 use crate::version;
 pub use error::ClusterError;
 
+/// `template0` is always present in a PostgreSQL cluster.
+///
+/// This database is a template database, though it's used to a lesser extent
+/// than `template1`.
+///
+/// `template0` should never be modified so it's rare to connect to this
+/// database, even as a convenient default – see [`DATABASE_TEMPLATE1`] for an
+/// explanation as to why.
+pub static DATABASE_TEMPLATE0: &str = "template0";
+
+/// `template1` is always present in a PostgreSQL cluster.
+///
+/// This database is used as the default template for creating new databases.
+///
+/// Connecting to a database prevents other sessions from creating new databases
+/// using that database as a template; see PostgreSQL's [Template Databases][]
+/// page to learn more about this limitation. Since `template1` is the default
+/// template, connecting to this database prevents other sessions from using a
+/// plain `CREATE DATABASE` command. In other words, it may be a good idea to
+/// connect to this database _only_ when modifying it, not as a default.
+///
+/// [Template Databases]:
+///     https://www.postgresql.org/docs/current/manage-ag-templatedbs.html
+pub static DATABASE_TEMPLATE1: &str = "template0";
+
+/// `postgres` is always created by `initdb` when building a PostgreSQL cluster.
+///
+/// From `initdb(1)`:
+/// > The postgres database is a default database meant for use by users,
+/// > utilities and third party applications.
+///
+/// Given that it can be problematic to connect to `template0` and `template1` –
+/// see [`DATABASE_TEMPLATE1`] for an explanation – `postgres` is a convenient
+/// default, hence this library uses `postgres` as the database from which to
+/// perform administrative tasks, for example.
+///
+/// Unfortunately, `postgres` can be dropped, in which case some of the
+/// functionality of this crate will be broken. Ideally we could connect to a
+/// PostgreSQL cluster without specifying a database, but that is presently not
+/// possible.
+pub static DATABASE_POSTGRES: &str = "postgres";
+
 /// Representation of a PostgreSQL cluster.
 ///
 /// The cluster may not yet exist on disk. It may exist but be stopped, or it
@@ -28,13 +67,14 @@ pub use error::ClusterError;
 /// stop, and destroy the cluster. There's no protection against concurrent
 /// changes to the cluster made by other processes, but the functions in the
 /// [`coordinate`][`crate::coordinate`] module may help.
+#[derive(Debug)]
 pub struct Cluster {
     /// The data directory of the cluster.
     ///
     /// Corresponds to the `PGDATA` environment variable.
-    datadir: PathBuf,
+    pub datadir: PathBuf,
     /// How to select the PostgreSQL installation to use with this cluster.
-    strategy: Strategy,
+    pub strategy: Strategy,
 }
 
 impl Cluster {
@@ -80,7 +120,7 @@ impl Cluster {
         let output = self.ctl()?.arg("status").output()?;
         let code = match output.status.code() {
             // Killed by signal; return early.
-            None => return Err(ClusterError::Other(output)),
+            None => return Err(ClusterError::CommandError(output)),
             // Success; return early (the server is running).
             Some(0) => return Ok(true),
             // More work required to decode what this means.
@@ -258,24 +298,28 @@ impl Cluster {
     }
 
     /// Connect to this cluster.
-    pub fn connect(&self, database: &str) -> Result<postgres::Client, ClusterError> {
+    ///
+    /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
+    pub fn connect(&self, database: Option<&str>) -> Result<postgres::Client, ClusterError> {
         let user = &env::var("USER").unwrap_or_else(|_| "USER-not-set".to_string());
         let host = self.datadir.to_string_lossy(); // postgres crate API limitation.
         let client = postgres::Client::configure()
             .user(user)
-            .dbname(database)
+            .dbname(database.unwrap_or(DATABASE_POSTGRES))
             .host(&host)
             .connect(postgres::NoTls)?;
         Ok(client)
     }
 
     /// Run `psql` against this cluster, in the given database.
-    pub fn shell(&self, database: &str) -> Result<ExitStatus, ClusterError> {
+    ///
+    /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
+    pub fn shell(&self, database: Option<&str>) -> Result<ExitStatus, ClusterError> {
         let mut command = self.runtime()?.execute("psql");
         command.arg("--quiet");
         command.env("PGDATA", &self.datadir);
         command.env("PGHOST", &self.datadir);
-        command.env("PGDATABASE", database);
+        command.env("PGDATABASE", database.unwrap_or(DATABASE_POSTGRES));
         Ok(command.spawn()?.wait()?)
     }
 
@@ -283,9 +327,11 @@ impl Cluster {
     ///
     /// The command is run with the `PGDATA`, `PGHOST`, and `PGDATABASE`
     /// environment variables set appropriately.
+    ///
+    /// When the database is not specified, uses [`DATABASE_POSTGRES`].
     pub fn exec<T: AsRef<OsStr>>(
         &self,
-        database: &str,
+        database: Option<&str>,
         command: T,
         args: &[T],
     ) -> Result<ExitStatus, ClusterError> {
@@ -293,13 +339,13 @@ impl Cluster {
         command.args(args);
         command.env("PGDATA", &self.datadir);
         command.env("PGHOST", &self.datadir);
-        command.env("PGDATABASE", database);
+        command.env("PGDATABASE", database.unwrap_or(DATABASE_POSTGRES));
         Ok(command.spawn()?.wait()?)
     }
 
     /// The names of databases in this cluster.
     pub fn databases(&self) -> Result<Vec<String>, ClusterError> {
-        let mut conn = self.connect("template1")?;
+        let mut conn = self.connect(None)?;
         let rows = conn.query(
             "SELECT datname FROM pg_catalog.pg_database ORDER BY datname",
             &[],
@@ -309,25 +355,37 @@ impl Cluster {
     }
 
     /// Create the named database.
-    pub fn createdb(&self, database: &str) -> Result<(), ClusterError> {
+    ///
+    /// Returns [`Unmodified`] if the database already exists, otherwise it
+    /// returns [`Modified`].
+    pub fn createdb(&self, database: &str) -> Result<State, ClusterError> {
+        use postgres::error::SqlState;
         let statement = format!(
             "CREATE DATABASE {}",
             postgres_protocol::escape::escape_identifier(database)
         );
-        self.connect("template1")?
-            .execute(statement.as_str(), &[])?;
-        Ok(())
+        match self.connect(None)?.execute(statement.as_str(), &[]) {
+            Err(err) if err.code() == Some(&SqlState::DUPLICATE_DATABASE) => Ok(Unmodified),
+            Err(err) => Err(err)?,
+            Ok(_) => Ok(Modified),
+        }
     }
 
     /// Drop the named database.
-    pub fn dropdb(&self, database: &str) -> Result<(), ClusterError> {
+    ///
+    /// Returns [`Unmodified`] if the database does not exist, otherwise it
+    /// returns [`Modified`].
+    pub fn dropdb(&self, database: &str) -> Result<State, ClusterError> {
+        use postgres::error::SqlState;
         let statement = format!(
             "DROP DATABASE {}",
             postgres_protocol::escape::escape_identifier(database)
         );
-        self.connect("template1")?
-            .execute(statement.as_str(), &[])?;
-        Ok(())
+        match self.connect(None)?.execute(statement.as_str(), &[]) {
+            Err(err) if err.code() == Some(&SqlState::UNDEFINED_DATABASE) => Ok(Unmodified),
+            Err(err) => Err(err)?,
+            Ok(_) => Ok(Modified),
+        }
     }
 
     /// Stop the cluster if it's running.

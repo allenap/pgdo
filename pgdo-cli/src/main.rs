@@ -1,218 +1,54 @@
 #![doc = include_str!("../README.md")]
 
-mod cli;
+mod args;
+mod command;
+mod runner;
 
-use std::fs;
-use std::io;
-use std::path::PathBuf;
-use std::process::{exit, ExitStatus};
+use std::process::ExitCode;
 
-use clap::Parser;
-use color_eyre::eyre::{bail, eyre, Result, WrapErr};
-use color_eyre::{Help, SectionExt};
+use clap::{Parser, Subcommand};
+use color_eyre::eyre::Result;
 
-use pgdo::{
-    cluster, coordinate, lock,
-    runtime::{
-        self,
-        constraint::Constraint,
-        strategy::{Strategy, StrategyLike},
-    },
-};
-
-fn main() -> Result<()> {
+fn main() -> Result<ExitCode> {
     color_eyre::install()?;
 
-    let cli = cli::Cli::parse();
+    let cli = Cli::parse();
     // `Shell` is the default command when none is specified.
-    let command = cli.command.unwrap_or(cli::Command::Shell(cli.shell));
-    let result = match command {
-        cli::Command::Shell(cli::ShellArgs { cluster, database, lifecycle, runtime }) => run(
-            cluster.dir,
-            &database.name,
-            determine_strategy(runtime.fallback)?,
-            lifecycle.destroy,
-            initialise(cluster.mode),
-            |cluster| {
-                check_exit(
-                    cluster
-                        .shell(&database.name)
-                        .wrap_err("Starting PostgreSQL shell in cluster failed")?,
-                )
-            },
-        ),
-        cli::Command::Exec(cli::ExecArgs {
-            cluster,
-            database,
-            command,
-            args,
-            lifecycle,
-            runtime,
-        }) => run(
-            cluster.dir,
-            &database.name,
-            determine_strategy(runtime.fallback)?,
-            lifecycle.destroy,
-            initialise(cluster.mode),
-            |cluster| {
-                check_exit(
-                    cluster
-                        .exec(&database.name, command, &args)
-                        .wrap_err("Executing command in cluster failed")?,
-                )
-            },
-        ),
-        cli::Command::Runtimes(runtime) => {
-            let strategy = determine_strategy(runtime.fallback)?;
-            let mut runtimes: Vec<_> = strategy.runtimes().collect();
-            let fallback = strategy.fallback();
-
-            // Sort by version. Higher versions will sort last.
-            runtimes.sort_by(|ra, rb| ra.version.cmp(&rb.version));
-
-            for runtime in runtimes {
-                let default = match fallback {
-                    Some(ref default) if default == &runtime => "=>",
-                    _ => "",
-                };
-                println!(
-                    "{default:2} {version:10} {bindir}",
-                    bindir = runtime.bindir.display(),
-                    version = runtime.version,
-                )
-            }
-
-            Ok(0)
-        }
-    };
-
-    match result {
-        Ok(code) => exit(code),
-        Err(report) => Err(report),
+    let command = cli.command.unwrap_or(Command::Shell(cli.shell));
+    match command {
+        Command::Shell(args) => command::shell::invoke(args),
+        Command::Exec(args) => command::exec::invoke(args),
+        Command::Clone(args) => command::clone::invoke(args),
+        Command::Runtimes(runtime) => command::runtimes::invoke(runtime),
     }
 }
 
-fn check_exit(status: ExitStatus) -> Result<i32> {
-    match status.code() {
-        Some(code) => Ok(code),
-        None => bail!("Command terminated: {status}"),
-    }
+/// Work with ephemeral PostgreSQL clusters.
+#[derive(Parser)]
+#[clap(author, version, about = "The convenience of SQLite – but with PostgreSQL", long_about = None)]
+pub struct Cli {
+    #[clap(subcommand)]
+    pub command: Option<Command>,
+
+    // Default command, `shell`. Note that `ShellArgs` appears here AND in the
+    // `Shell` subcommand. This pattern (along with `next_help_heading`) is a
+    // way to have a default subcommand with clap.
+    // https://github.com/clap-rs/clap/issues/975#issuecomment-1426424232
+    #[clap(flatten)]
+    pub shell: command::shell::Args,
 }
 
-fn determine_strategy(fallback: Option<Constraint>) -> Result<Strategy> {
-    let strategy = runtime::strategy::Strategy::default();
-    let fallback: Option<_> = match fallback {
-        Some(constraint) => match strategy.select(&constraint) {
-            Some(runtime) => Some(runtime),
-            None => Err(eyre!("no runtime matches constraint {constraint:?}"))
-                .with_context(|| "cannot select fallback runtime")
-                .with_suggestion(|| "use `runtimes` to see available runtimes")?,
-        },
-        None => None,
-    };
-    let strategy = match fallback {
-        Some(fallback) => strategy.push_front(fallback),
-        None => strategy,
-    };
-    Ok(strategy)
-}
+#[derive(Subcommand)]
+pub enum Command {
+    #[clap(display_order = 1)]
+    Shell(command::shell::Args),
 
-const UUID_NS: uuid::Uuid = uuid::Uuid::from_u128(93875103436633470414348750305797058811);
+    #[clap(display_order = 2)]
+    Exec(command::exec::Args),
 
-fn run<INIT, ACTION>(
-    database_dir: PathBuf,
-    database_name: &str,
-    strategy: Strategy,
-    destroy: bool,
-    initialise: INIT,
-    action: ACTION,
-) -> Result<i32>
-where
-    INIT: std::panic::UnwindSafe + FnOnce(&cluster::Cluster) -> Result<(), cluster::ClusterError>,
-    ACTION: FnOnce(&cluster::Cluster) -> Result<i32> + std::panic::UnwindSafe,
-{
-    // Create the cluster directory first.
-    match fs::create_dir(&database_dir) {
-        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
-        err @ Err(_) => err
-            .wrap_err("Could not create database directory")
-            .with_section(|| format!("{}", database_dir.display()).header("Database directory:"))?,
-        _ => (),
-    };
+    #[clap(display_order = 3)]
+    Clone(command::clone::Args),
 
-    // Obtain a canonical path to the cluster directory.
-    let database_dir = database_dir
-        .canonicalize()
-        .wrap_err("Could not canonicalize database directory")
-        .with_section(|| format!("{}", database_dir.display()).header("Database directory:"))?;
-
-    // Use the canonical path to construct the UUID with which we'll lock this
-    // cluster. Use the `Debug` form of `database_dir` for the lock file UUID.
-    let lock_uuid = uuid::Uuid::new_v5(&UUID_NS, format!("{:?}", &database_dir).as_bytes());
-    let lock = lock::UnlockedFile::try_from(&lock_uuid)
-        .wrap_err("Could not create UUID-based lock file")
-        .with_section(|| lock_uuid.to_string().header("UUID for lock file:"))?;
-
-    let cluster = cluster::Cluster::new(&database_dir, strategy)?;
-
-    let runner = if destroy {
-        coordinate::run_and_destroy
-    } else {
-        coordinate::run_and_stop
-    };
-
-    runner(&cluster, lock, |cluster: &cluster::Cluster| {
-        initialise(cluster)?;
-
-        if !cluster
-            .databases()
-            .wrap_err("Could not list databases")?
-            .contains(&database_name.to_string())
-        {
-            cluster
-                .createdb(database_name)
-                .wrap_err("Could not create database")
-                .with_section(|| database_name.to_owned().header("Database:"))?;
-        }
-
-        // Ignore SIGINT, TERM, and HUP (with ctrlc feature "termination"). The
-        // child process will receive the signal, presumably terminate, then
-        // we'll tidy up.
-        ctrlc::set_handler(|| ()).wrap_err("Could not set signal handler")?;
-
-        // Finally, run the given action.
-        action(cluster)
-    })?
-}
-
-/// Create an initialisation function that will set appropriate PostgreSQL
-/// settings, e.g. `fsync`, `full_page_writes`, etc. that need to be set early.
-fn initialise(
-    mode: Option<cli::Mode>,
-) -> impl std::panic::UnwindSafe + FnOnce(&cluster::Cluster) -> Result<(), cluster::ClusterError> {
-    match mode {
-        Some(cli::Mode::Fast) => {
-            |cluster: &cluster::Cluster| {
-                let mut conn = cluster.connect("template1")?;
-                conn.execute("ALTER SYSTEM SET fsync = 'off'", &[])?;
-                conn.execute("ALTER SYSTEM SET full_page_writes = 'off'", &[])?;
-                conn.execute("ALTER SYSTEM SET synchronous_commit = 'off'", &[])?;
-                // TODO: Check `pg_file_settings` for errors before reloading.
-                conn.execute("SELECT pg_reload_conf()", &[])?;
-                Ok(())
-            }
-        }
-        Some(cli::Mode::Slow) => {
-            |cluster: &cluster::Cluster| {
-                let mut conn = cluster.connect("template1")?;
-                conn.execute("ALTER SYSTEM RESET fsync", &[])?;
-                conn.execute("ALTER SYSTEM RESET full_page_writes", &[])?;
-                conn.execute("ALTER SYSTEM RESET synchronous_commit", &[])?;
-                // TODO: Check `pg_file_settings` for errors before reloading.
-                conn.execute("SELECT pg_reload_conf()", &[])?;
-                Ok(())
-            }
-        }
-        None => |_: &cluster::Cluster| Ok(()),
-    }
+    #[clap(display_order = 4)]
+    Runtimes(command::runtimes::Args),
 }
