@@ -1,7 +1,6 @@
 use std::{ffi::OsStr, path::PathBuf, process::ExitCode};
 
 use color_eyre::eyre::{Result, WrapErr};
-use pgdo::cluster::Cluster;
 
 use crate::{args, runner};
 
@@ -22,12 +21,6 @@ pub struct Args {
 pub fn invoke(args: Args) -> Result<ExitCode> {
     let Args { cluster, runtime, destination } = args;
 
-    let strategy = runner::determine_strategy(runtime.fallback)?;
-    // `pg_basebackup` needs `PGHOST` to be an absolute path; when relative it
-    // chokes, assuming it's a hostname. Not sure why `pg_basebackup` is
-    // different to other bundled PostgreSQL commands in this regard.
-    let cluster = Cluster::new(cluster.dir.canonicalize()?, strategy)?;
-
     let args: &[&OsStr] = &[
         "--pgdata".as_ref(),
         destination.as_ref(),
@@ -36,9 +29,18 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
         "--progress".as_ref(),
     ];
 
-    runner::check_exit(
-        cluster
-            .exec("template1", "pg_basebackup".as_ref(), args)
-            .wrap_err("Executing command in cluster failed")?,
+    runner::run(
+        cluster.dir,
+        "template1", // TODO: Make `run` allow for "no database".
+        runner::determine_strategy(runtime.fallback)?,
+        runner::Runner::RunAndStopIfExists,
+        runner::initialise(None),
+        |cluster| {
+            runner::check_exit(
+                cluster
+                    .exec("template1", "pg_basebackup".as_ref(), args)
+                    .wrap_err("Executing command in cluster failed")?,
+            )
+        },
     )
 }

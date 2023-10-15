@@ -47,11 +47,18 @@ pub(crate) fn determine_strategy(fallback: Option<Constraint>) -> Result<Strateg
 
 const UUID_NS: uuid::Uuid = uuid::Uuid::from_u128(93875103436633470414348750305797058811);
 
+#[allow(clippy::enum_variant_names)]
+pub(crate) enum Runner {
+    RunAndStop,
+    RunAndStopIfExists,
+    RunAndDestroy,
+}
+
 pub(crate) fn run<INIT, ACTION>(
     database_dir: PathBuf,
     database_name: &str,
     strategy: Strategy,
-    destroy: bool,
+    runner: Runner,
     initialise: INIT,
     action: ACTION,
 ) -> Result<ExitCode>
@@ -83,10 +90,10 @@ where
 
     let cluster = cluster::Cluster::new(&database_dir, strategy)?;
 
-    let runner = if destroy {
-        coordinate::run_and_destroy
-    } else {
-        coordinate::run_and_stop
+    let runner = match runner {
+        Runner::RunAndStop => coordinate::run_and_stop,
+        Runner::RunAndStopIfExists => coordinate::run_and_stop_if_exists,
+        Runner::RunAndDestroy => coordinate::run_and_destroy,
     };
 
     runner(&cluster, lock, |cluster: &cluster::Cluster| {

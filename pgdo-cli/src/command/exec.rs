@@ -2,7 +2,10 @@ use std::{ffi::OsString, process::ExitCode};
 
 use color_eyre::eyre::{Result, WrapErr};
 
-use crate::{args, runner};
+use crate::{
+    args,
+    runner::{self, Runner},
+};
 
 #[derive(clap::Args)]
 #[clap(next_help_heading = Some("Options for exec"))]
@@ -35,7 +38,11 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
         cluster.dir,
         &database.name,
         runner::determine_strategy(runtime.fallback)?,
-        lifecycle.destroy,
+        if lifecycle.destroy {
+            Runner::RunAndDestroy
+        } else {
+            Runner::RunAndStop
+        },
         runner::initialise(cluster.mode),
         |cluster| {
             runner::check_exit(
