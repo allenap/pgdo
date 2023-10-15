@@ -1,6 +1,5 @@
 use std::fs;
 use std::io;
-use std::path::PathBuf;
 use std::process::ExitCode;
 use std::process::ExitStatus;
 
@@ -55,7 +54,7 @@ pub(crate) enum Runner {
 }
 
 pub(crate) fn run<INIT, ACTION>(
-    database_dir: PathBuf,
+    args::ClusterArgs { dir: database_dir }: args::ClusterArgs,
     database: Option<&str>,
     strategy: Strategy,
     runner: Runner,

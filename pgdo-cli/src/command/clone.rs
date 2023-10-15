@@ -27,7 +27,7 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
     ];
 
     runner::run(
-        cluster.dir,
+        cluster,
         None, // No database.
         runner::determine_strategy(None)?,
         runner::Runner::RunAndStopIfExists,

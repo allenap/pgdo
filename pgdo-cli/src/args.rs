@@ -4,7 +4,7 @@ use clap::Args;
 
 use pgdo::runtime::constraint::Constraint;
 
-#[derive(Args)]
+#[derive(Args, Debug, Default)]
 pub struct ClusterArgs {
     /// The directory in which the cluster lives.
     #[clap(
@@ -18,7 +18,7 @@ pub struct ClusterArgs {
     pub dir: PathBuf,
 }
 
-#[derive(Args)]
+#[derive(Args, Debug, Default)]
 pub struct ClusterModeArgs {
     /// Run the cluster in a "safer" or "faster" mode.
     ///
@@ -34,7 +34,7 @@ pub struct ClusterModeArgs {
     pub mode: Option<ClusterMode>,
 }
 
-#[derive(Args)]
+#[derive(Args, Debug, Default)]
 pub struct DatabaseArgs {
     /// The database to connect to.
     #[clap(
@@ -48,7 +48,7 @@ pub struct DatabaseArgs {
     pub name: String,
 }
 
-#[derive(Args)]
+#[derive(Args, Debug, Default)]
 pub struct RuntimeArgs {
     /// Select the default runtime, used when creating new clusters.
     #[clap(
@@ -59,7 +59,7 @@ pub struct RuntimeArgs {
     pub fallback: Option<Constraint>,
 }
 
-#[derive(Args)]
+#[derive(Args, Debug, Default)]
 pub struct LifecycleArgs {
     /// Destroy the cluster after use. WARNING: This will DELETE THE DATA
     /// DIRECTORY. The default is to NOT destroy the cluster.
@@ -76,4 +76,10 @@ pub enum ClusterMode {
     /// Disable fsync, full_page_writes, and synchronous_commit. DANGER!
     #[value(name = "faster-but-less-safe", alias = "fast")]
     Fast,
+}
+
+impl Default for ClusterMode {
+    fn default() -> Self {
+        ClusterMode::Slow
+    }
 }

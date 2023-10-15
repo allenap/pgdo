@@ -28,8 +28,9 @@ pub struct Args {
 
 pub fn invoke(args: Args) -> Result<ExitCode> {
     let Args { cluster, cluster_mode, database, lifecycle, runtime } = args;
+
     runner::run(
-        cluster.dir,
+        cluster,
         Some(&database.name),
         runner::determine_strategy(runtime.fallback)?,
         if lifecycle.destroy {

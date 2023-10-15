@@ -46,7 +46,7 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
     } = args;
 
     runner::run(
-        cluster.dir,
+        cluster,
         Some(&database.name),
         runner::determine_strategy(runtime.fallback)?,
         if lifecycle.destroy {
