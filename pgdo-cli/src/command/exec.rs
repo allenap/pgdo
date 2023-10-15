@@ -14,6 +14,9 @@ pub struct Args {
     pub cluster: args::ClusterArgs,
 
     #[clap(flatten)]
+    pub cluster_mode: args::ClusterModeArgs,
+
+    #[clap(flatten)]
     pub database: args::DatabaseArgs,
 
     #[clap(flatten)]
@@ -32,7 +35,15 @@ pub struct Args {
 }
 
 pub fn invoke(args: Args) -> Result<ExitCode> {
-    let Args { cluster, database, command, args, lifecycle, runtime } = args;
+    let Args {
+        cluster,
+        cluster_mode,
+        database,
+        command,
+        args,
+        lifecycle,
+        runtime,
+    } = args;
 
     runner::run(
         cluster.dir,
@@ -43,7 +54,7 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
         } else {
             Runner::RunAndStop
         },
-        runner::initialise(cluster.mode),
+        runner::initialise(cluster_mode.mode),
         |cluster| {
             runner::check_exit(
                 cluster

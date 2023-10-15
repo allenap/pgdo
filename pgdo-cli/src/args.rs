@@ -6,7 +6,7 @@ use pgdo::runtime::constraint::Constraint;
 
 #[derive(Args)]
 pub struct ClusterArgs {
-    /// The directory in which to place, or find, the cluster.
+    /// The directory in which the cluster lives.
     #[clap(
         short = 'D',
         long = "datadir",
@@ -16,7 +16,10 @@ pub struct ClusterArgs {
         display_order = 1
     )]
     pub dir: PathBuf,
+}
 
+#[derive(Args)]
+pub struct ClusterModeArgs {
     /// Run the cluster in a "safer" or "faster" mode.
     ///
     /// DANGER! Choosing "faster-but-less-safe" makes the cluster faster but it

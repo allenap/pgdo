@@ -10,16 +10,13 @@ pub struct Args {
     #[clap(flatten)]
     pub cluster: args::ClusterArgs,
 
-    #[clap(flatten)]
-    pub runtime: args::RuntimeArgs,
-
     /// The directory into which to clone the cluster.
     #[clap(short = 'd', long = "destination")]
     pub destination: PathBuf,
 }
 
 pub fn invoke(args: Args) -> Result<ExitCode> {
-    let Args { cluster, runtime, destination } = args;
+    let Args { cluster, destination } = args;
 
     let args: &[&OsStr] = &[
         "--pgdata".as_ref(),
@@ -32,7 +29,7 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
     runner::run(
         cluster.dir,
         None, // No database.
-        runner::determine_strategy(runtime.fallback)?,
+        runner::determine_strategy(None)?,
         runner::Runner::RunAndStopIfExists,
         runner::initialise(None),
         |cluster| {
