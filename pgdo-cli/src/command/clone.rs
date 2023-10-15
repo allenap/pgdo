@@ -30,7 +30,7 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
         cluster,
         args::ClusterModeArgs::default(),
         None, // No database.
-        runner::determine_strategy(None)?,
+        args::RuntimeArgs::default(),
         runner::Runner::RunAndStopIfExists,
         |cluster| {
             runner::check_exit(

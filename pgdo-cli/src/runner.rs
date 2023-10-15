@@ -57,7 +57,7 @@ pub(crate) fn run<ACTION>(
     args::ClusterArgs { dir: cluster_dir }: args::ClusterArgs,
     args::ClusterModeArgs { mode: cluster_mode }: args::ClusterModeArgs,
     database: Option<&str>,
-    strategy: Strategy,
+    args::RuntimeArgs { fallback }: args::RuntimeArgs,
     runner: Runner,
     action: ACTION,
 ) -> Result<ExitCode>
@@ -86,6 +86,7 @@ where
         .wrap_err("Could not create UUID-based lock file")
         .with_section(|| lock_uuid.to_string().header("UUID for lock file:"))?;
 
+    let strategy = determine_strategy(fallback)?;
     let cluster = cluster::Cluster::new(&database_dir, strategy)?;
 
     let runner = match runner {

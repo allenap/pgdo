@@ -33,7 +33,7 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
         cluster,
         cluster_mode,
         Some(&database.name),
-        runner::determine_strategy(runtime.fallback)?,
+        runtime,
         if lifecycle.destroy {
             Runner::RunAndDestroy
         } else {
