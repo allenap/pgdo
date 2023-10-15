@@ -11,7 +11,7 @@ pub struct Args {
     pub cluster: args::ClusterArgs,
 
     /// The directory into which to clone the cluster.
-    #[clap(short = 'd', long = "destination")]
+    #[clap(short = 'd', long = "destination", display_order = 100)]
     pub destination: PathBuf,
 }
 
