@@ -17,6 +17,7 @@ use pgdo::{
     },
 };
 
+/// Check the exit status of a process and return an appropriate exit code.
 pub(crate) fn check_exit(status: ExitStatus) -> Result<ExitCode> {
     match status.code() {
         None => bail!("Command terminated: {status}"),
@@ -26,6 +27,7 @@ pub(crate) fn check_exit(status: ExitStatus) -> Result<ExitCode> {
     }
 }
 
+/// Determine the strategy to use for a cluster, given an optional constraint.
 pub(crate) fn determine_strategy(fallback: Option<Constraint>) -> Result<Strategy> {
     let strategy = runtime::strategy::Strategy::default();
     let fallback: Option<_> = match fallback {
@@ -44,6 +46,9 @@ pub(crate) fn determine_strategy(fallback: Option<Constraint>) -> Result<Strateg
     Ok(strategy)
 }
 
+/// Ensure that a given named database exists in a cluster.
+///
+/// The cluster should be running. There is the possibility of a **race** here
 pub(crate) fn ensure_database(cluster: &cluster::Cluster, database_name: &str) -> Result<()> {
     if !cluster
         .databases()
@@ -67,6 +72,11 @@ pub(crate) enum Runner {
     RunAndDestroy,
 }
 
+/// Run an action on a cluster.
+///
+/// This is the main entry point for most `pgdo` commands (though not all). It
+/// takes care of creating, locking, starting, stopping, and destroying the
+/// cluster, and running the given action.
 pub(crate) fn run<ACTION>(
     args::ClusterArgs { dir: cluster_dir }: args::ClusterArgs,
     args::ClusterModeArgs { mode: cluster_mode }: args::ClusterModeArgs,
