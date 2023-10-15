@@ -1,7 +1,8 @@
-use std::{ffi::OsString, process::ExitCode};
+use std::ffi::OsString;
 
-use color_eyre::eyre::{Result, WrapErr};
+use color_eyre::eyre::WrapErr;
 
+use super::Result;
 use crate::{
     args,
     runner::{self, Runner},
@@ -37,7 +38,7 @@ pub struct Exec {
 }
 
 impl Exec {
-    pub fn invoke(self) -> Result<ExitCode> {
+    pub fn invoke(self) -> Result {
         let Self {
             cluster,
             cluster_mode,
@@ -65,5 +66,11 @@ impl Exec {
                 )
             },
         )
+    }
+}
+
+impl From<Exec> for super::Command {
+    fn from(shell: Exec) -> Self {
+        Self::Exec(shell)
     }
 }

@@ -1,7 +1,6 @@
-use std::process::ExitCode;
+use color_eyre::eyre::WrapErr;
 
-use color_eyre::eyre::{Result, WrapErr};
-
+use super::Result;
 use crate::{
     args,
     runner::{self, Runner},
@@ -29,7 +28,7 @@ pub struct Shell {
 }
 
 impl Shell {
-    pub fn invoke(self) -> Result<ExitCode> {
+    pub fn invoke(self) -> Result {
         let Self { cluster, cluster_mode, database, lifecycle, runtime } = self;
         runner::run(
             if lifecycle.destroy {
@@ -49,5 +48,11 @@ impl Shell {
                 )
             },
         )
+    }
+}
+
+impl From<Shell> for super::Command {
+    fn from(shell: Shell) -> Self {
+        Self::Shell(shell)
     }
 }

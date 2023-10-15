@@ -1,7 +1,8 @@
-use std::{ffi::OsStr, path::PathBuf, process::ExitCode};
+use std::{ffi::OsStr, path::PathBuf};
 
-use color_eyre::eyre::{Result, WrapErr};
+use color_eyre::eyre::WrapErr;
 
+use super::Result;
 use crate::{args, runner};
 
 /// Clone an existing cluster.
@@ -17,7 +18,7 @@ pub struct Clone {
 }
 
 impl Clone {
-    pub fn invoke(self) -> Result<ExitCode> {
+    pub fn invoke(self) -> Result {
         let Self { cluster, destination } = self;
         let args: &[&OsStr] = &[
             "--pgdata".as_ref(),
@@ -39,5 +40,11 @@ impl Clone {
                 )
             },
         )
+    }
+}
+
+impl From<Clone> for super::Command {
+    fn from(shell: Clone) -> Self {
+        Self::Clone(shell)
     }
 }

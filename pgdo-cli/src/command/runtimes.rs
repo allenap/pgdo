@@ -1,9 +1,8 @@
 use std::process::ExitCode;
 
-use color_eyre::eyre::Result;
-
 use pgdo::runtime::strategy::StrategyLike;
 
+use super::Result;
 use crate::{args, runner};
 
 /// List discovered PostgreSQL runtimes.
@@ -18,7 +17,7 @@ pub struct Runtimes {
 }
 
 impl Runtimes {
-    pub fn invoke(self) -> Result<ExitCode> {
+    pub fn invoke(self) -> Result {
         let Self { runtime } = self;
         let strategy = runner::determine_strategy(runtime.fallback)?;
         let mut runtimes: Vec<_> = strategy.runtimes().collect();
@@ -40,5 +39,11 @@ impl Runtimes {
         }
 
         Ok(ExitCode::SUCCESS)
+    }
+}
+
+impl From<Runtimes> for super::Command {
+    fn from(shell: Runtimes) -> Self {
+        Self::Runtimes(shell)
     }
 }
