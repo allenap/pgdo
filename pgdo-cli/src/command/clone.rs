@@ -4,6 +4,7 @@ use color_eyre::eyre::{Result, WrapErr};
 
 use crate::{args, runner};
 
+/// Clone an existing cluster.
 #[derive(clap::Args)]
 #[clap(next_help_heading = Some("Options for clone"))]
 pub struct Args {

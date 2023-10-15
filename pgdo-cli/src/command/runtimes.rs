@@ -6,7 +6,12 @@ use pgdo::runtime::strategy::StrategyLike;
 
 use crate::{args, runner};
 
+/// List discovered PostgreSQL runtimes.
+///
+/// The runtime shown on the line beginning with `=>` is the default, i.e. the
+/// runtime that will be used when creating a new cluster.
 #[derive(clap::Args)]
+#[clap(next_help_heading = Some("Options for runtimes"))]
 pub struct Args {
     #[clap(flatten)]
     pub runtime: args::RuntimeArgs,

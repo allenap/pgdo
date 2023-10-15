@@ -7,6 +7,8 @@ use crate::{
     runner::{self, Runner},
 };
 
+/// Execute an arbitrary command, creating and starting the cluster as
+/// necessary.
 #[derive(clap::Args)]
 #[clap(next_help_heading = Some("Options for exec"))]
 pub struct Args {
