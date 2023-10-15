@@ -70,7 +70,7 @@ impl Exec {
 }
 
 impl From<Exec> for super::Command {
-    fn from(shell: Exec) -> Self {
-        Self::Exec(shell)
+    fn from(exec: Exec) -> Self {
+        Self::Exec(exec)
     }
 }

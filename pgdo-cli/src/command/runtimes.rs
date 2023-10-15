@@ -43,7 +43,7 @@ impl Runtimes {
 }
 
 impl From<Runtimes> for super::Command {
-    fn from(shell: Runtimes) -> Self {
-        Self::Runtimes(shell)
+    fn from(runtimes: Runtimes) -> Self {
+        Self::Runtimes(runtimes)
     }
 }

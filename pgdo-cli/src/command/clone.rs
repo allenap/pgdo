@@ -44,7 +44,7 @@ impl Clone {
 }
 
 impl From<Clone> for super::Command {
-    fn from(shell: Clone) -> Self {
-        Self::Clone(shell)
+    fn from(clone: Clone) -> Self {
+        Self::Clone(clone)
     }
 }
