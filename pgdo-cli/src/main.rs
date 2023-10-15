@@ -16,10 +16,10 @@ fn main() -> Result<ExitCode> {
     // `Shell` is the default command when none is specified.
     let command = cli.command.unwrap_or(Command::Shell(cli.shell));
     match command {
-        Command::Shell(args) => command::shell::invoke(args),
-        Command::Exec(args) => command::exec::invoke(args),
-        Command::Clone(args) => command::clone::invoke(args),
-        Command::Runtimes(runtime) => command::runtimes::invoke(runtime),
+        Command::Shell(shell) => shell.invoke(),
+        Command::Exec(exec) => exec.invoke(),
+        Command::Clone(clone) => clone.invoke(),
+        Command::Runtimes(runtimes) => runtimes.invoke(),
     }
 }
 
@@ -35,20 +35,20 @@ pub struct Cli {
     // way to have a default subcommand with clap.
     // https://github.com/clap-rs/clap/issues/975#issuecomment-1426424232
     #[clap(flatten)]
-    pub shell: command::shell::Args,
+    pub shell: command::shell::Shell,
 }
 
 #[derive(Subcommand)]
 pub enum Command {
     #[clap(display_order = 1)]
-    Shell(command::shell::Args),
+    Shell(command::shell::Shell),
 
     #[clap(display_order = 2)]
-    Exec(command::exec::Args),
+    Exec(command::exec::Exec),
 
     #[clap(display_order = 3)]
-    Clone(command::clone::Args),
+    Clone(command::clone::Clone),
 
     #[clap(display_order = 4)]
-    Runtimes(command::runtimes::Args),
+    Runtimes(command::runtimes::Runtimes),
 }

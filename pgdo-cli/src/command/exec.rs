@@ -11,7 +11,7 @@ use crate::{
 /// necessary.
 #[derive(clap::Args)]
 #[clap(next_help_heading = Some("Options for exec"))]
-pub struct Args {
+pub struct Exec {
     #[clap(flatten)]
     pub cluster: args::ClusterArgs,
 
@@ -36,33 +36,34 @@ pub struct Args {
     pub args: Vec<OsString>,
 }
 
-pub fn invoke(args: Args) -> Result<ExitCode> {
-    let Args {
-        cluster,
-        cluster_mode,
-        database,
-        command,
-        args,
-        lifecycle,
-        runtime,
-    } = args;
-
-    runner::run(
-        if lifecycle.destroy {
-            Runner::RunAndDestroy
-        } else {
-            Runner::RunAndStop
-        },
-        cluster,
-        cluster_mode,
-        runtime,
-        |cluster| {
-            runner::ensure_database(cluster, &database.name)?;
-            runner::check_exit(
-                cluster
-                    .exec(Some(&database.name), command, &args)
-                    .wrap_err("Executing command in cluster failed")?,
-            )
-        },
-    )
+impl Exec {
+    pub fn invoke(self) -> Result<ExitCode> {
+        let Self {
+            cluster,
+            cluster_mode,
+            database,
+            command,
+            args,
+            lifecycle,
+            runtime,
+        } = self;
+        runner::run(
+            if lifecycle.destroy {
+                Runner::RunAndDestroy
+            } else {
+                Runner::RunAndStop
+            },
+            cluster,
+            cluster_mode,
+            runtime,
+            |cluster| {
+                runner::ensure_database(cluster, &database.name)?;
+                runner::check_exit(
+                    cluster
+                        .exec(Some(&database.name), command, &args)
+                        .wrap_err("Executing command in cluster failed")?,
+                )
+            },
+        )
+    }
 }
