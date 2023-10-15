@@ -29,7 +29,6 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
     runner::run(
         cluster,
         args::ClusterModeArgs::default(),
-        None, // No database.
         args::RuntimeArgs::default(),
         runner::Runner::RunAndStopIfExists,
         |cluster| {

@@ -32,7 +32,6 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
     runner::run(
         cluster,
         cluster_mode,
-        Some(&database.name),
         runtime,
         if lifecycle.destroy {
             Runner::RunAndDestroy
@@ -40,6 +39,7 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
             Runner::RunAndStop
         },
         |cluster| {
+            runner::ensure_database(cluster, &database.name)?;
             runner::check_exit(
                 cluster
                     .shell(Some(&database.name))

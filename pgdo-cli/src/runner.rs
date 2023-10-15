@@ -44,6 +44,20 @@ pub(crate) fn determine_strategy(fallback: Option<Constraint>) -> Result<Strateg
     Ok(strategy)
 }
 
+pub(crate) fn ensure_database(cluster: &cluster::Cluster, database_name: &str) -> Result<()> {
+    if !cluster
+        .databases()
+        .wrap_err("Could not list databases")?
+        .contains(&database_name.to_string())
+    {
+        cluster
+            .createdb(database_name)
+            .wrap_err("Could not create database")
+            .with_section(|| database_name.to_owned().header("Database:"))?;
+    }
+    Ok(())
+}
+
 const UUID_NS: uuid::Uuid = uuid::Uuid::from_u128(93875103436633470414348750305797058811);
 
 #[allow(clippy::enum_variant_names)]
@@ -56,7 +70,6 @@ pub(crate) enum Runner {
 pub(crate) fn run<ACTION>(
     args::ClusterArgs { dir: cluster_dir }: args::ClusterArgs,
     args::ClusterModeArgs { mode: cluster_mode }: args::ClusterModeArgs,
-    database: Option<&str>,
     args::RuntimeArgs { fallback }: args::RuntimeArgs,
     runner: Runner,
     action: ACTION,
@@ -97,19 +110,6 @@ where
 
     runner(&cluster, lock, |cluster: &cluster::Cluster| {
         initialise(cluster_mode)(cluster)?;
-
-        if let Some(database_name) = database {
-            if !cluster
-                .databases()
-                .wrap_err("Could not list databases")?
-                .contains(&database_name.to_string())
-            {
-                cluster
-                    .createdb(database_name)
-                    .wrap_err("Could not create database")
-                    .with_section(|| database_name.to_owned().header("Database:"))?;
-            }
-        }
 
         // Ignore SIGINT, TERM, and HUP (with ctrlc feature "termination"). The
         // child process will receive the signal, presumably terminate, then
