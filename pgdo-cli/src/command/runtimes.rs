@@ -2,7 +2,7 @@ use std::process::ExitCode;
 
 use pgdo::runtime::strategy::StrategyLike;
 
-use super::Result;
+use super::ExitResult;
 use crate::{args, runner};
 
 /// List discovered PostgreSQL runtimes.
@@ -17,7 +17,7 @@ pub struct Runtimes {
 }
 
 impl Runtimes {
-    pub fn invoke(self) -> Result {
+    pub fn invoke(self) -> ExitResult {
         let Self { runtime } = self;
         let strategy = runner::determine_strategy(runtime.fallback)?;
         let mut runtimes: Vec<_> = strategy.runtimes().collect();

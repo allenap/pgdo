@@ -2,7 +2,7 @@ use std::{ffi::OsStr, path::PathBuf};
 
 use color_eyre::eyre::WrapErr;
 
-use super::Result;
+use super::ExitResult;
 use crate::{args, runner};
 
 /// Clone an existing cluster.
@@ -18,7 +18,7 @@ pub struct Clone {
 }
 
 impl Clone {
-    pub fn invoke(self) -> Result {
+    pub fn invoke(self) -> ExitResult {
         let Self { cluster, destination } = self;
         let args: &[&OsStr] = &[
             "--pgdata".as_ref(),

@@ -3,7 +3,7 @@ mod exec;
 mod runtimes;
 mod shell;
 
-use super::Result;
+use super::ExitResult;
 pub(crate) use shell::Shell as Default;
 
 #[derive(clap::Subcommand)]
@@ -22,7 +22,7 @@ pub(crate) enum Command {
 }
 
 impl Command {
-    pub(crate) fn invoke(self) -> Result {
+    pub(crate) fn invoke(self) -> ExitResult {
         match self {
             Self::Shell(shell) => shell.invoke(),
             Self::Exec(exec) => exec.invoke(),

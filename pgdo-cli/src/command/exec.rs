@@ -2,7 +2,7 @@ use std::ffi::OsString;
 
 use color_eyre::eyre::WrapErr;
 
-use super::Result;
+use super::ExitResult;
 use crate::{
     args,
     runner::{self, Runner},
@@ -38,7 +38,7 @@ pub struct Exec {
 }
 
 impl Exec {
-    pub fn invoke(self) -> Result {
+    pub fn invoke(self) -> ExitResult {
         let Self {
             cluster,
             cluster_mode,

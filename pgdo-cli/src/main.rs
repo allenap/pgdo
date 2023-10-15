@@ -6,9 +6,9 @@ mod runner;
 
 use clap::Parser;
 
-pub(crate) type Result = color_eyre::eyre::Result<std::process::ExitCode>;
+pub(crate) type ExitResult = color_eyre::Result<std::process::ExitCode>;
 
-fn main() -> Result {
+fn main() -> ExitResult {
     color_eyre::install()?;
     // Parse command-line arguments.
     let Options { command, default } = Options::parse();
