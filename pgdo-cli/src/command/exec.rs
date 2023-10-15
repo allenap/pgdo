@@ -47,6 +47,7 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
 
     runner::run(
         cluster,
+        cluster_mode,
         Some(&database.name),
         runner::determine_strategy(runtime.fallback)?,
         if lifecycle.destroy {
@@ -54,7 +55,6 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
         } else {
             Runner::RunAndStop
         },
-        runner::initialise(cluster_mode.mode),
         |cluster| {
             runner::check_exit(
                 cluster

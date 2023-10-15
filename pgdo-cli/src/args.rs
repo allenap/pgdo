@@ -67,6 +67,8 @@ pub struct LifecycleArgs {
     pub destroy: bool,
 }
 
+// ----------------------------------------------------------------------------
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 pub enum ClusterMode {
     /// Resets fsync, full_page_writes, and synchronous_commit to defaults.
@@ -78,8 +80,13 @@ pub enum ClusterMode {
     Fast,
 }
 
-impl Default for ClusterMode {
-    fn default() -> Self {
-        ClusterMode::Slow
+#[cfg(test)]
+mod tests {
+    use super::ClusterModeArgs;
+
+    #[test]
+    fn test_cluster_mode_args_default() {
+        let default = ClusterModeArgs::default();
+        assert_eq!(default.mode, None);
     }
 }

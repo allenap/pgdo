@@ -53,16 +53,15 @@ pub(crate) enum Runner {
     RunAndDestroy,
 }
 
-pub(crate) fn run<INIT, ACTION>(
+pub(crate) fn run<ACTION>(
     args::ClusterArgs { dir: database_dir }: args::ClusterArgs,
+    args::ClusterModeArgs { mode }: args::ClusterModeArgs,
     database: Option<&str>,
     strategy: Strategy,
     runner: Runner,
-    initialise: INIT,
     action: ACTION,
 ) -> Result<ExitCode>
 where
-    INIT: std::panic::UnwindSafe + FnOnce(&cluster::Cluster) -> Result<(), cluster::ClusterError>,
     ACTION: FnOnce(&cluster::Cluster) -> Result<ExitCode> + std::panic::UnwindSafe,
 {
     // Create the cluster directory first.
@@ -96,7 +95,7 @@ where
     };
 
     runner(&cluster, lock, |cluster: &cluster::Cluster| {
-        initialise(cluster)?;
+        initialise(mode)(cluster)?;
 
         if let Some(database_name) = database {
             if !cluster
@@ -123,7 +122,7 @@ where
 
 /// Create an initialisation function that will set appropriate PostgreSQL
 /// settings, e.g. `fsync`, `full_page_writes`, etc. that need to be set early.
-pub(crate) fn initialise(
+fn initialise(
     mode: Option<args::ClusterMode>,
 ) -> impl std::panic::UnwindSafe + FnOnce(&cluster::Cluster) -> Result<(), cluster::ClusterError> {
     match mode {
