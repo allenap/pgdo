@@ -78,39 +78,49 @@ pub(crate) enum Runner {
 /// takes care of creating, locking, starting, stopping, and destroying the
 /// cluster, and running the given action.
 pub(crate) fn run<ACTION>(
+    runner: Runner,
     args::ClusterArgs { dir: cluster_dir }: args::ClusterArgs,
     args::ClusterModeArgs { mode: cluster_mode }: args::ClusterModeArgs,
     args::RuntimeArgs { fallback }: args::RuntimeArgs,
-    runner: Runner,
     action: ACTION,
 ) -> Result<ExitCode>
 where
     ACTION: FnOnce(&cluster::Cluster) -> Result<ExitCode> + std::panic::UnwindSafe,
 {
-    // Create the cluster directory first.
-    match fs::create_dir(&cluster_dir) {
-        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
-        err @ Err(_) => err
-            .wrap_err("Could not create database directory")
-            .with_section(|| format!("{}", cluster_dir.display()).header("Database directory:"))?,
-        _ => (),
+    match runner {
+        Runner::RunAndStop | Runner::RunAndDestroy => {
+            // Attempt to create the cluster directory.
+            match fs::create_dir(&cluster_dir) {
+                Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
+                err @ Err(_) => err
+                    .wrap_err("Could not create cluster directory")
+                    .with_section(|| {
+                        format!("{}", cluster_dir.display()).header("Cluster directory:")
+                    })?,
+                _ => (),
+            }
+        }
+        Runner::RunAndStopIfExists => {
+            // Do not create cluster directory. If the cluster directory does
+            // not exist, we expect to crash later.
+        }
     };
 
     // Obtain a canonical path to the cluster directory.
-    let database_dir = cluster_dir
+    let cluster_dir = cluster_dir
         .canonicalize()
-        .wrap_err("Could not canonicalize database directory")
-        .with_section(|| format!("{}", cluster_dir.display()).header("Database directory:"))?;
+        .wrap_err("Could not canonicalize cluster directory")
+        .with_section(|| format!("{}", cluster_dir.display()).header("Cluster directory:"))?;
 
     // Use the canonical path to construct the UUID with which we'll lock this
     // cluster. Use the `Debug` form of `database_dir` for the lock file UUID.
-    let lock_uuid = uuid::Uuid::new_v5(&UUID_NS, format!("{:?}", &database_dir).as_bytes());
+    let lock_uuid = uuid::Uuid::new_v5(&UUID_NS, format!("{:?}", &cluster_dir).as_bytes());
     let lock = lock::UnlockedFile::try_from(&lock_uuid)
         .wrap_err("Could not create UUID-based lock file")
         .with_section(|| lock_uuid.to_string().header("UUID for lock file:"))?;
 
     let strategy = determine_strategy(fallback)?;
-    let cluster = cluster::Cluster::new(&database_dir, strategy)?;
+    let cluster = cluster::Cluster::new(&cluster_dir, strategy)?;
 
     let runner = match runner {
         Runner::RunAndStop => coordinate::run_and_stop,

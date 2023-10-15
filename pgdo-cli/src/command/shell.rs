@@ -30,14 +30,14 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
     let Args { cluster, cluster_mode, database, lifecycle, runtime } = args;
 
     runner::run(
-        cluster,
-        cluster_mode,
-        runtime,
         if lifecycle.destroy {
             Runner::RunAndDestroy
         } else {
             Runner::RunAndStop
         },
+        cluster,
+        cluster_mode,
+        runtime,
         |cluster| {
             runner::ensure_database(cluster, &database.name)?;
             runner::check_exit(

@@ -27,10 +27,10 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
     ];
 
     runner::run(
+        runner::Runner::RunAndStopIfExists,
         cluster,
         args::ClusterModeArgs::default(),
         args::RuntimeArgs::default(),
-        runner::Runner::RunAndStopIfExists,
         |cluster| {
             runner::check_exit(
                 cluster
