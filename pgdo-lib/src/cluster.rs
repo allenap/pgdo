@@ -18,12 +18,47 @@ use crate::runtime::{
 use crate::version;
 pub use error::ClusterError;
 
-/// The database we assume is _always_ present in a PostgreSQL cluster.
+/// `template0` is always present in a PostgreSQL cluster.
 ///
-/// We use this when we need to connect to a cluster to perform administrative
-/// tasks, for example, where the actual database to which we're connected is
-/// not relevant.
-pub static DEFAULT_DATABASE: &str = "template1";
+/// This database is a template database, though it's used to a lesser extent
+/// than `template1`.
+///
+/// `template0` should never be modified so it's rare to connect to this
+/// database, even as a convenient default – see [`DATABASE_TEMPLATE1`] for an
+/// explanation as to why.
+pub static DATABASE_TEMPLATE0: &str = "template0";
+
+/// `template1` is always present in a PostgreSQL cluster.
+///
+/// This database is used as the default template for creating new databases.
+///
+/// Connecting to a database prevents other sessions from creating new databases
+/// using that database as a template; see PostgreSQL's [Template Databases][]
+/// page to learn more about this limitation. Since `template1` is the default
+/// template, connecting to this database prevents other sessions from using a
+/// plain `CREATE DATABASE` command. In other words, it may be a good idea to
+/// connect to this database _only_ when modifying it, not as a default.
+///
+/// [Template Databases]:
+///     https://www.postgresql.org/docs/current/manage-ag-templatedbs.html
+pub static DATABASE_TEMPLATE1: &str = "template0";
+
+/// `postgres` is always created by `initdb` when building a PostgreSQL cluster.
+///
+/// From `initdb(1)`:
+/// > The postgres database is a default database meant for use by users,
+/// > utilities and third party applications.
+///
+/// Given that it can be problematic to connect to `template0` and `template1` –
+/// see [`DATABASE_TEMPLATE1`] for an explanation – `postgres` is a convenient
+/// default, hence this library uses `postgres` as the database from which to
+/// perform administrative tasks, for example.
+///
+/// Unfortunately, `postgres` can be dropped, in which case some of the
+/// functionality of this crate will be broken. Ideally we could connect to a
+/// PostgreSQL cluster without specifying a database, but that is presently not
+/// possible.
+pub static DATABASE_POSTGRES: &str = "postgres";
 
 /// Representation of a PostgreSQL cluster.
 ///
@@ -264,13 +299,13 @@ impl Cluster {
 
     /// Connect to this cluster.
     ///
-    /// When the database is not specified, connects to [`DEFAULT_DATABASE`].
+    /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
     pub fn connect(&self, database: Option<&str>) -> Result<postgres::Client, ClusterError> {
         let user = &env::var("USER").unwrap_or_else(|_| "USER-not-set".to_string());
         let host = self.datadir.to_string_lossy(); // postgres crate API limitation.
         let client = postgres::Client::configure()
             .user(user)
-            .dbname(database.unwrap_or(DEFAULT_DATABASE))
+            .dbname(database.unwrap_or(DATABASE_POSTGRES))
             .host(&host)
             .connect(postgres::NoTls)?;
         Ok(client)
@@ -278,13 +313,13 @@ impl Cluster {
 
     /// Run `psql` against this cluster, in the given database.
     ///
-    /// When the database is not specified, connects to [`DEFAULT_DATABASE`].
+    /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
     pub fn shell(&self, database: Option<&str>) -> Result<ExitStatus, ClusterError> {
         let mut command = self.runtime()?.execute("psql");
         command.arg("--quiet");
         command.env("PGDATA", &self.datadir);
         command.env("PGHOST", &self.datadir);
-        command.env("PGDATABASE", database.unwrap_or(DEFAULT_DATABASE));
+        command.env("PGDATABASE", database.unwrap_or(DATABASE_POSTGRES));
         Ok(command.spawn()?.wait()?)
     }
 
@@ -293,7 +328,7 @@ impl Cluster {
     /// The command is run with the `PGDATA`, `PGHOST`, and `PGDATABASE`
     /// environment variables set appropriately.
     ///
-    /// When the database is not specified, uses [`DEFAULT_DATABASE`].
+    /// When the database is not specified, uses [`DATABASE_POSTGRES`].
     pub fn exec<T: AsRef<OsStr>>(
         &self,
         database: Option<&str>,
@@ -304,7 +339,7 @@ impl Cluster {
         command.args(args);
         command.env("PGDATA", &self.datadir);
         command.env("PGHOST", &self.datadir);
-        command.env("PGDATABASE", database.unwrap_or(DEFAULT_DATABASE));
+        command.env("PGDATABASE", database.unwrap_or(DATABASE_POSTGRES));
         Ok(command.spawn()?.wait()?)
     }
 

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use clap::Args;
 
+use pgdo::cluster::DATABASE_POSTGRES;
 use pgdo::runtime::constraint::Constraint;
 
 #[derive(Args, Debug, Default)]
@@ -42,7 +43,7 @@ pub struct DatabaseArgs {
         long = "database",
         env = "PGDATABASE",
         value_name = "PGDATABASE",
-        default_value = "postgres",
+        default_value = DATABASE_POSTGRES,
         display_order = 2
     )]
     pub name: String,
