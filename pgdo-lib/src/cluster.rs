@@ -320,23 +320,37 @@ impl Cluster {
     }
 
     /// Create the named database.
-    pub fn createdb(&self, database: &str) -> Result<(), ClusterError> {
+    ///
+    /// Returns [`Unmodified`] if the database already exists, otherwise it
+    /// returns [`Modified`].
+    pub fn createdb(&self, database: &str) -> Result<State, ClusterError> {
+        use postgres::error::SqlState;
         let statement = format!(
             "CREATE DATABASE {}",
             postgres_protocol::escape::escape_identifier(database)
         );
-        self.connect(None)?.execute(statement.as_str(), &[])?;
-        Ok(())
+        match self.connect(None)?.execute(statement.as_str(), &[]) {
+            Err(err) if err.code() == Some(&SqlState::DUPLICATE_DATABASE) => Ok(Unmodified),
+            Err(err) => Err(err)?,
+            Ok(_) => Ok(Modified),
+        }
     }
 
     /// Drop the named database.
-    pub fn dropdb(&self, database: &str) -> Result<(), ClusterError> {
+    ///
+    /// Returns [`Unmodified`] if the database does not exist, otherwise it
+    /// returns [`Modified`].
+    pub fn dropdb(&self, database: &str) -> Result<State, ClusterError> {
+        use postgres::error::SqlState;
         let statement = format!(
             "DROP DATABASE {}",
             postgres_protocol::escape::escape_identifier(database)
         );
-        self.connect(None)?.execute(statement.as_str(), &[])?;
-        Ok(())
+        match self.connect(None)?.execute(statement.as_str(), &[]) {
+            Err(err) if err.code() == Some(&SqlState::UNDEFINED_DATABASE) => Ok(Unmodified),
+            Err(err) => Err(err)?,
+            Ok(_) => Ok(Modified),
+        }
     }
 
     /// Stop the cluster if it's running.

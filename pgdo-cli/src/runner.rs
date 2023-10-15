@@ -48,18 +48,12 @@ pub(crate) fn determine_strategy(fallback: Option<Constraint>) -> Result<Strateg
 
 /// Ensure that a given named database exists in a cluster.
 ///
-/// The cluster should be running. There is the possibility of a **race** here
+/// The cluster should be running.
 pub(crate) fn ensure_database(cluster: &cluster::Cluster, database_name: &str) -> Result<()> {
-    if !cluster
-        .databases()
-        .wrap_err("Could not list databases")?
-        .contains(&database_name.to_string())
-    {
-        cluster
-            .createdb(database_name)
-            .wrap_err("Could not create database")
-            .with_section(|| database_name.to_owned().header("Database:"))?;
-    }
+    cluster
+        .createdb(database_name)
+        .wrap_err("Could not create database")
+        .with_section(|| database_name.to_owned().header("Database:"))?;
     Ok(())
 }
 
