@@ -6,7 +6,7 @@ use std::process::ExitStatus;
 use color_eyre::eyre::{bail, eyre, Result, WrapErr};
 use color_eyre::{Help, SectionExt};
 
-use crate::args;
+use crate::{args, ExitResult};
 
 use pgdo::{
     cluster, coordinate, lock,
@@ -18,7 +18,7 @@ use pgdo::{
 };
 
 /// Check the exit status of a process and return an appropriate exit code.
-pub(crate) fn check_exit(status: ExitStatus) -> Result<ExitCode> {
+pub(crate) fn check_exit(status: ExitStatus) -> ExitResult {
     match status.code() {
         None => bail!("Command terminated: {status}"),
         Some(code) => Ok(u8::try_from(code)
@@ -77,9 +77,9 @@ pub(crate) fn run<ACTION>(
     args::ClusterModeArgs { mode: cluster_mode }: args::ClusterModeArgs,
     args::RuntimeArgs { fallback }: args::RuntimeArgs,
     action: ACTION,
-) -> Result<ExitCode>
+) -> ExitResult
 where
-    ACTION: FnOnce(&cluster::Cluster) -> Result<ExitCode> + std::panic::UnwindSafe,
+    ACTION: FnOnce(&cluster::Cluster) -> ExitResult + std::panic::UnwindSafe,
 {
     match runner {
         Runner::RunAndStop | Runner::RunAndDestroy => {
