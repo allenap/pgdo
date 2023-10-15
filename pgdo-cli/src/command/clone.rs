@@ -31,7 +31,7 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
 
     runner::run(
         cluster.dir,
-        "template1", // TODO: Make `run` allow for "no database".
+        None, // No database.
         runner::determine_strategy(runtime.fallback)?,
         runner::Runner::RunAndStopIfExists,
         runner::initialise(None),

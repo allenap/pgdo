@@ -27,7 +27,7 @@ pub fn invoke(args: Args) -> Result<ExitCode> {
     let Args { cluster, database, lifecycle, runtime } = args;
     runner::run(
         cluster.dir,
-        &database.name,
+        Some(&database.name),
         runner::determine_strategy(runtime.fallback)?,
         if lifecycle.destroy {
             Runner::RunAndDestroy

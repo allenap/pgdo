@@ -56,7 +56,7 @@ pub(crate) enum Runner {
 
 pub(crate) fn run<INIT, ACTION>(
     database_dir: PathBuf,
-    database_name: &str,
+    database: Option<&str>,
     strategy: Strategy,
     runner: Runner,
     initialise: INIT,
@@ -99,15 +99,17 @@ where
     runner(&cluster, lock, |cluster: &cluster::Cluster| {
         initialise(cluster)?;
 
-        if !cluster
-            .databases()
-            .wrap_err("Could not list databases")?
-            .contains(&database_name.to_string())
-        {
-            cluster
-                .createdb(database_name)
-                .wrap_err("Could not create database")
-                .with_section(|| database_name.to_owned().header("Database:"))?;
+        if let Some(database_name) = database {
+            if !cluster
+                .databases()
+                .wrap_err("Could not list databases")?
+                .contains(&database_name.to_string())
+            {
+                cluster
+                    .createdb(database_name)
+                    .wrap_err("Could not create database")
+                    .with_section(|| database_name.to_owned().header("Database:"))?;
+            }
         }
 
         // Ignore SIGINT, TERM, and HUP (with ctrlc feature "termination"). The
