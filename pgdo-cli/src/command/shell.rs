@@ -1,7 +1,6 @@
-use std::process::ExitCode;
+use color_eyre::eyre::WrapErr;
 
-use color_eyre::eyre::{Result, WrapErr};
-
+use super::ExitResult;
 use crate::{
     args,
     runner::{self, Runner},
@@ -11,7 +10,7 @@ use crate::{
 /// (DEFAULT).
 #[derive(clap::Args)]
 #[clap(next_help_heading = Some("Options for shell"))]
-pub struct Args {
+pub struct Shell {
     #[clap(flatten)]
     pub cluster: args::ClusterArgs,
 
@@ -28,25 +27,32 @@ pub struct Args {
     pub runtime: args::RuntimeArgs,
 }
 
-pub fn invoke(args: Args) -> Result<ExitCode> {
-    let Args { cluster, cluster_mode, database, lifecycle, runtime } = args;
+impl Shell {
+    pub fn invoke(self) -> ExitResult {
+        let Self { cluster, cluster_mode, database, lifecycle, runtime } = self;
+        runner::run(
+            if lifecycle.destroy {
+                Runner::RunAndDestroy
+            } else {
+                Runner::RunAndStop
+            },
+            cluster,
+            cluster_mode,
+            runtime,
+            |cluster| {
+                runner::ensure_database(cluster, &database.name)?;
+                runner::check_exit(
+                    cluster
+                        .shell(Some(&database.name))
+                        .wrap_err("Starting PostgreSQL shell in cluster failed")?,
+                )
+            },
+        )
+    }
+}
 
-    runner::run(
-        if lifecycle.destroy {
-            Runner::RunAndDestroy
-        } else {
-            Runner::RunAndStop
-        },
-        cluster,
-        cluster_mode,
-        runtime,
-        |cluster| {
-            runner::ensure_database(cluster, &database.name)?;
-            runner::check_exit(
-                cluster
-                    .shell(Some(&database.name))
-                    .wrap_err("Starting PostgreSQL shell in cluster failed")?,
-            )
-        },
-    )
+impl From<Shell> for super::Command {
+    fn from(shell: Shell) -> Self {
+        Self::Shell(shell)
+    }
 }
