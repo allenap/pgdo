@@ -313,6 +313,18 @@ impl Cluster {
         Ok(client)
     }
 
+    /// Create a lazy SQLx pool for this cluster.
+    ///
+    /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
+    pub fn pool(&self, database: Option<&str>) -> sqlx::PgPool {
+        sqlx::PgPool::connect_lazy_with(
+            sqlx::postgres::PgConnectOptions::new()
+                .socket(&self.datadir)
+                .database(database.unwrap_or(DATABASE_POSTGRES))
+                .application_name("pgdo"),
+        )
+    }
+
     /// Run `psql` against this cluster, in the given database.
     ///
     /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
