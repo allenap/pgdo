@@ -2,12 +2,12 @@ use std::{fmt, str::FromStr};
 
 use postgres_protocol::escape::{escape_identifier, escape_literal};
 
-use super::postgres;
+use super::sqlx;
 
 /// Reload configuration using `pg_reload_conf`. Equivalent to `SIGHUP` or
 /// `pg_ctl reload`.
-pub fn reload(client: &mut postgres::Client) -> Result<(), postgres::Error> {
-    client.execute("SELECT pg_reload_conf()", &[])?;
+pub async fn reload(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT pg_reload_conf()").execute(pool).await?;
     Ok(())
 }
 
@@ -20,9 +20,9 @@ pub enum AlterSystem {
 impl AlterSystem {
     /// Alter the system. Changes made by `ALTER SYSTEM` may require a reload or
     /// even a full restart to take effect.
-    pub fn apply(&self, client: &mut postgres::Client) -> Result<(), postgres::Error> {
+    pub async fn apply(&self, pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
         let command = self.to_string();
-        client.execute(&command, &[])?;
+        sqlx::query(&command).execute(pool).await?;
         Ok(())
     }
 }
@@ -92,6 +92,40 @@ impl Setting {
         .fetch_all(pool)
         .await
     }
+
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn get(name: &str, pool: &sqlx::PgPool) -> Result<Option<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            Setting,
+            r#"
+            SELECT
+                name "name!",
+                setting "setting!",
+                unit,
+                category "category!",
+                short_desc "short_desc!",
+                extra_desc,
+                context "context!",
+                vartype "vartype!",
+                source "source!",
+                min_val,
+                max_val,
+                enumvals,
+                boot_val,
+                reset_val,
+                sourcefile,
+                sourceline,
+                pending_restart "pending_restart!"
+            FROM
+                pg_catalog.pg_settings
+            WHERE
+                name = $1
+            "#,
+            name,
+        )
+        .fetch_optional(pool)
+        .await
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -99,64 +133,26 @@ pub struct Parameter(String);
 
 impl Parameter {
     /// Get the current value for this parameter.
-    pub fn get(&self, client: &mut postgres::Client) -> Result<Option<Value>, postgres::Error> {
-        let query = r#"SELECT setting, unit, vartype FROM pg_settings WHERE name = $1"#;
-        match client.query_opt(query, &[&self.0])? {
-            None => Ok(None),
-            Some(row) => {
-                let setting: Option<String> = row.try_get("setting")?;
-                let setting = match setting {
-                    None => None,
-                    Some(setting) => {
-                        let unit: Option<&str> = row.try_get("unit")?;
-                        let vartype: &str = row.try_get("vartype")?;
-                        Some(match vartype {
-                            // on, off, true, false, yes, no, 1, 0 (or any unambiguous prefix).
-                            "bool" => match setting.as_ref() {
-                                "on" | "true" | "tru" | "tr" | "t" | "yes" | "ye" | "y" | "1" => {
-                                    Value::Boolean(true)
-                                }
-                                "off" | "of" | "false" | "fals" | "fal" | "fa" | "f" | "no"
-                                | "n" | "0" => Value::Boolean(false),
-                                _ => unreachable!(),
-                            },
-                            "enum" => Value::String(setting),
-                            "integer" | "real" => match unit {
-                                None => Value::Number(setting),
-                                Some("8kB") => Value::Number(setting), // Special case.
-                                Some(unit) => {
-                                    if let Ok(unit) = unit.parse::<MemoryUnit>() {
-                                        Value::Memory(setting, unit)
-                                    } else if let Ok(unit) = unit.parse::<TimeUnit>() {
-                                        Value::Time(setting, unit)
-                                    } else {
-                                        unreachable!()
-                                    }
-                                }
-                            },
-                            "string" => Value::String(setting),
-                            _ => unreachable!(),
-                        })
-                    }
-                };
-                Ok(setting)
-            }
-        }
+    pub async fn get(&self, pool: &sqlx::PgPool) -> Result<Option<Value>, sqlx::Error> {
+        let setting = Setting::get(&self.0, pool).await?;
+        Ok(setting.map(|setting| Value::from(&setting)))
     }
 
     /// Set the current value for this parameter.
-    pub fn set<V: Into<Value>>(
+    pub async fn set<V: Into<Value>>(
         &self,
-        client: &mut postgres::Client,
+        pool: &sqlx::PgPool,
         value: V,
-    ) -> Result<(), postgres::Error> {
-        AlterSystem::Set(self.clone(), value.into()).apply(client)?;
+    ) -> Result<(), sqlx::Error> {
+        AlterSystem::Set(self.clone(), value.into())
+            .apply(pool)
+            .await?;
         Ok(())
     }
 
     /// Reset the value for this parameter.
-    pub fn reset(&self, client: &mut postgres::Client) -> Result<(), postgres::Error> {
-        AlterSystem::Reset(self.clone()).apply(client)?;
+    pub async fn reset(&self, pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+        AlterSystem::Reset(self.clone()).apply(pool).await?;
         Ok(())
     }
 }

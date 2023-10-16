@@ -12,6 +12,7 @@ use std::{env, fs, io};
 use nix::errno::Errno;
 pub use postgres;
 use shell_quote::sh::escape_into;
+pub use sqlx;
 
 use crate::runtime::{
     strategy::{Strategy, StrategyLike},
