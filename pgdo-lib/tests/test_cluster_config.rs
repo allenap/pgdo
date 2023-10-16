@@ -47,3 +47,25 @@ fn cluster_parameter_fetch() -> TestResult {
     cluster.stop()?;
     Ok(())
 }
+
+#[for_all_runtimes]
+#[test]
+fn cluster_settings_list() -> TestResult {
+    let data_dir = tempdir::TempDir::new("data")?;
+    let cluster = Cluster::new(&data_dir, runtime)?;
+    cluster.start()?;
+
+    let runtime = tokio::runtime::Runtime::new()?;
+    let settings = runtime.block_on(async { config::Setting::list(&cluster.pool(None)).await })?;
+    let mapping: std::collections::HashMap<config::Parameter, config::Value> = settings
+        .iter()
+        .map(|setting| (setting.into(), setting.into()))
+        .collect();
+
+    for (parameter, value) in mapping {
+        println!("{parameter}: {value}");
+    }
+
+    cluster.stop()?;
+    Ok(())
+}

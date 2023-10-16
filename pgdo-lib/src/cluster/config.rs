@@ -37,7 +37,64 @@ impl fmt::Display for AlterSystem {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// A setting as defined in `pg_catalog.pg_settings`.
+///
+/// This is fairly stringly-typed and mostly informational. For getting and
+/// setting values, [`Parameter`] and [`Value`] may be more convenient.
+#[derive(Debug, Clone)]
+pub struct Setting {
+    pub name: String,    // Never `NULL`.
+    pub setting: String, // Never `NULL`.
+    pub unit: Option<String>,
+    pub category: String,   // Never `NULL`.
+    pub short_desc: String, // Never `NULL`.
+    pub extra_desc: Option<String>,
+    pub context: String, // Never `NULL`.
+    pub vartype: String, // Never `NULL`.
+    pub source: String,  // Never `NULL`.
+    pub min_val: Option<String>,
+    pub max_val: Option<String>,
+    pub enumvals: Option<Vec<String>>,
+    pub boot_val: Option<String>,
+    pub reset_val: Option<String>,
+    pub sourcefile: Option<String>,
+    pub sourceline: Option<i32>,
+    pub pending_restart: bool, // Never `NULL`.
+}
+
+impl Setting {
+    pub async fn list(pool: &sqlx::PgPool) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as!(
+            Setting,
+            r#"
+            SELECT
+                name "name!",
+                setting "setting!",
+                unit,
+                category "category!",
+                short_desc "short_desc!",
+                extra_desc,
+                context "context!",
+                vartype "vartype!",
+                source "source!",
+                min_val,
+                max_val,
+                enumvals,
+                boot_val,
+                reset_val,
+                sourcefile,
+                sourceline,
+                pending_restart "pending_restart!"
+            FROM
+                pg_catalog.pg_settings
+            "#
+        )
+        .fetch_all(pool)
+        .await
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Parameter(String);
 
 impl Parameter {
@@ -113,6 +170,18 @@ impl fmt::Display for Parameter {
 impl From<&str> for Parameter {
     fn from(name: &str) -> Self {
         Self(name.to_owned())
+    }
+}
+
+impl From<Setting> for Parameter {
+    fn from(setting: Setting) -> Self {
+        Self(setting.name)
+    }
+}
+
+impl From<&Setting> for Parameter {
+    fn from(setting: &Setting) -> Self {
+        Self(setting.name.clone())
     }
 }
 
@@ -211,6 +280,36 @@ value_time_from!(i8, i16, i32, i64, i128);
 value_time_from!(u8, u16, u32, u64, u128);
 value_time_from!(f32, f64);
 value_time_from!(usize, isize);
+
+impl From<&Setting> for Value {
+    fn from(setting: &Setting) -> Self {
+        match setting.vartype.as_ref() {
+            "bool" => match setting.setting.as_ref() {
+                "on" | "true" | "tru" | "tr" | "t" => Self::Boolean(true),
+                "yes" | "ye" | "y" | "1" => Self::Boolean(true),
+                "off" | "of" | "false" | "fals" | "fal" | "fa" | "f" => Self::Boolean(false),
+                "no" | "n" | "0" => Self::Boolean(false),
+                _ => unreachable!(),
+            },
+            "integer" | "real" => match setting.unit.as_deref() {
+                None => Self::Number(setting.setting.clone()),
+                Some("8kB") => Self::Number(setting.setting.clone()), // Special case.
+                Some(unit) => {
+                    if let Ok(unit) = unit.parse::<MemoryUnit>() {
+                        Self::Memory(setting.setting.clone(), unit)
+                    } else if let Ok(unit) = unit.parse::<TimeUnit>() {
+                        Self::Time(setting.setting.clone(), unit)
+                    } else {
+                        unreachable!()
+                    }
+                }
+            },
+            "string" => Self::String(setting.setting.clone()),
+            "enum" => Self::String(setting.setting.clone()),
+            _ => unreachable!(),
+        }
+    }
+}
 
 /// Memory units recognised in PostgreSQL parameter values.
 /// <https://www.postgresql.org/docs/16/config-setting.html#CONFIG-SETTING-NAMES-VALUES>
