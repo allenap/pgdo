@@ -1,5 +1,6 @@
 //! Create, start, introspect, stop, and destroy PostgreSQL clusters.
 
+pub mod config;
 mod error;
 
 use std::ffi::{OsStr, OsString};

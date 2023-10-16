@@ -46,7 +46,8 @@
         "Swatinem",
         "synchronisation",
         "tempdir",
-        "unparse"
+        "unparse",
+        "vartype"
     ],
     "rust-analyzer.showUnlinkedFileNotification": false
 }
