@@ -1,5 +1,6 @@
 //! Create, start, introspect, stop, and destroy PostgreSQL clusters.
 
+pub mod config;
 mod error;
 
 use std::ffi::{OsStr, OsString};
@@ -9,6 +10,7 @@ use std::process::{Command, ExitStatus};
 use std::{env, fs, io};
 
 use nix::errno::Errno;
+pub use postgres;
 use shell_quote::sh::escape_into;
 
 use crate::runtime::{

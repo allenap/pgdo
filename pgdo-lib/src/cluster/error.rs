@@ -1,8 +1,7 @@
 use std::process::Output;
 use std::{error, fmt, io};
 
-use crate::runtime;
-use crate::version;
+use crate::{cluster, runtime, version};
 
 #[derive(Debug)]
 pub enum ClusterError {
@@ -13,7 +12,7 @@ pub enum ClusterError {
     RuntimeNotFound(version::PartialVersion),
     RuntimeDefaultNotFound,
     RuntimeError(runtime::RuntimeError),
-    DatabaseError(postgres::error::Error),
+    DatabaseError(cluster::postgres::Error),
     InUse, // Cluster is already in use; cannot lock exclusively.
     CommandError(Output),
 }
