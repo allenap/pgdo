@@ -12,8 +12,8 @@ pub async fn reload(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
 }
 
 pub enum AlterSystem<'a> {
-    Set(Parameter<'a>, Value),
-    Reset(Parameter<'a>),
+    Set(&'a Parameter<'a>, &'a Value),
+    Reset(&'a Parameter<'a>),
     ResetAll,
 }
 
@@ -28,6 +28,7 @@ impl<'a> AlterSystem<'a> {
 }
 
 impl<'a> fmt::Display for AlterSystem<'a> {
+    /// Render SQL that will apply this change.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AlterSystem::Set(p, v) => write!(f, "ALTER SYSTEM SET {p} TO {v}"),
@@ -144,13 +145,14 @@ impl<'a> Parameter<'a> {
         pool: &sqlx::PgPool,
         value: V,
     ) -> Result<(), sqlx::Error> {
-        AlterSystem::Set(*self, value.into()).apply(pool).await?;
+        let value = value.into();
+        AlterSystem::Set(self, &value).apply(pool).await?;
         Ok(())
     }
 
     /// Reset the value for this parameter.
     pub async fn reset(&self, pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
-        AlterSystem::Reset(*self).apply(pool).await?;
+        AlterSystem::Reset(self).apply(pool).await?;
         Ok(())
     }
 }
