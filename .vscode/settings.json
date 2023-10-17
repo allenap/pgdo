@@ -5,6 +5,7 @@
         "bindir",
         "bindirs",
         "bitand",
+        "BUGBUG",
         "canonicalize",
         "clippy",
         "createdb",

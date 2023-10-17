@@ -5,7 +5,7 @@ type TestResult = Result<(), ClusterError>;
 
 #[for_all_runtimes(min = "9.5")]
 #[test]
-fn cluster_set_parameter() -> TestResult {
+fn cluster_parameter_set() -> TestResult {
     let data_dir = tempdir::TempDir::new("data")?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
@@ -43,7 +43,7 @@ fn cluster_set_parameter() -> TestResult {
 
 #[for_all_runtimes(min = "9.5")]
 #[test]
-fn cluster_parameter_fetch() -> TestResult {
+fn cluster_parameter_get() -> TestResult {
     let data_dir = tempdir::TempDir::new("data")?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
@@ -62,7 +62,7 @@ fn cluster_parameter_fetch() -> TestResult {
 
 #[for_all_runtimes(min = "9.5")]
 #[test]
-fn cluster_settings_list() -> TestResult {
+fn cluster_setting_list() -> TestResult {
     let data_dir = tempdir::TempDir::new("data")?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
@@ -77,6 +77,26 @@ fn cluster_settings_list() -> TestResult {
     for (parameter, value) in mapping {
         println!("{parameter}: {value}");
     }
+
+    cluster.stop()?;
+    Ok(())
+}
+
+#[for_all_runtimes(min = "9.5")]
+#[test]
+fn cluster_setting_get() -> TestResult {
+    let data_dir = tempdir::TempDir::new("data")?;
+    let cluster = Cluster::new(&data_dir, runtime)?;
+    cluster.start()?;
+
+    let rt = tokio::runtime::Runtime::new()?;
+    let parameter = config::Parameter::from("application_name");
+    let application_name = rt
+        .block_on(async { config::Setting::get(&parameter, &cluster.pool(None)).await })?
+        .expect("missing application_name setting");
+
+    assert_eq!(application_name.setting, "pgdo");
+    assert_eq!(application_name.vartype, "string");
 
     cluster.stop()?;
     Ok(())

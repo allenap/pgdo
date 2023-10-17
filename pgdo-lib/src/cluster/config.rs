@@ -102,7 +102,10 @@ impl Setting {
     }
 
     #[allow(clippy::missing_panics_doc)]
-    pub async fn get(name: &str, pool: &sqlx::PgPool) -> Result<Option<Self>, sqlx::Error> {
+    pub async fn get<N: AsRef<str>>(
+        name: N,
+        pool: &sqlx::PgPool,
+    ) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as!(
             Setting,
             r#"
@@ -129,7 +132,7 @@ impl Setting {
             WHERE
                 name = $1
             "#,
-            name,
+            name.as_ref(),
         )
         .fetch_optional(pool)
         .await
@@ -140,7 +143,9 @@ impl Setting {
 pub struct Parameter<'a>(pub &'a str);
 
 impl<'a> Parameter<'a> {
-    /// Get the current value for this parameter.
+    /// Get the current [`Value`] for this parameter.
+    ///
+    /// If you want the full/raw [`Setting`], use [`Setting::get`] instead.
     pub async fn get(&self, pool: &sqlx::PgPool) -> Result<Option<Value>, sqlx::Error> {
         Setting::get(self.0, pool)
             .await?
@@ -173,6 +178,12 @@ impl<'a> Parameter<'a> {
 impl<'a> fmt::Display for Parameter<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", escape_identifier(self.0))
+    }
+}
+
+impl<'a> AsRef<str> for Parameter<'a> {
+    fn as_ref(&self) -> &str {
+        self.0
     }
 }
 
