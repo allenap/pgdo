@@ -143,27 +143,27 @@ async fn initialise(
     mode: Option<args::ClusterMode>,
     cluster: &cluster::Cluster,
 ) -> Result<(), cluster::ClusterError> {
-    use pgdo::cluster::config;
+    use pgdo::cluster::config::{self, Parameter};
 
-    let fsync = config::Parameter::from("fsync");
-    let full_page_writes = config::Parameter::from("full_page_writes");
-    let synchronous_commit = config::Parameter::from("synchronous_commit");
+    static FSYNC: Parameter = Parameter("fsync");
+    static FULL_PAGE_WRITES: Parameter = Parameter("full_page_writes");
+    static SYNCHRONOUS_COMMIT: Parameter = Parameter("synchronous_commit");
 
     match mode {
         Some(args::ClusterMode::Fast) => {
             let pool = cluster.pool(None);
-            fsync.set(&pool, false).await?;
-            full_page_writes.set(&pool, false).await?;
-            synchronous_commit.set(&pool, false).await?;
+            FSYNC.set(&pool, false).await?;
+            FULL_PAGE_WRITES.set(&pool, false).await?;
+            SYNCHRONOUS_COMMIT.set(&pool, false).await?;
             // TODO: Check `pg_file_settings` for errors before reloading.
             config::reload(&pool).await?;
             Ok(())
         }
         Some(args::ClusterMode::Slow) => {
             let pool = cluster.pool(None);
-            fsync.reset(&pool).await?;
-            full_page_writes.reset(&pool).await?;
-            synchronous_commit.reset(&pool).await?;
+            FSYNC.reset(&pool).await?;
+            FULL_PAGE_WRITES.reset(&pool).await?;
+            SYNCHRONOUS_COMMIT.reset(&pool).await?;
             // TODO: Check `pg_file_settings` for errors before reloading.
             config::reload(&pool).await?;
             Ok(())

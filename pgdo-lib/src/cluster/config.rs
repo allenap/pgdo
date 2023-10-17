@@ -11,13 +11,13 @@ pub async fn reload(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-pub enum AlterSystem {
-    Set(Parameter, Value),
-    Reset(Parameter),
+pub enum AlterSystem<'a> {
+    Set(Parameter<'a>, Value),
+    Reset(Parameter<'a>),
     ResetAll,
 }
 
-impl AlterSystem {
+impl<'a> AlterSystem<'a> {
     /// Alter the system. Changes made by `ALTER SYSTEM` may require a reload or
     /// even a full restart to take effect.
     pub async fn apply(&self, pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
@@ -27,7 +27,7 @@ impl AlterSystem {
     }
 }
 
-impl fmt::Display for AlterSystem {
+impl<'a> fmt::Display for AlterSystem<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             AlterSystem::Set(p, v) => write!(f, "ALTER SYSTEM SET {p} TO {v}"),
@@ -128,13 +128,13 @@ impl Setting {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Parameter(String);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Parameter<'a>(pub &'a str);
 
-impl Parameter {
+impl<'a> Parameter<'a> {
     /// Get the current value for this parameter.
     pub async fn get(&self, pool: &sqlx::PgPool) -> Result<Option<Value>, sqlx::Error> {
-        let setting = Setting::get(&self.0, pool).await?;
+        let setting = Setting::get(self.0, pool).await?;
         Ok(setting.map(|setting| Value::from(&setting)))
     }
 
@@ -144,40 +144,32 @@ impl Parameter {
         pool: &sqlx::PgPool,
         value: V,
     ) -> Result<(), sqlx::Error> {
-        AlterSystem::Set(self.clone(), value.into())
-            .apply(pool)
-            .await?;
+        AlterSystem::Set(*self, value.into()).apply(pool).await?;
         Ok(())
     }
 
     /// Reset the value for this parameter.
     pub async fn reset(&self, pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
-        AlterSystem::Reset(self.clone()).apply(pool).await?;
+        AlterSystem::Reset(*self).apply(pool).await?;
         Ok(())
     }
 }
 
-impl fmt::Display for Parameter {
+impl<'a> fmt::Display for Parameter<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", escape_identifier(&self.0))
+        write!(f, "{}", escape_identifier(self.0))
     }
 }
 
-impl From<&str> for Parameter {
-    fn from(name: &str) -> Self {
-        Self(name.to_owned())
+impl<'a> From<&'a str> for Parameter<'a> {
+    fn from(name: &'a str) -> Self {
+        Self(name)
     }
 }
 
-impl From<Setting> for Parameter {
-    fn from(setting: Setting) -> Self {
-        Self(setting.name)
-    }
-}
-
-impl From<&Setting> for Parameter {
-    fn from(setting: &Setting) -> Self {
-        Self(setting.name.clone())
+impl<'a> From<&'a Setting> for Parameter<'a> {
+    fn from(setting: &'a Setting) -> Self {
+        Self(&setting.name)
     }
 }
 
@@ -399,9 +391,9 @@ mod tests {
 
     #[test]
     fn test_parameter_display() {
-        assert_eq!(format!("{}", Parameter::from("foo")), "\"foo\"");
-        assert_eq!(format!("{}", Parameter::from("foo \\bar")), "\"foo \\bar\"");
-        assert_eq!(format!("{}", Parameter::from("foo\"bar")), "\"foo\"\"bar\"");
+        assert_eq!(format!("{}", Parameter("foo")), "\"foo\"");
+        assert_eq!(format!("{}", Parameter("foo \\bar")), "\"foo \\bar\"");
+        assert_eq!(format!("{}", Parameter("foo\"bar")), "\"foo\"\"bar\"");
     }
 
     #[test]
