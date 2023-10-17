@@ -53,7 +53,7 @@ versions that are not supported upstream).
 
 ```rust
 use pgdo::prelude::*;
-use sqlx::{query, Row};
+use pgdo::cluster::sqlx::{query, Row};
 let tokio = tokio::runtime::Runtime::new()?;
 for runtime in runtime::strategy::Strategy::default().runtimes() {
   let data_dir = tempdir::TempDir::new("data")?;

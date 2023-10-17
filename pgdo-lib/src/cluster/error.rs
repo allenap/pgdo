@@ -13,7 +13,7 @@ pub enum ClusterError {
     RuntimeDefaultNotFound,
     RuntimeError(runtime::RuntimeError),
     DatabaseError(cluster::postgres::Error),
-    SqlxError(sqlx::Error),
+    SqlxError(cluster::sqlx::Error),
     InUse, // Cluster is already in use; cannot lock exclusively.
     CommandError(Output),
 }
@@ -79,8 +79,8 @@ impl From<postgres::error::Error> for ClusterError {
     }
 }
 
-impl From<sqlx::Error> for ClusterError {
-    fn from(error: sqlx::Error) -> ClusterError {
+impl From<cluster::sqlx::Error> for ClusterError {
+    fn from(error: cluster::sqlx::Error) -> ClusterError {
         Self::SqlxError(error)
     }
 }

@@ -3,10 +3,14 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use pgdo::cluster::{exists, version, Cluster, ClusterError, State::*};
+use pgdo::cluster::{
+    exists,
+    sqlx::{query, Row},
+    version, Cluster, ClusterError,
+    State::*,
+};
 use pgdo::version::{PartialVersion, Version};
 use pgdo_test::for_all_runtimes;
-use sqlx::Row;
 
 type TestResult = Result<(), ClusterError>;
 
@@ -108,7 +112,7 @@ fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResu
     cluster.start()?;
     let result = block_on(async {
         let pool = cluster.pool(None);
-        sqlx::query("SHOW ALL").fetch_all(&pool).await
+        query("SHOW ALL").fetch_all(&pool).await
     })?;
     let params: std::collections::HashMap<String, String> = result
         .into_iter()

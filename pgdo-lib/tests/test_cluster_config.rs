@@ -1,4 +1,4 @@
-use pgdo::cluster::{config, Cluster, ClusterError};
+use pgdo::cluster::{config, sqlx, Cluster, ClusterError};
 use pgdo_test::for_all_runtimes;
 
 type TestResult = Result<(), ClusterError>;
