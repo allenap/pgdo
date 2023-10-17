@@ -38,7 +38,7 @@ fn cluster_does_not_exist() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_does_exist() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime.clone())?;
     cluster.create()?;
     assert!(exists(&cluster));
@@ -58,7 +58,7 @@ fn cluster_has_no_version_when_it_does_not_exist() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_has_version_when_it_does_exist() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let version_file = data_dir.path().join("PG_VERSION");
     File::create(&version_file)?;
     let pg_version: PartialVersion = runtime.version.into();
@@ -96,7 +96,7 @@ fn cluster_has_log_file() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_create_creates_cluster() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     assert!(!exists(&cluster));
     assert!(cluster.create()? == Modified);
@@ -107,7 +107,7 @@ fn cluster_create_creates_cluster() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime.clone())?;
     cluster.start()?;
     let result = block_on(async {
@@ -176,7 +176,7 @@ fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResu
 #[for_all_runtimes]
 #[test]
 fn cluster_create_does_nothing_when_it_already_exists() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     assert!(!exists(&cluster));
     assert!(cluster.create()? == Modified);
@@ -188,7 +188,7 @@ fn cluster_create_does_nothing_when_it_already_exists() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_start_stop_starts_and_stops_cluster() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.create()?;
     assert!(!cluster.running()?);
@@ -202,7 +202,7 @@ fn cluster_start_stop_starts_and_stops_cluster() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_destroy_stops_and_removes_cluster() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.create()?;
     cluster.start()?;
@@ -215,7 +215,7 @@ fn cluster_destroy_stops_and_removes_cluster() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_databases_returns_vec_of_database_names() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
 
@@ -235,7 +235,7 @@ fn cluster_databases_returns_vec_of_database_names() -> TestResult {
 fn cluster_databases_with_non_plain_names_can_be_created_and_dropped() -> TestResult {
     // PostgreSQL identifiers containing hyphens, for example, or where we
     // want to preserve capitalisation, are possible.
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
     cluster.createdb("foo-bar")?;
@@ -257,7 +257,7 @@ fn cluster_databases_with_non_plain_names_can_be_created_and_dropped() -> TestRe
 #[for_all_runtimes]
 #[test]
 fn cluster_databases_that_already_exist_can_be_created_without_error() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
     assert!(matches!(cluster.createdb("foo-bar")?, Modified));
@@ -269,7 +269,7 @@ fn cluster_databases_that_already_exist_can_be_created_without_error() -> TestRe
 #[for_all_runtimes]
 #[test]
 fn cluster_databases_that_do_not_exist_can_be_dropped_without_error() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
     cluster.createdb("foo-bar")?;

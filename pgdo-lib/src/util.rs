@@ -27,11 +27,8 @@ mod tests {
 
     #[test]
     fn test_prepend_to_path_prepends_given_dir_to_path() -> TestResult {
-        let path = env::join_paths([
-            tempdir::TempDir::new("aaa")?.path(),
-            tempdir::TempDir::new("bbb")?.path(),
-        ])?;
-        let tempdir = tempdir::TempDir::new("bin")?;
+        let path = env::join_paths([tempfile::tempdir()?.path(), tempfile::tempdir()?.path()])?;
+        let tempdir = tempfile::tempdir()?;
         let expected = {
             let mut tmp = vec![tempdir.path().to_path_buf()];
             tmp.extend(env::split_paths(&path));
@@ -44,10 +41,10 @@ mod tests {
 
     #[test]
     fn test_prepend_to_path_moves_dir_to_front_of_path() -> TestResult {
-        let tempdir = tempdir::TempDir::new("bin")?;
+        let tempdir = tempfile::tempdir()?;
         let path = env::join_paths([
-            tempdir::TempDir::new("aaa")?.path(),
-            tempdir::TempDir::new("bbb")?.path(),
+            tempfile::tempdir()?.path(),
+            tempfile::tempdir()?.path(),
             tempdir.path(),
         ])?;
         let expected = {
@@ -62,7 +59,7 @@ mod tests {
 
     #[test]
     fn test_prepend_to_path_returns_given_dir_if_path_is_empty() -> TestResult {
-        let tempdir = tempdir::TempDir::new("bin")?;
+        let tempdir = tempfile::tempdir()?;
         let expected = tempdir.path();
         let observed = super::prepend_to_path(tempdir.path(), None)?;
         assert_eq!(expected, observed);

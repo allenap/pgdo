@@ -6,7 +6,7 @@ type TestResult = Result<(), ClusterError>;
 #[for_all_runtimes(min = "9.5")]
 #[test]
 fn cluster_parameter_set() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
 
@@ -44,7 +44,7 @@ fn cluster_parameter_set() -> TestResult {
 #[for_all_runtimes(min = "9.5")]
 #[test]
 fn cluster_parameter_get() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
 
@@ -63,7 +63,7 @@ fn cluster_parameter_get() -> TestResult {
 #[for_all_runtimes(min = "9.5")]
 #[test]
 fn cluster_setting_list() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
 
@@ -85,7 +85,7 @@ fn cluster_setting_list() -> TestResult {
 #[for_all_runtimes(min = "9.5")]
 #[test]
 fn cluster_setting_get() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
+    let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
 

@@ -36,4 +36,4 @@ features = ["macros", "postgres", "runtime-tokio"]
 paste = "^1.0.14"
 pgdo-test = { path = "../pgdo-test" }
 rand = "^0.8.5"
-tempdir = "^0.3.7"
+tempfile = "3"

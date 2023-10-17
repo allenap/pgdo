@@ -7,7 +7,7 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 #[for_all_runtimes]
 #[test]
 fn run_and_stop_leaves_the_cluster_in_place() -> TestResult {
-    let tempdir = tempdir::TempDir::new("somewhere")?;
+    let tempdir = tempfile::tempdir()?;
     let datadir = tempdir.path().join("data");
     let cluster = Cluster::new(&datadir, runtime)?;
     let lockpath = tempdir.path().join("lock");
@@ -22,7 +22,7 @@ fn run_and_stop_leaves_the_cluster_in_place() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn run_and_stop_if_exists_leaves_the_cluster_in_place() -> TestResult {
-    let tempdir = tempdir::TempDir::new("somewhere")?;
+    let tempdir = tempfile::tempdir()?;
     let datadir = tempdir.path().join("data");
     let cluster = Cluster::new(&datadir, runtime)?;
     cluster.create()?;
@@ -38,7 +38,7 @@ fn run_and_stop_if_exists_leaves_the_cluster_in_place() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn run_and_stop_if_exists_returns_error_if_cluster_does_not_exist() -> TestResult {
-    let tempdir = tempdir::TempDir::new("somewhere")?;
+    let tempdir = tempfile::tempdir()?;
     let datadir = tempdir.path().join("data");
     let cluster = Cluster::new(datadir, runtime)?;
     let lockpath = tempdir.path().join("lock");
@@ -53,7 +53,7 @@ fn run_and_stop_if_exists_returns_error_if_cluster_does_not_exist() -> TestResul
 #[for_all_runtimes]
 #[test]
 fn run_and_destroy_removes_the_cluster() -> TestResult {
-    let tempdir = tempdir::TempDir::new("somewhere")?;
+    let tempdir = tempfile::tempdir()?;
     let datadir = tempdir.path().join("data");
     let cluster = Cluster::new(&datadir, runtime)?;
     let lockpath = tempdir.path().join("lock");
