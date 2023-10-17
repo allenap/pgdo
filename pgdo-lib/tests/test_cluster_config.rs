@@ -10,8 +10,8 @@ fn cluster_set_parameter() -> TestResult {
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
 
-    let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(async {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
         let pool = cluster.pool(None);
 
         // By default, `trace_notify` is disabled.
@@ -48,8 +48,8 @@ fn cluster_parameter_fetch() -> TestResult {
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
 
-    let runtime = tokio::runtime::Runtime::new()?;
-    let value = runtime.block_on(async {
+    let rt = tokio::runtime::Runtime::new()?;
+    let value = rt.block_on(async {
         config::Parameter::from("application_name")
             .get(&cluster.pool(None))
             .await
@@ -67,8 +67,8 @@ fn cluster_settings_list() -> TestResult {
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start()?;
 
-    let runtime = tokio::runtime::Runtime::new()?;
-    let settings = runtime.block_on(async { config::Setting::list(&cluster.pool(None)).await })?;
+    let rt = tokio::runtime::Runtime::new()?;
+    let settings = rt.block_on(async { config::Setting::list(&cluster.pool(None)).await })?;
     let mapping: std::collections::HashMap<config::Parameter, config::Value> = settings
         .iter()
         .map(|setting| (setting.into(), setting.into()))
