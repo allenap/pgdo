@@ -42,17 +42,24 @@ impl<'a> fmt::Display for AlterSystem<'a> {
 ///
 /// This is fairly stringly-typed and mostly informational. For getting and
 /// setting values, [`Parameter`] and [`Value`] may be more convenient.
+///
+/// **Note** that this does not work on PostgreSQL 9.4 and earlier because the
+/// `pending_restart` column does not exist. PostgreSQL 9.4 has long been
+/// obsolete so a workaround is not provided.
+///
+/// See the [documentation for
+/// `pg_settings`](https://www.postgresql.org/docs/current/view-pg-settings.html).
 #[derive(Debug, Clone)]
 pub struct Setting {
-    pub name: String,    // Never `NULL`.
-    pub setting: String, // Never `NULL`.
+    pub name: String,
+    pub setting: String,
     pub unit: Option<String>,
-    pub category: String,   // Never `NULL`.
-    pub short_desc: String, // Never `NULL`.
+    pub category: String,
+    pub short_desc: String,
     pub extra_desc: Option<String>,
-    pub context: String, // Never `NULL`.
-    pub vartype: String, // Never `NULL`.
-    pub source: String,  // Never `NULL`.
+    pub context: String,
+    pub vartype: String,
+    pub source: String,
     pub min_val: Option<String>,
     pub max_val: Option<String>,
     pub enumvals: Option<Vec<String>>,
@@ -60,7 +67,7 @@ pub struct Setting {
     pub reset_val: Option<String>,
     pub sourcefile: Option<String>,
     pub sourceline: Option<i32>,
-    pub pending_restart: bool, // Never `NULL`.
+    pub pending_restart: bool,
 }
 
 impl Setting {
