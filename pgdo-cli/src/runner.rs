@@ -143,40 +143,29 @@ async fn initialise(
     mode: Option<args::ClusterMode>,
     cluster: &cluster::Cluster,
 ) -> Result<(), cluster::ClusterError> {
-    use pgdo::cluster::sqlx;
+    use pgdo::cluster::config;
+
+    let fsync = config::Parameter::from("fsync");
+    let full_page_writes = config::Parameter::from("full_page_writes");
+    let synchronous_commit = config::Parameter::from("synchronous_commit");
+
     match mode {
         Some(args::ClusterMode::Fast) => {
             let pool = cluster.pool(None);
-            sqlx::query("ALTER SYSTEM SET fsync = 'off'")
-                .execute(&pool)
-                .await?;
-            sqlx::query("ALTER SYSTEM SET full_page_writes = 'off'")
-                .execute(&pool)
-                .await?;
-            sqlx::query("ALTER SYSTEM SET synchronous_commit = 'off'")
-                .execute(&pool)
-                .await?;
+            fsync.set(&pool, false).await?;
+            full_page_writes.set(&pool, false).await?;
+            synchronous_commit.set(&pool, false).await?;
             // TODO: Check `pg_file_settings` for errors before reloading.
-            sqlx::query("SELECT pg_reload_conf()")
-                .execute(&pool)
-                .await?;
+            config::reload(&pool).await?;
             Ok(())
         }
         Some(args::ClusterMode::Slow) => {
             let pool = cluster.pool(None);
-            sqlx::query("ALTER SYSTEM RESET fsync")
-                .execute(&pool)
-                .await?;
-            sqlx::query("ALTER SYSTEM RESET full_page_writes")
-                .execute(&pool)
-                .await?;
-            sqlx::query("ALTER SYSTEM RESET synchronous_commit")
-                .execute(&pool)
-                .await?;
+            fsync.reset(&pool).await?;
+            full_page_writes.reset(&pool).await?;
+            synchronous_commit.reset(&pool).await?;
             // TODO: Check `pg_file_settings` for errors before reloading.
-            sqlx::query("SELECT pg_reload_conf()")
-                .execute(&pool)
-                .await?;
+            config::reload(&pool).await?;
             Ok(())
         }
         None => Ok(()),
