@@ -298,7 +298,7 @@ impl TryFrom<&Setting> for Value {
             },
             "integer" | "real" => match setting.unit.as_deref() {
                 None => Self::Number(setting.setting.clone()),
-                Some("8kB") => Self::Number(setting.setting.clone()), // Special case.
+                Some("8kB" | "16MB") => Self::Number(setting.setting.clone()), // Special cases 🤷
                 Some(unit) => {
                     if let Ok(unit) = unit.parse::<MemoryUnit>() {
                         Self::Memory(setting.setting.clone(), unit)
