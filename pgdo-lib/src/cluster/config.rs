@@ -286,7 +286,7 @@ impl From<&Setting> for Value {
                 "yes" | "ye" | "y" | "1" => Self::Boolean(true),
                 "off" | "of" | "false" | "fals" | "fal" | "fa" | "f" => Self::Boolean(false),
                 "no" | "n" | "0" => Self::Boolean(false),
-                _ => unreachable!(),
+                _ => panic!("invalid boolean value: {setting:?}"),
             },
             "integer" | "real" => match setting.unit.as_deref() {
                 None => Self::Number(setting.setting.clone()),
@@ -297,13 +297,13 @@ impl From<&Setting> for Value {
                     } else if let Ok(unit) = unit.parse::<TimeUnit>() {
                         Self::Time(setting.setting.clone(), unit)
                     } else {
-                        unreachable!()
+                        panic!("invalid numeric value: {setting:?}");
                     }
                 }
             },
             "string" => Self::String(setting.setting.clone()),
             "enum" => Self::String(setting.setting.clone()),
-            _ => unreachable!(),
+            _ => panic!("unrecognised value type: {setting:?}"),
         }
     }
 }
