@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#
+# Prerequisites: Rust/Cargo, sqlx-cli.
+# $ cargo install sqlx-cli
+#
+
+exec cargo run --package pgdo-cli --bin pgdo -- exec -- cargo sqlx "$@"
+
+# End.

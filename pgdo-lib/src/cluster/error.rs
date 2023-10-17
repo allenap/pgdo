@@ -13,6 +13,7 @@ pub enum ClusterError {
     RuntimeDefaultNotFound,
     RuntimeError(runtime::RuntimeError),
     DatabaseError(cluster::postgres::Error),
+    SqlxError(cluster::sqlx::Error),
     InUse, // Cluster is already in use; cannot lock exclusively.
     CommandError(Output),
 }
@@ -29,6 +30,7 @@ impl fmt::Display for ClusterError {
             RuntimeDefaultNotFound => write!(fmt, "PostgreSQL runtime not found"),
             RuntimeError(ref e) => write!(fmt, "runtime error: {e}"),
             DatabaseError(ref e) => write!(fmt, "database error: {e}"),
+            SqlxError(ref e) => write!(fmt, "database error: {e}"),
             InUse => write!(fmt, "cluster in use; cannot lock exclusively"),
             CommandError(ref e) => write!(fmt, "external command failed: {e:?}"),
         }
@@ -46,6 +48,7 @@ impl error::Error for ClusterError {
             Self::RuntimeDefaultNotFound => None,
             Self::RuntimeError(ref error) => Some(error),
             Self::DatabaseError(ref error) => Some(error),
+            Self::SqlxError(ref error) => Some(error),
             Self::InUse => None,
             Self::CommandError(_) => None,
         }
@@ -73,6 +76,12 @@ impl From<version::VersionError> for ClusterError {
 impl From<postgres::error::Error> for ClusterError {
     fn from(error: postgres::error::Error) -> ClusterError {
         Self::DatabaseError(error)
+    }
+}
+
+impl From<cluster::sqlx::Error> for ClusterError {
+    fn from(error: cluster::sqlx::Error) -> ClusterError {
+        Self::SqlxError(error)
     }
 }
 

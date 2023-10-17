@@ -6,18 +6,17 @@ on:
     - cron: "0 0 * * 0" # weekly
 
 jobs:
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check
-
   test:
     name: Test
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v3
+      # Install Rust.
+      - uses: dtolnay/rust-toolchain@stable
+      # Install SQLx.
+      - name: Install SQLx tooling
+        run: cargo install sqlx-cli --no-default-features --features postgres
+      # Install PostgreSQL runtimes.
       - name: Set up PostgreSQL APT repository
         run: |
           # From https://wiki.postgresql.org/wiki/Apt
@@ -35,8 +34,10 @@ jobs:
       - name: Set PATH for all PostgreSQL runtimes
         run: |
           printf '%s\n' /usr/lib/postgresql/*/bin | sort -Vr | tee -a "$GITHUB_PATH"
-      - uses: actions/checkout@v3
-      - uses: dtolnay/rust-toolchain@stable
+      # Check SQLx compilation metadata.
+      - name: Check SQLx database compilation metadata is up-to-date
+        run: bin/sqlx prepare --check --database-url="postgresql://?host=${PWD}/cluster&dbname=postgres" --workspace
+      # Finally, run tests.
       - run: cargo test
 
   fmt:
@@ -50,7 +51,7 @@ jobs:
       - run: cargo fmt --all -- --check
 
   clippy:
-    name: Clippy
+    name: Clippy # i.e. `cargo check` plus extra linting.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
