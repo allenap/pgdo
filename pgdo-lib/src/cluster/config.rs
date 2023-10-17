@@ -142,8 +142,14 @@ pub struct Parameter<'a>(pub &'a str);
 impl<'a> Parameter<'a> {
     /// Get the current value for this parameter.
     pub async fn get(&self, pool: &sqlx::PgPool) -> Result<Option<Value>, sqlx::Error> {
-        let setting = Setting::get(self.0, pool).await?;
-        Ok(setting.map(|setting| Value::from(&setting)))
+        Setting::get(self.0, pool)
+            .await?
+            .map(|setting| {
+                Value::try_from(&setting)
+                    .map_err(Into::into)
+                    .map_err(sqlx::Error::Decode)
+            })
+            .transpose()
     }
 
     /// Set the current value for this parameter.
@@ -278,15 +284,17 @@ value_time_from!(u8, u16, u32, u64, u128);
 value_time_from!(f32, f64);
 value_time_from!(usize, isize);
 
-impl From<&Setting> for Value {
-    fn from(setting: &Setting) -> Self {
-        match setting.vartype.as_ref() {
+impl TryFrom<&Setting> for Value {
+    type Error = String;
+
+    fn try_from(setting: &Setting) -> Result<Self, Self::Error> {
+        Ok(match setting.vartype.as_ref() {
             "bool" => match setting.setting.as_ref() {
                 "on" | "true" | "tru" | "tr" | "t" => Self::Boolean(true),
                 "yes" | "ye" | "y" | "1" => Self::Boolean(true),
                 "off" | "of" | "false" | "fals" | "fal" | "fa" | "f" => Self::Boolean(false),
                 "no" | "n" | "0" => Self::Boolean(false),
-                _ => panic!("invalid boolean value: {setting:?}"),
+                _ => return Err(format!("invalid boolean value: {setting:?}")),
             },
             "integer" | "real" => match setting.unit.as_deref() {
                 None => Self::Number(setting.setting.clone()),
@@ -297,14 +305,14 @@ impl From<&Setting> for Value {
                     } else if let Ok(unit) = unit.parse::<TimeUnit>() {
                         Self::Time(setting.setting.clone(), unit)
                     } else {
-                        panic!("invalid numeric value: {setting:?}");
+                        return Err(format!("invalid numeric value: {setting:?}"));
                     }
                 }
             },
             "string" => Self::String(setting.setting.clone()),
             "enum" => Self::String(setting.setting.clone()),
-            _ => panic!("unrecognised value type: {setting:?}"),
-        }
+            _ => return Err(format!("unrecognised value type: {setting:?}")),
+        })
     }
 }
 

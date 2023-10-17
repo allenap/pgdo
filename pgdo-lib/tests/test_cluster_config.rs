@@ -71,7 +71,7 @@ fn cluster_settings_list() -> TestResult {
     let settings = rt.block_on(async { config::Setting::list(&cluster.pool(None)).await })?;
     let mapping: std::collections::HashMap<config::Parameter, config::Value> = settings
         .iter()
-        .map(|setting| (setting.into(), setting.into()))
+        .map(|setting| (setting.into(), setting.try_into().unwrap()))
         .collect();
 
     for (parameter, value) in mapping {
