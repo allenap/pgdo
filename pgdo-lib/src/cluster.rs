@@ -10,7 +10,7 @@ use std::process::{Command, ExitStatus};
 use std::{env, fs, io};
 
 use nix::errno::Errno;
-pub use postgres;
+use postgres;
 use shell_quote::sh::escape_into;
 pub use sqlx;
 
@@ -303,7 +303,7 @@ impl Cluster {
     /// Connect to this cluster.
     ///
     /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
-    pub fn connect(&self, database: Option<&str>) -> Result<postgres::Client, ClusterError> {
+    fn connect(&self, database: Option<&str>) -> Result<postgres::Client, ClusterError> {
         let user = &env::var("USER").unwrap_or_else(|_| "USER-not-set".to_string());
         let host = self.datadir.to_string_lossy(); // postgres crate API limitation.
         let client = postgres::Client::configure()
@@ -315,6 +315,20 @@ impl Cluster {
     }
 
     /// Create a lazy SQLx pool for this cluster.
+    ///
+    /// Although it's possible to call this anywhere, at runtime it needs a
+    /// Tokio context to work, e.g.:
+    ///
+    /// ```rust,no_run
+    /// # let runtime = pgdo::runtime::strategy::Strategy::default();
+    /// # let cluster = pgdo::cluster::Cluster::new("some/where", runtime)?;
+    /// let tokio = tokio::runtime::Runtime::new()?;
+    /// let rows = tokio.block_on(async {
+    ///   let pool = cluster.pool(None);
+    ///   sqlx::query("SELECT 1").fetch_all(&pool).await
+    /// })?;
+    /// # Ok::<(), pgdo::cluster::ClusterError>(())
+    /// ```
     ///
     /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
     pub fn pool(&self, database: Option<&str>) -> sqlx::PgPool {

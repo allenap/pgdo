@@ -6,8 +6,13 @@ use std::str::FromStr;
 use pgdo::cluster::{exists, version, Cluster, ClusterError, State::*};
 use pgdo::version::{PartialVersion, Version};
 use pgdo_test::for_all_runtimes;
+use sqlx::Row;
 
 type TestResult = Result<(), ClusterError>;
+
+fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    tokio::runtime::Runtime::new().unwrap().block_on(future)
+}
 
 #[for_all_runtimes]
 #[test]
@@ -101,11 +106,13 @@ fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResu
     let data_dir = tempdir::TempDir::new("data")?;
     let cluster = Cluster::new(&data_dir, runtime.clone())?;
     cluster.start()?;
-    let mut conn = cluster.connect(Some("postgres"))?;
-    let result = conn.query("SHOW ALL", &[])?;
+    let result = block_on(async {
+        let pool = cluster.pool(None);
+        sqlx::query("SHOW ALL").fetch_all(&pool).await
+    })?;
     let params: std::collections::HashMap<String, String> = result
         .into_iter()
-        .map(|row| (row.get::<usize, String>(0), row.get::<usize, String>(1)))
+        .map(|row| (row.get::<String, _>(0), row.get::<String, _>(1)))
         .collect();
     // PostgreSQL 9.4.22's release notes reveal:
     //
@@ -198,17 +205,6 @@ fn cluster_destroy_stops_and_removes_cluster() -> TestResult {
     assert!(exists(&cluster));
     cluster.destroy()?;
     assert!(!exists(&cluster));
-    Ok(())
-}
-
-#[for_all_runtimes]
-#[test]
-fn cluster_connect_connects() -> TestResult {
-    let data_dir = tempdir::TempDir::new("data")?;
-    let cluster = Cluster::new(&data_dir, runtime)?;
-    cluster.start()?;
-    cluster.connect(None)?;
-    cluster.destroy()?;
     Ok(())
 }
 

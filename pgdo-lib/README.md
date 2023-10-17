@@ -53,13 +53,17 @@ versions that are not supported upstream).
 
 ```rust
 use pgdo::prelude::*;
+use sqlx::{query, Row};
+let tokio = tokio::runtime::Runtime::new()?;
 for runtime in runtime::strategy::Strategy::default().runtimes() {
   let data_dir = tempdir::TempDir::new("data")?;
   let cluster = Cluster::new(&data_dir, runtime)?;
   cluster.start()?;
   assert_eq!(cluster.databases()?, vec!["postgres", "template0", "template1"]);
-  let mut conn = cluster.connect(Some("postgres"))?;
-  let rows = conn.query("SELECT 1234 -- …", &[])?;
+  let rows = tokio.block_on(async {
+    let pool = cluster.pool(None);
+    query("SELECT 1234 -- …").fetch_all(&pool).await
+  })?;
   let collations: Vec<i32> = rows.iter().map(|row| row.get(0)).collect();
   assert_eq!(collations, vec![1234]);
   cluster.stop()?;

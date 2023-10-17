@@ -123,7 +123,9 @@ where
     };
 
     runner(&cluster, lock, |cluster: &cluster::Cluster| {
-        initialise(cluster_mode)(cluster)?;
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(initialise(cluster_mode, cluster))?;
+        drop(rt);
 
         // Ignore SIGINT, TERM, and HUP (with ctrlc feature "termination"). The
         // child process will receive the signal, presumably terminate, then
@@ -137,32 +139,46 @@ where
 
 /// Create an initialisation function that will set appropriate PostgreSQL
 /// settings, e.g. `fsync`, `full_page_writes`, etc. that need to be set early.
-fn initialise(
+async fn initialise(
     mode: Option<args::ClusterMode>,
-) -> impl std::panic::UnwindSafe + FnOnce(&cluster::Cluster) -> Result<(), cluster::ClusterError> {
+    cluster: &cluster::Cluster,
+) -> Result<(), cluster::ClusterError> {
+    use pgdo::cluster::sqlx;
     match mode {
         Some(args::ClusterMode::Fast) => {
-            |cluster: &cluster::Cluster| {
-                let mut conn = cluster.connect(None)?;
-                conn.execute("ALTER SYSTEM SET fsync = 'off'", &[])?;
-                conn.execute("ALTER SYSTEM SET full_page_writes = 'off'", &[])?;
-                conn.execute("ALTER SYSTEM SET synchronous_commit = 'off'", &[])?;
-                // TODO: Check `pg_file_settings` for errors before reloading.
-                conn.execute("SELECT pg_reload_conf()", &[])?;
-                Ok(())
-            }
+            let pool = cluster.pool(None);
+            sqlx::query("ALTER SYSTEM SET fsync = 'off'")
+                .execute(&pool)
+                .await?;
+            sqlx::query("ALTER SYSTEM SET full_page_writes = 'off'")
+                .execute(&pool)
+                .await?;
+            sqlx::query("ALTER SYSTEM SET synchronous_commit = 'off'")
+                .execute(&pool)
+                .await?;
+            // TODO: Check `pg_file_settings` for errors before reloading.
+            sqlx::query("SELECT pg_reload_conf()")
+                .execute(&pool)
+                .await?;
+            Ok(())
         }
         Some(args::ClusterMode::Slow) => {
-            |cluster: &cluster::Cluster| {
-                let mut conn = cluster.connect(None)?;
-                conn.execute("ALTER SYSTEM RESET fsync", &[])?;
-                conn.execute("ALTER SYSTEM RESET full_page_writes", &[])?;
-                conn.execute("ALTER SYSTEM RESET synchronous_commit", &[])?;
-                // TODO: Check `pg_file_settings` for errors before reloading.
-                conn.execute("SELECT pg_reload_conf()", &[])?;
-                Ok(())
-            }
+            let pool = cluster.pool(None);
+            sqlx::query("ALTER SYSTEM RESET fsync")
+                .execute(&pool)
+                .await?;
+            sqlx::query("ALTER SYSTEM RESET full_page_writes")
+                .execute(&pool)
+                .await?;
+            sqlx::query("ALTER SYSTEM RESET synchronous_commit")
+                .execute(&pool)
+                .await?;
+            // TODO: Check `pg_file_settings` for errors before reloading.
+            sqlx::query("SELECT pg_reload_conf()")
+                .execute(&pool)
+                .await?;
+            Ok(())
         }
-        None => |_: &cluster::Cluster| Ok(()),
+        None => Ok(()),
     }
 }
