@@ -3,7 +3,7 @@
 //! You must start with an [`UnlockedFile`].
 //!
 //! ```rust
-//! let lock_dir = tempdir::TempDir::new("locks")?;
+//! let lock_dir = tempfile::tempdir()?;
 //! # use pgdo::lock::UnlockedFile;
 //! let mut lock = UnlockedFile::try_from(lock_dir.path().join("foo").as_path())?;
 //! let lock = lock.lock_shared()?;
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn file_lock_exclusive_takes_exclusive_flock() -> io::Result<()> {
-        let lock_dir = tempdir::TempDir::new("locks")?;
+        let lock_dir = tempfile::tempdir()?;
         let lock_filename = lock_dir.path().join("lock");
         let lock = OpenOptions::new()
             .append(true)
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn file_try_lock_exclusive_does_not_block_on_existing_shared_lock() -> io::Result<()> {
-        let lock_dir = tempdir::TempDir::new("locks")?;
+        let lock_dir = tempfile::tempdir()?;
         let lock_filename = lock_dir.path().join("lock");
         let open_lock_file = || {
             OpenOptions::new()
@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn file_try_lock_exclusive_does_not_block_on_existing_exclusive_lock() -> io::Result<()> {
-        let lock_dir = tempdir::TempDir::new("locks")?;
+        let lock_dir = tempfile::tempdir()?;
         let lock_filename = lock_dir.path().join("lock");
         let open_lock_file = || {
             OpenOptions::new()

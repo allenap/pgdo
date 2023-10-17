@@ -56,7 +56,7 @@ use pgdo::prelude::*;
 use pgdo::cluster::sqlx::{query, Row};
 let tokio = tokio::runtime::Runtime::new()?;
 for runtime in runtime::strategy::Strategy::default().runtimes() {
-  let data_dir = tempdir::TempDir::new("data")?;
+  let data_dir = tempfile::tempdir()?;
   let cluster = Cluster::new(&data_dir, runtime)?;
   cluster.start()?;
   assert_eq!(cluster.databases()?, vec!["postgres", "template0", "template1"]);

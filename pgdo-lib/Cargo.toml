@@ -23,7 +23,7 @@ nix = { version = "^0.27.1", features = ["fs"] }
 postgres = "^0.19.7"
 postgres-protocol = "^0.6.6"
 rand = "^0.8.5"
-regex = "^1.9.6"
+regex = "^1.10.2"
 shell-quote = "^0.3.1"
 tokio = { version = "^1.33.0", features = ["full"] }
 uuid = { version = "^1.4.1", features = ["v5"] }
@@ -36,4 +36,4 @@ features = ["macros", "postgres", "runtime-tokio"]
 paste = "^1.0.14"
 pgdo-test = { path = "../pgdo-test" }
 rand = "^0.8.5"
-tempdir = "^0.3.7"
+tempfile = "3"

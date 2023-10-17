@@ -6,7 +6,7 @@
 //!
 //! ```rust
 //! use pgdo::prelude::*;
-//! let cluster_dir = tempdir::TempDir::new("cluster")?;
+//! let cluster_dir = tempfile::tempdir()?;
 //! let data_dir = cluster_dir.path().join("data");
 //! let strategy = runtime::strategy::Strategy::default();
 //! let cluster = Cluster::new(&data_dir, strategy)?;

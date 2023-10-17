@@ -51,6 +51,7 @@
         "Swatinem",
         "synchronisation",
         "tempdir",
+        "tempfile",
         "unparse",
         "vartype"
     ],
