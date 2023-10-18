@@ -122,10 +122,10 @@ where
         Runner::RunAndDestroy => coordinate::run_and_destroy,
     };
 
-    runner(&cluster, lock, |cluster: &cluster::Cluster| {
+    runner(&cluster, lock, || {
         if let Some(cluster_mode) = cluster_mode {
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(set_cluster_mode(cluster_mode, cluster))?;
+            rt.block_on(set_cluster_mode(cluster_mode, &cluster))?;
         }
 
         // Ignore SIGINT, TERM, and HUP (with ctrlc feature "termination"). The
@@ -134,7 +134,7 @@ where
         ctrlc::set_handler(|| ()).wrap_err("Could not set signal handler")?;
 
         // Finally, run the given action.
-        action(cluster)
+        action(&cluster)
     })?
 }
 

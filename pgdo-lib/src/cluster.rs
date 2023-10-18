@@ -18,7 +18,7 @@ use crate::runtime::{
     strategy::{Strategy, StrategyLike},
     Runtime,
 };
-use crate::version;
+use crate::{coordinate, version};
 pub use error::ClusterError;
 
 /// `template0` is always present in a PostgreSQL cluster.
@@ -507,5 +507,30 @@ pub fn version<P: AsRef<Path>>(
         Ok(version) => Ok(Some(version.parse()?)),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err)?,
+    }
+}
+
+/// [`Cluster`] can be coordinated.
+impl coordinate::Subject for Cluster {
+    type Error = ClusterError;
+
+    fn start(&self) -> Result<(), Self::Error> {
+        self.start().map(|_| ())
+    }
+
+    fn stop(&self) -> Result<(), Self::Error> {
+        self.stop().map(|_| ())
+    }
+
+    fn destroy(&self) -> Result<(), Self::Error> {
+        self.destroy().map(|_| ())
+    }
+
+    fn exists(&self) -> Result<bool, Self::Error> {
+        Ok(exists(self))
+    }
+
+    fn running(&self) -> Result<bool, Self::Error> {
+        self.running()
     }
 }

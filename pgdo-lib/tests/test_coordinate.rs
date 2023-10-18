@@ -8,7 +8,7 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 #[test]
 fn run_and_stop_leaves_the_cluster_in_place() -> TestResult {
     let (setup, lock) = Setup::run(runtime)?;
-    let databases = run_and_stop(&setup.cluster, lock, Cluster::databases)??;
+    let databases = run_and_stop(&setup.cluster, lock, || setup.cluster.databases())??;
     assert!(!databases.is_empty());
     assert!(!setup.cluster.running()?);
     assert!(setup.datadir.exists());
@@ -20,7 +20,7 @@ fn run_and_stop_leaves_the_cluster_in_place() -> TestResult {
 fn run_and_stop_still_stops_when_action_panics() -> TestResult {
     let (setup, lock) = Setup::run(runtime)?;
     let panic =
-        std::panic::catch_unwind(|| run_and_stop(&setup.cluster, lock, |_| panic!("test panic")));
+        std::panic::catch_unwind(|| run_and_stop(&setup.cluster, lock, || panic!("test panic")));
     assert!(panic.is_err());
     assert!(!setup.cluster.running()?);
     assert!(setup.datadir.exists());
@@ -35,7 +35,7 @@ fn run_and_stop_still_panics_if_stop_fails() -> TestResult {
     // i.e. the error from `stop` is suppressed when the action has panicked.
     let (setup, lock) = Setup::run(runtime)?;
     let panic =
-        std::panic::catch_unwind(|| run_and_stop(&setup.cluster, lock, |_| panic!("test panic")));
+        std::panic::catch_unwind(|| run_and_stop(&setup.cluster, lock, || panic!("test panic")));
     assert!(panic.is_err());
     let payload = *panic.unwrap_err().downcast::<&str>().unwrap();
     assert_eq!(payload, "test panic");
@@ -47,7 +47,7 @@ fn run_and_stop_still_panics_if_stop_fails() -> TestResult {
 fn run_and_stop_if_exists_leaves_the_cluster_in_place() -> TestResult {
     let (setup, lock) = Setup::run(runtime)?;
     setup.cluster.create()?;
-    let databases = run_and_stop(&setup.cluster, lock, Cluster::databases)??;
+    let databases = run_and_stop(&setup.cluster, lock, || setup.cluster.databases())??;
     assert!(!databases.is_empty());
     assert!(!setup.cluster.running()?);
     assert!(setup.datadir.exists());
@@ -59,8 +59,8 @@ fn run_and_stop_if_exists_leaves_the_cluster_in_place() -> TestResult {
 fn run_and_stop_if_exists_returns_error_if_cluster_does_not_exist() -> TestResult {
     let (setup, lock) = Setup::run(runtime)?;
     assert!(matches!(
-        run_and_stop_if_exists(&setup.cluster, lock, Cluster::databases),
-        Err(CoordinateError::ClusterDoesNotExist)
+        run_and_stop_if_exists(&setup.cluster, lock, || setup.cluster.databases()),
+        Err(CoordinateError::DoesNotExist)
     ));
     Ok(())
 }
@@ -71,7 +71,7 @@ fn run_and_stop_if_exists_still_stops_when_action_panics() -> TestResult {
     let (setup, lock) = Setup::run(runtime)?;
     setup.cluster.create()?;
     let panic = std::panic::catch_unwind(|| {
-        run_and_stop_if_exists(&setup.cluster, lock, |_| panic!("test panic"))
+        run_and_stop_if_exists(&setup.cluster, lock, || panic!("test panic"))
     });
     assert!(panic.is_err());
     assert!(!setup.cluster.running()?);
@@ -88,7 +88,7 @@ fn run_and_stop_if_exists_still_panics_if_stop_fails() -> TestResult {
     let (setup, lock) = Setup::run(runtime)?;
     setup.cluster.create()?;
     let panic = std::panic::catch_unwind(|| {
-        run_and_stop_if_exists(&setup.cluster, lock, |_| panic!("test panic"))
+        run_and_stop_if_exists(&setup.cluster, lock, || panic!("test panic"))
     });
     assert!(panic.is_err());
     let payload = *panic.unwrap_err().downcast::<&str>().unwrap();
@@ -100,7 +100,7 @@ fn run_and_stop_if_exists_still_panics_if_stop_fails() -> TestResult {
 #[test]
 fn run_and_destroy_removes_the_cluster() -> TestResult {
     let (setup, lock) = Setup::run(runtime)?;
-    let databases = run_and_destroy(&setup.cluster, lock, Cluster::databases)??;
+    let databases = run_and_destroy(&setup.cluster, lock, || setup.cluster.databases())??;
     assert!(!databases.is_empty());
     assert!(!setup.cluster.running()?);
     assert!(!setup.datadir.exists());
@@ -111,9 +111,8 @@ fn run_and_destroy_removes_the_cluster() -> TestResult {
 #[test]
 fn run_and_destroy_still_removes_when_action_panics() -> TestResult {
     let (setup, lock) = Setup::run(runtime)?;
-    let panic = std::panic::catch_unwind(|| {
-        run_and_destroy(&setup.cluster, lock, |_| panic!("test panic"))
-    });
+    let panic =
+        std::panic::catch_unwind(|| run_and_destroy(&setup.cluster, lock, || panic!("test panic")));
     assert!(panic.is_err());
     assert!(!setup.cluster.running()?);
     assert!(!setup.datadir.exists());
@@ -127,9 +126,8 @@ fn run_and_destroy_still_removes_when_action_panics() -> TestResult {
 fn run_and_destroy_still_panics_if_stop_fails() -> TestResult {
     // i.e. the error from `stop` is suppressed when the action has panicked.
     let (setup, lock) = Setup::run(runtime)?;
-    let panic = std::panic::catch_unwind(|| {
-        run_and_destroy(&setup.cluster, lock, |_| panic!("test panic"))
-    });
+    let panic =
+        std::panic::catch_unwind(|| run_and_destroy(&setup.cluster, lock, || panic!("test panic")));
     assert!(panic.is_err());
     let payload = *panic.unwrap_err().downcast::<&str>().unwrap();
     assert_eq!(payload, "test panic");
