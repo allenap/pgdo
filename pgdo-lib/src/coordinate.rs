@@ -23,7 +23,7 @@ use std::time::Duration;
 use either::Either::{Left, Right};
 use rand::RngCore;
 
-use crate::cluster::{self, Cluster, ClusterError, State};
+use crate::cluster::{self, Cluster, ClusterError};
 use crate::lock;
 pub use error::CoordinateError;
 
@@ -44,9 +44,11 @@ where
 {
     let lock = startup(cluster, lock)?;
     let action_res = std::panic::catch_unwind(|| action(cluster));
-    let _: Option<State> = shutdown(cluster, lock, Cluster::stop)?;
+    let shutdown_res = shutdown(cluster, lock, Cluster::stop);
     match action_res {
-        Ok(result) => Ok(result),
+        Ok(result) => shutdown_res
+            .map(|_| result)
+            .map_err(CoordinateError::ClusterError),
         Err(err) => std::panic::resume_unwind(err),
     }
 }
@@ -68,9 +70,11 @@ where
 {
     let lock = startup_if_exists(cluster, lock)?;
     let action_res = std::panic::catch_unwind(|| action(cluster));
-    let _: Option<State> = shutdown(cluster, lock, Cluster::stop)?;
+    let shutdown_res = shutdown(cluster, lock, Cluster::stop);
     match action_res {
-        Ok(result) => Ok(result),
+        Ok(result) => shutdown_res
+            .map(|_| result)
+            .map_err(CoordinateError::ClusterError),
         Err(err) => std::panic::resume_unwind(err),
     }
 }
