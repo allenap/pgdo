@@ -18,6 +18,9 @@
 
 mod error;
 
+#[cfg(test)]
+mod tests;
+
 use std::time::Duration;
 
 use either::Either::{Left, Right};
