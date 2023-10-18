@@ -14,6 +14,19 @@ fn run_and_stop_leaves_the_cluster_in_place() -> TestResult {
     assert!(setup.datadir.exists());
     Ok(())
 }
+
+#[for_all_runtimes]
+#[test]
+fn run_and_stop_still_stops_when_action_panics() -> TestResult {
+    let setup = Setup::new(runtime)?;
+    let panic = std::panic::catch_unwind(|| {
+        run_and_stop(&setup.cluster, setup.lock, |_| panic!("test panic"))
+    });
+    assert!(panic.is_err());
+    assert!(!setup.cluster.running()?);
+    assert!(setup.datadir.exists());
+    let payload = *panic.unwrap_err().downcast::<&str>().unwrap();
+    assert_eq!(payload, "test panic");
     Ok(())
 }
 
@@ -42,6 +55,22 @@ fn run_and_stop_if_exists_returns_error_if_cluster_does_not_exist() -> TestResul
 
 #[for_all_runtimes]
 #[test]
+fn run_and_stop_if_exists_still_stops_when_action_panics() -> TestResult {
+    let setup = Setup::new(runtime)?;
+    setup.cluster.create()?;
+    let panic = std::panic::catch_unwind(|| {
+        run_and_stop_if_exists(&setup.cluster, setup.lock, |_| panic!("test panic"))
+    });
+    assert!(panic.is_err());
+    assert!(!setup.cluster.running()?);
+    assert!(setup.datadir.exists());
+    let payload = *panic.unwrap_err().downcast::<&str>().unwrap();
+    assert_eq!(payload, "test panic");
+    Ok(())
+}
+
+#[for_all_runtimes]
+#[test]
 fn run_and_destroy_removes_the_cluster() -> TestResult {
     let setup = Setup::new(runtime)?;
     let databases = run_and_destroy(&setup.cluster, setup.lock, Cluster::databases)??;
@@ -50,6 +79,19 @@ fn run_and_destroy_removes_the_cluster() -> TestResult {
     assert!(!setup.datadir.exists());
     Ok(())
 }
+
+#[for_all_runtimes]
+#[test]
+fn run_and_destroy_still_removes_when_action_panics() -> TestResult {
+    let setup = Setup::new(runtime)?;
+    let panic = std::panic::catch_unwind(|| {
+        run_and_destroy(&setup.cluster, setup.lock, |_| panic!("test panic"))
+    });
+    assert!(panic.is_err());
+    assert!(!setup.cluster.running()?);
+    assert!(!setup.datadir.exists());
+    let payload = *panic.unwrap_err().downcast::<&str>().unwrap();
+    assert_eq!(payload, "test panic");
     Ok(())
 }
 
