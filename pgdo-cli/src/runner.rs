@@ -123,9 +123,10 @@ where
     };
 
     runner(&cluster, lock, |cluster: &cluster::Cluster| {
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(initialise(cluster_mode, cluster))?;
-        drop(rt);
+        if let Some(cluster_mode) = cluster_mode {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(set_cluster_mode(cluster_mode, cluster))?;
+        }
 
         // Ignore SIGINT, TERM, and HUP (with ctrlc feature "termination"). The
         // child process will receive the signal, presumably terminate, then
@@ -137,10 +138,10 @@ where
     })?
 }
 
-/// Create an initialisation function that will set appropriate PostgreSQL
-/// settings, e.g. `fsync`, `full_page_writes`, etc. that need to be set early.
-async fn initialise(
-    mode: Option<args::ClusterMode>,
+/// Set the cluster's "mode", i.e. configure appropriate PostgreSQL settings,
+/// e.g. `fsync`, `full_page_writes`, etc. that need to be set early.
+async fn set_cluster_mode(
+    mode: args::ClusterMode,
     cluster: &cluster::Cluster,
 ) -> Result<(), cluster::ClusterError> {
     use pgdo::cluster::config::{self, Parameter};
@@ -150,7 +151,7 @@ async fn initialise(
     static SYNCHRONOUS_COMMIT: Parameter = Parameter("synchronous_commit");
 
     match mode {
-        Some(args::ClusterMode::Fast) => {
+        args::ClusterMode::Fast => {
             let pool = cluster.pool(None);
             FSYNC.set(&pool, false).await?;
             FULL_PAGE_WRITES.set(&pool, false).await?;
@@ -159,7 +160,7 @@ async fn initialise(
             config::reload(&pool).await?;
             Ok(())
         }
-        Some(args::ClusterMode::Slow) => {
+        args::ClusterMode::Slow => {
             let pool = cluster.pool(None);
             FSYNC.reset(&pool).await?;
             FULL_PAGE_WRITES.reset(&pool).await?;
@@ -168,6 +169,5 @@ async fn initialise(
             config::reload(&pool).await?;
             Ok(())
         }
-        None => Ok(()),
     }
 }
