@@ -7,8 +7,8 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 #[for_all_runtimes]
 #[test]
 fn run_and_stop_leaves_the_cluster_in_place() -> TestResult {
-    let setup = Setup::new(runtime)?;
-    let databases = run_and_stop(&setup.cluster, setup.lock, Cluster::databases)??;
+    let (setup, lock) = Setup::run(runtime)?;
+    let databases = run_and_stop(&setup.cluster, lock, Cluster::databases)??;
     assert!(!databases.is_empty());
     assert!(!setup.cluster.running()?);
     assert!(setup.datadir.exists());
@@ -18,10 +18,9 @@ fn run_and_stop_leaves_the_cluster_in_place() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn run_and_stop_still_stops_when_action_panics() -> TestResult {
-    let setup = Setup::new(runtime)?;
-    let panic = std::panic::catch_unwind(|| {
-        run_and_stop(&setup.cluster, setup.lock, |_| panic!("test panic"))
-    });
+    let (setup, lock) = Setup::run(runtime)?;
+    let panic =
+        std::panic::catch_unwind(|| run_and_stop(&setup.cluster, lock, |_| panic!("test panic")));
     assert!(panic.is_err());
     assert!(!setup.cluster.running()?);
     assert!(setup.datadir.exists());
@@ -33,9 +32,9 @@ fn run_and_stop_still_stops_when_action_panics() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn run_and_stop_if_exists_leaves_the_cluster_in_place() -> TestResult {
-    let setup = Setup::new(runtime)?;
+    let (setup, lock) = Setup::run(runtime)?;
     setup.cluster.create()?;
-    let databases = run_and_stop(&setup.cluster, setup.lock, Cluster::databases)??;
+    let databases = run_and_stop(&setup.cluster, lock, Cluster::databases)??;
     assert!(!databases.is_empty());
     assert!(!setup.cluster.running()?);
     assert!(setup.datadir.exists());
@@ -45,9 +44,9 @@ fn run_and_stop_if_exists_leaves_the_cluster_in_place() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn run_and_stop_if_exists_returns_error_if_cluster_does_not_exist() -> TestResult {
-    let setup = Setup::new(runtime)?;
+    let (setup, lock) = Setup::run(runtime)?;
     assert!(matches!(
-        run_and_stop_if_exists(&setup.cluster, setup.lock, Cluster::databases),
+        run_and_stop_if_exists(&setup.cluster, lock, Cluster::databases),
         Err(CoordinateError::ClusterDoesNotExist)
     ));
     Ok(())
@@ -56,10 +55,10 @@ fn run_and_stop_if_exists_returns_error_if_cluster_does_not_exist() -> TestResul
 #[for_all_runtimes]
 #[test]
 fn run_and_stop_if_exists_still_stops_when_action_panics() -> TestResult {
-    let setup = Setup::new(runtime)?;
+    let (setup, lock) = Setup::run(runtime)?;
     setup.cluster.create()?;
     let panic = std::panic::catch_unwind(|| {
-        run_and_stop_if_exists(&setup.cluster, setup.lock, |_| panic!("test panic"))
+        run_and_stop_if_exists(&setup.cluster, lock, |_| panic!("test panic"))
     });
     assert!(panic.is_err());
     assert!(!setup.cluster.running()?);
@@ -72,8 +71,8 @@ fn run_and_stop_if_exists_still_stops_when_action_panics() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn run_and_destroy_removes_the_cluster() -> TestResult {
-    let setup = Setup::new(runtime)?;
-    let databases = run_and_destroy(&setup.cluster, setup.lock, Cluster::databases)??;
+    let (setup, lock) = Setup::run(runtime)?;
+    let databases = run_and_destroy(&setup.cluster, lock, Cluster::databases)??;
     assert!(!databases.is_empty());
     assert!(!setup.cluster.running()?);
     assert!(!setup.datadir.exists());
@@ -83,9 +82,9 @@ fn run_and_destroy_removes_the_cluster() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn run_and_destroy_still_removes_when_action_panics() -> TestResult {
-    let setup = Setup::new(runtime)?;
+    let (setup, lock) = Setup::run(runtime)?;
     let panic = std::panic::catch_unwind(|| {
-        run_and_destroy(&setup.cluster, setup.lock, |_| panic!("test panic"))
+        run_and_destroy(&setup.cluster, lock, |_| panic!("test panic"))
     });
     assert!(panic.is_err());
     assert!(!setup.cluster.running()?);
@@ -100,17 +99,19 @@ struct Setup {
     tempdir: tempfile::TempDir,
     datadir: std::path::PathBuf,
     cluster: Cluster,
-    lockpath: std::path::PathBuf,
-    lock: lock::UnlockedFile,
 }
 
 impl Setup {
-    fn new<S: Into<runtime::strategy::Strategy>>(strategy: S) -> TestResult<Self> {
+    fn run<S: Into<runtime::strategy::Strategy>>(
+        strategy: S,
+    ) -> TestResult<(Self, lock::UnlockedFile)> {
         let tempdir = tempfile::tempdir()?;
         let datadir = tempdir.path().join("data");
         let cluster = Cluster::new(&datadir, strategy)?;
         let lockpath = tempdir.path().join("lock");
-        let lock = lock::UnlockedFile::try_from(&lockpath)?;
-        Ok(Self { tempdir, datadir, cluster, lockpath, lock })
+        Ok((
+            Self { tempdir, datadir, cluster },
+            lock::UnlockedFile::try_from(&lockpath)?,
+        ))
     }
 }
