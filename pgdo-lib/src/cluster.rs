@@ -18,7 +18,13 @@ use crate::runtime::{
     strategy::{Strategy, StrategyLike},
     Runtime,
 };
-use crate::{coordinate, version};
+use crate::{
+    coordinate::{
+        self,
+        State::{self, *},
+    },
+    version,
+};
 pub use error::ClusterError;
 
 /// `template0` is always present in a PostgreSQL cluster.
@@ -468,19 +474,6 @@ impl AsRef<Path> for Cluster {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum State {
-    /// The action we requested was performed from this process, e.g. we tried
-    /// to create the cluster, and we did indeed create the cluster.
-    Modified,
-    /// The action we requested was performed by another process, or was not
-    /// necessary, e.g. we tried to stop the cluster but it was already stopped.
-    Unmodified,
-}
-
-// For convenience.
-use State::{Modified, Unmodified};
-
 /// A fairly simplistic but quick check: does the directory exist and does it
 /// look like a PostgreSQL cluster data directory, i.e. does it contain a file
 /// named `PG_VERSION`?
@@ -514,16 +507,16 @@ pub fn version<P: AsRef<Path>>(
 impl coordinate::Subject for Cluster {
     type Error = ClusterError;
 
-    fn start(&self) -> Result<(), Self::Error> {
-        self.start().map(|_| ())
+    fn start(&self) -> Result<State, Self::Error> {
+        self.start()
     }
 
-    fn stop(&self) -> Result<(), Self::Error> {
-        self.stop().map(|_| ())
+    fn stop(&self) -> Result<State, Self::Error> {
+        self.stop()
     }
 
-    fn destroy(&self) -> Result<(), Self::Error> {
-        self.destroy().map(|_| ())
+    fn destroy(&self) -> Result<State, Self::Error> {
+        self.destroy()
     }
 
     fn exists(&self) -> Result<bool, Self::Error> {

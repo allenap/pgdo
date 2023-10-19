@@ -1,12 +1,14 @@
+#![allow(clippy::single_match_else)]
+
 use std::sync::RwLock;
 
-use super::{lock, run_and_destroy, run_and_stop, run_and_stop_if_exists, Subject};
+use super::{lock, run_and_destroy, run_and_stop, run_and_stop_if_exists, State, Subject};
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 #[test]
 fn run_and_stop_still_stops_when_action_panics() -> TestResult {
-    let subject = SubjectBasic::default();
+    let subject = SubjectExample::default();
     let (_setup, lock) = Setup::run()?;
     let panic = std::panic::catch_unwind(|| run_and_stop(&subject, lock, || panic!("test panic")));
     assert!(panic.is_err());
@@ -18,7 +20,7 @@ fn run_and_stop_still_stops_when_action_panics() -> TestResult {
 #[test]
 fn run_and_stop_still_panics_if_stop_fails() -> TestResult {
     // i.e. the error from `stop` is suppressed when the action has panicked.
-    let subject = SubjectCannotStop::exists();
+    let subject = SubjectExample::already_exists().but_cannot_stop();
     let (_setup, lock) = Setup::run()?;
     let panic = std::panic::catch_unwind(|| run_and_stop(&subject, lock, || panic!("test panic")));
     assert!(panic.is_err());
@@ -29,7 +31,7 @@ fn run_and_stop_still_panics_if_stop_fails() -> TestResult {
 
 #[test]
 fn run_and_stop_if_exists_still_stops_when_action_panics() -> TestResult {
-    let subject = SubjectBasic::exists();
+    let subject = SubjectExample::already_exists();
     let (_setup, lock) = Setup::run()?;
     let panic = std::panic::catch_unwind(|| {
         run_and_stop_if_exists(&subject, lock, || panic!("test panic"))
@@ -43,7 +45,7 @@ fn run_and_stop_if_exists_still_stops_when_action_panics() -> TestResult {
 #[test]
 fn run_and_stop_if_exists_still_panics_if_stop_fails() -> TestResult {
     // i.e. the error from `stop` is suppressed when the action has panicked.
-    let subject = SubjectCannotStop::exists();
+    let subject = SubjectExample::already_exists().but_cannot_stop();
     let (_setup, lock) = Setup::run()?;
     let panic = std::panic::catch_unwind(|| {
         run_and_stop_if_exists(&subject, lock, || panic!("test panic"))
@@ -56,7 +58,7 @@ fn run_and_stop_if_exists_still_panics_if_stop_fails() -> TestResult {
 
 #[test]
 fn run_and_destroy_still_removes_when_action_panics() -> TestResult {
-    let subject = SubjectBasic::default();
+    let subject = SubjectExample::default();
     let (_setup, lock) = Setup::run()?;
     let panic =
         std::panic::catch_unwind(|| run_and_destroy(&subject, lock, || panic!("test panic")));
@@ -69,7 +71,7 @@ fn run_and_destroy_still_removes_when_action_panics() -> TestResult {
 #[test]
 fn run_and_destroy_still_panics_if_stop_fails() -> TestResult {
     // i.e. the error from `destroy` is suppressed when the action has panicked.
-    let subject = SubjectCannotDestroy::default();
+    let subject = SubjectExample::default().but_cannot_destroy();
     let (_setup, lock) = Setup::run()?;
     let panic =
         std::panic::catch_unwind(|| run_and_destroy(&subject, lock, || panic!("test panic")));
@@ -112,115 +114,81 @@ impl<T> From<std::sync::PoisonError<T>> for Error {
 }
 
 #[derive(Debug, Default)]
-struct SubjectBasic {
-    exists: RwLock<bool>,
-    running: RwLock<bool>,
+struct SubjectExample {
+    status: RwLock<(bool, bool)>, // (exists, running)
+    cannot_stop: bool,
+    cannot_destroy: bool,
 }
 
-impl SubjectBasic {
-    fn exists() -> Self {
-        Self { exists: RwLock::new(true), running: RwLock::new(false) }
+impl SubjectExample {
+    fn already_exists() -> Self {
+        Self {
+            status: RwLock::new((true, false)),
+            cannot_stop: false,
+            cannot_destroy: false,
+        }
+    }
+
+    fn but_cannot_stop(mut self) -> Self {
+        self.cannot_stop = true;
+        self
+    }
+
+    fn but_cannot_destroy(mut self) -> Self {
+        self.cannot_destroy = true;
+        self
     }
 }
 
-impl Subject for SubjectBasic {
+impl Subject for SubjectExample {
     type Error = Error;
 
-    fn start(&self) -> Result<(), Self::Error> {
-        *self.exists.write()? = true;
-        *self.running.write()? = true;
-        Ok(())
+    fn start(&self) -> Result<State, Self::Error> {
+        let mut status = self.status.write()?;
+        match *status {
+            (true, true) => Ok(State::Unmodified),
+            (_, _) => {
+                *status = (true, true);
+                Ok(State::Modified)
+            }
+        }
     }
 
-    fn stop(&self) -> Result<(), Self::Error> {
-        *self.running.write()? = false;
-        Ok(())
+    fn stop(&self) -> Result<State, Self::Error> {
+        if self.cannot_stop {
+            Err(Error { error: "cannot stop".to_string() })
+        } else {
+            let mut status = self.status.write()?;
+            match *status {
+                (_, false) => Ok(State::Unmodified),
+                (exists, true) => {
+                    *status = (exists, false);
+                    Ok(State::Modified)
+                }
+            }
+        }
     }
 
-    fn destroy(&self) -> Result<(), Self::Error> {
-        *self.exists.write()? = false;
-        *self.running.write()? = false;
-        Ok(())
+    fn destroy(&self) -> Result<State, Self::Error> {
+        if self.cannot_destroy {
+            Err(Error { error: "cannot stop".to_string() })
+        } else {
+            let mut status = self.status.write()?;
+            match *status {
+                (false, false) => Ok(State::Unmodified),
+                (_, _) => {
+                    *status = (false, false);
+                    Ok(State::Modified)
+                }
+            }
+        }
     }
 
     fn exists(&self) -> Result<bool, Self::Error> {
-        Ok(*self.exists.read()?)
+        Ok(self.status.read()?.0)
     }
 
     fn running(&self) -> Result<bool, Self::Error> {
-        Ok(*self.running.read()?)
-    }
-}
-
-#[derive(Debug, Default)]
-struct SubjectCannotStop {
-    exists: RwLock<bool>,
-    running: RwLock<bool>,
-}
-
-impl SubjectCannotStop {
-    fn exists() -> Self {
-        Self { exists: RwLock::new(true), running: RwLock::new(false) }
-    }
-}
-
-impl Subject for SubjectCannotStop {
-    type Error = Error;
-
-    fn start(&self) -> Result<(), Self::Error> {
-        *self.exists.write()? = true;
-        *self.running.write()? = true;
-        Ok(())
-    }
-
-    fn stop(&self) -> Result<(), Self::Error> {
-        Err(Error { error: "cannot stop".to_string() })
-    }
-
-    fn destroy(&self) -> Result<(), Self::Error> {
-        *self.exists.write()? = false;
-        *self.running.write()? = false;
-        Ok(())
-    }
-
-    fn exists(&self) -> Result<bool, Self::Error> {
-        Ok(*self.exists.read()?)
-    }
-
-    fn running(&self) -> Result<bool, Self::Error> {
-        Ok(*self.running.read()?)
-    }
-}
-
-#[derive(Debug, Default)]
-struct SubjectCannotDestroy {
-    exists: RwLock<bool>,
-    running: RwLock<bool>,
-}
-
-impl Subject for SubjectCannotDestroy {
-    type Error = Error;
-
-    fn start(&self) -> Result<(), Self::Error> {
-        *self.exists.write()? = true;
-        *self.running.write()? = true;
-        Ok(())
-    }
-
-    fn stop(&self) -> Result<(), Self::Error> {
-        *self.running.write()? = false;
-        Ok(())
-    }
-
-    fn destroy(&self) -> Result<(), Self::Error> {
-        Err(Error { error: "cannot destroy".to_string() })
-    }
-
-    fn exists(&self) -> Result<bool, Self::Error> {
-        Ok(*self.exists.read()?)
-    }
-
-    fn running(&self) -> Result<bool, Self::Error> {
-        Ok(*self.running.read()?)
+        Ok(self.status.read()?.1)
     }
 }

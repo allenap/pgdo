@@ -7,8 +7,8 @@ use pgdo::cluster::{
     exists,
     sqlx::{query, Row},
     version, Cluster, ClusterError,
-    State::*,
 };
+use pgdo::coordinate::State::*;
 use pgdo::version::{PartialVersion, Version};
 use pgdo_test::for_all_runtimes;
 

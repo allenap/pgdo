@@ -17,6 +17,7 @@
 //! ```
 
 mod error;
+pub mod resource;
 
 #[cfg(test)]
 mod tests;
@@ -29,12 +30,22 @@ use rand::RngCore;
 use crate::lock;
 pub use error::CoordinateError;
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum State {
+    /// The action we requested was performed from this process, e.g. we tried
+    /// to create the cluster, and we did indeed create the cluster.
+    Modified,
+    /// The action we requested was performed by another process, or was not
+    /// necessary, e.g. we tried to stop the cluster but it was already stopped.
+    Unmodified,
+}
+
 /// The trait that these coordinate functions work with.
 pub trait Subject {
     type Error: std::error::Error + Send + Sync;
-    fn start(&self) -> Result<(), Self::Error>;
-    fn stop(&self) -> Result<(), Self::Error>;
-    fn destroy(&self) -> Result<(), Self::Error>;
+    fn start(&self) -> Result<State, Self::Error>;
+    fn stop(&self) -> Result<State, Self::Error>;
+    fn destroy(&self) -> Result<State, Self::Error>;
     fn exists(&self) -> Result<bool, Self::Error>;
     fn running(&self) -> Result<bool, Self::Error>;
 }
