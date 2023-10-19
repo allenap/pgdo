@@ -2,6 +2,7 @@
 
 pub mod config;
 mod error;
+pub mod resource;
 
 use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStringExt;
