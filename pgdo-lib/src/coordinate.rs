@@ -18,6 +18,7 @@
 
 pub mod cleanup;
 mod error;
+pub mod finally;
 pub mod resource;
 
 #[cfg(test)]
