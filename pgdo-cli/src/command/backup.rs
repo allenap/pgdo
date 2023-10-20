@@ -58,6 +58,27 @@ impl From<Backup> for super::Command {
 // ----------------------------------------------------------------------------
 
 fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> ExitResult {
+    std::fs::create_dir_all(&destination)?;
+    let destination = destination.canonicalize()?;
+    // Where we're going to copy WAL files to.
+    let destination_wal = destination.join("pg_wal");
+    std::fs::create_dir_all(&destination_wal)?;
+    // Where we're going to copy a new base backup to.
+    let destination_data = destination.join(format!(
+        "data.{:08}",
+        std::fs::read_dir(&destination)?
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| match entry.file_name().to_str() {
+                Some(name) if name.starts_with("data.") => name[5..].parse::<u32>().ok(),
+                Some(_) | None => None,
+            })
+            .max()
+            .unwrap_or_default()
+            + 1
+    ));
+    // The command we use to copy WAL files to `destination_wal`.
+    let archive_command = format!("echo pgdo-archive p=%p f=%f t={destination_wal:?} && false"); // TODO.
+
     log::info!("Starting cluster (if not already started)…");
     let (started, resource) = cluster::resource::startup_if_exists(resource)?;
 
@@ -122,7 +143,6 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
                 None => return Err(eyre!("Archiving is not supported; cannot proceed")),
             }
 
-            let archive_command = "echo pgdo-archive p=%p f=%f && false";
             match ARCHIVE_COMMAND.get(&pool).await? {
                 Some(config::Value::String(command)) if command == archive_command => {
                     log::info!("Parameter archive_command already set to {archive_command:?}");
@@ -160,7 +180,7 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
         log::info!("Performing base backup…");
         let args: &[&OsStr] = &[
             "--pgdata".as_ref(),
-            destination.as_ref(),
+            destination_data.as_ref(),
             "--format".as_ref(),
             "plain".as_ref(),
             "--progress".as_ref(),
