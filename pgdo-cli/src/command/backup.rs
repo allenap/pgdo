@@ -9,7 +9,7 @@ use crate::{args, runner};
 
 use pgdo::{
     cluster::{self, config},
-    coordinate::{cleanup::with_cleanup, resource::ResourceFree, State},
+    coordinate::{cleanup::with_cleanup, finally::with_finally, resource::ResourceFree, State},
 };
 
 /// Clone an existing cluster and arrange to continuously archive WAL
@@ -142,7 +142,7 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
         })?;
     };
 
-    let backup = with_cleanup(do_cleanup, || {
+    let status = with_finally(do_cleanup, || {
         log::info!("Performing base backup…");
         let args: &[&OsStr] = &[
             "--pgdata".as_ref(),
@@ -156,9 +156,7 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
             .wrap_err("Executing command in cluster failed")
     })?;
 
-    do_cleanup()?;
-
-    runner::check_exit(backup)
+    runner::check_exit(status)
 }
 
 static ARCHIVE_MODE: config::Parameter = config::Parameter("archive_mode");
