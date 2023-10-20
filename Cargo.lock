@@ -1016,6 +1016,7 @@ dependencies = [
  "either",
  "log",
  "pgdo-lib",
+ "shell-quote",
  "simple_logger",
  "tokio",
  "uuid",

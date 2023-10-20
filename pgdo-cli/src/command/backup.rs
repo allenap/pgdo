@@ -77,7 +77,15 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
             + 1
     ));
     // The command we use to copy WAL files to `destination_wal`.
-    let archive_command = format!("echo pgdo-archive p=%p f=%f t={destination_wal:?} && false"); // TODO.
+    let destination_wal_shell = shell_quote::sh::quote(&destination_wal)
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            eyre!("Cannot shell escape WAL destination path")
+                .with_section(|| format!("{destination_wal:?}").header("WAL destination path:"))
+        })?;
+    let archive_command =
+        format!("test ! -f {destination_wal_shell}/%f && cp %p {destination_wal_shell}/%f",);
 
     log::info!("Starting cluster (if not already started)…");
     let (started, resource) = cluster::resource::startup_if_exists(resource)?;
