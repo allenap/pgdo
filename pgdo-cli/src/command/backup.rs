@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, path::PathBuf};
+use std::{ffi::OsStr, path::PathBuf, process::ExitCode};
 
 use color_eyre::eyre::{eyre, WrapErr};
 use color_eyre::{Help, SectionExt};
@@ -57,6 +57,78 @@ impl From<Backup> for super::Command {
 
 // ----------------------------------------------------------------------------
 
+/// Internal tools for assisting with Continuous Archiving and Point-in-Time
+/// Recovery (PITR) backups.
+///
+/// <https://www.postgresql.org/docs/current/continuous-archiving.html>
+#[derive(clap::Args)]
+#[clap(next_help_heading = Some("Options for backup:tools"))]
+pub struct BackupTools {
+    #[clap(subcommand)]
+    command: BackupTool,
+}
+
+impl BackupTools {
+    pub fn invoke(self) -> ExitResult {
+        match self.command {
+            BackupTool::WalArchive { source, target } => {
+                use std::{
+                    fs::{read, write},
+                    io::ErrorKind::NotFound,
+                };
+                match (read(&source), read(&target)) {
+                    (Ok(wal_in), Err(err)) if err.kind() == NotFound => {
+                        log::info!("WAL archiving from {source:?} to {target:?}");
+                        match write(&target, wal_in) {
+                            Ok(()) => Ok(ExitCode::SUCCESS),
+                            Err(err) => {
+                                log::error!("WAL archive failure; error writing {target:?}: {err}");
+                                Ok(ExitCode::FAILURE)
+                            }
+                        }
+                    }
+                    (Ok(wal_in), Ok(wal_out)) if wal_in == wal_out => {
+                        log::info!("WAL file {source:?} already archived");
+                        Ok(ExitCode::SUCCESS)
+                    }
+                    (Ok(_), Ok(_)) => {
+                        log::error!("WAL file {source:?} already archived to {target:?} BUT CONTENTS DIFFER");
+                        Ok(ExitCode::FAILURE)
+                    }
+                    (Err(err), _) => {
+                        log::error!("WAL archive failure; error accessing {source:?}: {err}");
+                        Ok(ExitCode::FAILURE)
+                    }
+                    (_, Err(err)) => {
+                        log::error!("WAL archive failure; error accessing {target:?}: {err}");
+                        Ok(ExitCode::FAILURE)
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl From<BackupTools> for super::Command {
+    fn from(tools: BackupTools) -> Self {
+        Self::BackupTools(tools)
+    }
+}
+
+#[derive(clap::Subcommand)]
+pub(crate) enum BackupTool {
+    /// Copy a WAL file to an archive; used in `archive_command`.
+    #[clap(name = "wal:archive", display_order = 1)]
+    WalArchive {
+        /// Source WAL file path (corresponds to %p in `archive_command`).
+        source: PathBuf,
+        /// Destination WAL file path (corresponds to some/where/%f in `archive_command`).
+        target: PathBuf,
+    },
+}
+
+// ----------------------------------------------------------------------------
+
 fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> ExitResult {
     std::fs::create_dir_all(&destination)?;
     let destination = destination.canonicalize()?;
@@ -76,7 +148,15 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
             .unwrap_or_default()
             + 1
     ));
-    // The command we use to copy WAL files to `destination_wal`.
+    // Paths, shell escaped as necessary.
+    let pgdo_exe = std::env::current_exe()?;
+    let pgdo_exe_shell = shell_quote::sh::quote(&pgdo_exe)
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            eyre!("Cannot shell escape current executable path")
+                .with_section(|| format!("{pgdo_exe:?}").header("Current executable path:"))
+        })?;
     let destination_wal_shell = shell_quote::sh::quote(&destination_wal)
         .to_str()
         .map(str::to_owned)
@@ -84,8 +164,10 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
             eyre!("Cannot shell escape WAL destination path")
                 .with_section(|| format!("{destination_wal:?}").header("WAL destination path:"))
         })?;
+    // The command we use to copy WAL files to `destination_wal`.
+    // <https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-ARCHIVING-WAL>.
     let archive_command =
-        format!("test ! -f {destination_wal_shell}/%f && cp %p {destination_wal_shell}/%f",);
+        format!("{pgdo_exe_shell} backup:tools wal:archive %p {destination_wal_shell}/%f",);
 
     log::info!("Starting cluster (if not already started)…");
     let (started, resource) = cluster::resource::startup_if_exists(resource)?;
