@@ -1,5 +1,7 @@
 use std::fs;
 use std::io;
+use std::os::unix::prelude::OsStrExt;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::process::ExitStatus;
 
@@ -59,6 +61,21 @@ pub(crate) fn ensure_database(cluster: &cluster::Cluster, database_name: &str) -
 
 const UUID_NS: uuid::Uuid = uuid::Uuid::from_u128(93875103436633470414348750305797058811);
 
+/// Provide an unlocked lock for the given directory.
+pub fn lock_for<P: AsRef<Path>>(path: P) -> Result<(PathBuf, lock::UnlockedFile)> {
+    let path = path
+        .as_ref()
+        .canonicalize()
+        .wrap_err("Could not canonicalize cluster directory")
+        .with_section(|| format!("{}", path.as_ref().display()).header("Cluster directory:"))?;
+    let name = path.as_os_str().as_bytes();
+    let lock_uuid = uuid::Uuid::new_v5(&UUID_NS, name);
+    let lock = lock::UnlockedFile::try_from(&lock_uuid)
+        .wrap_err("Could not create UUID-based lock file")
+        .with_section(|| lock_uuid.to_string().header("UUID for lock file:"))?;
+    Ok((path, lock))
+}
+
 #[allow(clippy::enum_variant_names)]
 pub(crate) enum Runner {
     RunAndStop,
@@ -100,21 +117,9 @@ where
         }
     };
 
-    // Obtain a canonical path to the cluster directory.
-    let cluster_dir = cluster_dir
-        .canonicalize()
-        .wrap_err("Could not canonicalize cluster directory")
-        .with_section(|| format!("{}", cluster_dir.display()).header("Cluster directory:"))?;
-
-    // Use the canonical path to construct the UUID with which we'll lock this
-    // cluster. Use the `Debug` form of `database_dir` for the lock file UUID.
-    let lock_uuid = uuid::Uuid::new_v5(&UUID_NS, format!("{:?}", &cluster_dir).as_bytes());
-    let lock = lock::UnlockedFile::try_from(&lock_uuid)
-        .wrap_err("Could not create UUID-based lock file")
-        .with_section(|| lock_uuid.to_string().header("UUID for lock file:"))?;
-
+    let (datadir, lock) = lock_for(&cluster_dir)?;
     let strategy = determine_strategy(fallback)?;
-    let cluster = cluster::Cluster::new(&cluster_dir, strategy)?;
+    let cluster = cluster::Cluster::new(datadir, strategy)?;
 
     let runner = match runner {
         Runner::RunAndStop => coordinate::run_and_stop,
