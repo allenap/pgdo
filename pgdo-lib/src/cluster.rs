@@ -428,11 +428,11 @@ impl Cluster {
 
     /// Destroy the cluster if it exists, after stopping it.
     pub fn destroy(&self) -> Result<State, ClusterError> {
-        if self.stop()? == Modified || self.datadir.is_dir() {
-            fs::remove_dir_all(&self.datadir)?;
-            Ok(Modified)
-        } else {
-            Ok(Unmodified)
+        self.stop()?;
+        match fs::remove_dir_all(&self.datadir) {
+            Ok(()) => Ok(Modified),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Unmodified),
+            Err(err) => Err(err)?,
         }
     }
 }

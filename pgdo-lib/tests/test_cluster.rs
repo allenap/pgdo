@@ -214,6 +214,31 @@ fn cluster_destroy_stops_and_removes_cluster() -> TestResult {
 
 #[for_all_runtimes]
 #[test]
+fn cluster_destroy_removes_cluster() -> TestResult {
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
+    cluster.create()?;
+    assert!(exists(&cluster));
+    cluster.destroy()?;
+    assert!(!exists(&cluster));
+    Ok(())
+}
+
+#[for_all_runtimes]
+#[test]
+fn cluster_destroy_does_nothing_if_cluster_does_not_exist() -> TestResult {
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
+    assert!(!exists(&cluster));
+    cluster.destroy()?;
+    assert!(!exists(&cluster));
+    Ok(())
+}
+
+#[for_all_runtimes]
+#[test]
 fn cluster_databases_returns_vec_of_database_names() -> TestResult {
     let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
