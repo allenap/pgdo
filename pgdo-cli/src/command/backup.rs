@@ -9,7 +9,12 @@ use crate::{args, runner};
 
 use pgdo::{
     cluster::{self, config},
-    coordinate::{cleanup::with_cleanup, finally::with_finally, resource::ResourceFree, State},
+    coordinate::{
+        cleanup::with_cleanup,
+        finally::with_finally,
+        resource::{ResourceFree, ResourceShared},
+        State,
+    },
 };
 
 /// Clone an existing cluster and arrange to continuously archive WAL
@@ -53,11 +58,20 @@ impl From<Backup> for super::Command {
 // ----------------------------------------------------------------------------
 
 fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> ExitResult {
-    log::info!("Obtaining exclusive lock…");
-    let resource = retry(resource, ResourceFree::try_exclusive)?;
-    let facet = resource.facet();
+    log::info!("Starting cluster (if not already started)…");
+    let (started, resource) = cluster::resource::startup_if_exists(resource)?;
 
-    let started = facet.start()?;
+    // From here on we want an exclusive lock; if we have to set `archive_mode`
+    // or `wal_level` then we need to restart the server.
+    let resource = match resource {
+        Right(exclusive) => exclusive,
+        Left(shared) => {
+            log::info!("Obtaining exclusive lock…");
+            retry(shared, ResourceShared::try_exclusive)?
+        }
+    };
+
+    let facet = resource.facet();
     let do_cleanup = || {
         if started == State::Modified {
             // We started the cluster, so we try to shut it down.
@@ -155,6 +169,8 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
             .exec(None, "pg_basebackup".as_ref(), args)
             .wrap_err("Executing command in cluster failed")
     })?;
+
+    resource.release()?;
 
     runner::check_exit(status)
 }
