@@ -110,13 +110,13 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
 
             let archive_command = "echo pgdo-archive p=%p f=%f && false";
             match ARCHIVE_COMMAND.get(&pool).await? {
-                // Re. "(disabled)", see `show_archive_command` in xlog.c.
-                Some(config::Value::String(command))
-                    if command == "(disabled)" || command == archive_command =>
-                {
+                Some(config::Value::String(command)) if command == archive_command => {
                     log::info!("Parameter archive_command already set to {archive_command:?}");
                 }
-                Some(config::Value::String(command)) if command.is_empty() => {
+                // Re. "(disabled)", see `show_archive_command` in xlog.c.
+                Some(config::Value::String(command))
+                    if command.is_empty() || command == "(disabled)" =>
+                {
                     log::info!("Setting archive_command to {archive_command:?}");
                     ARCHIVE_COMMAND.set(&pool, archive_command).await?;
                 }

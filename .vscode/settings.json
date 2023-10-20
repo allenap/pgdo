@@ -53,7 +53,8 @@
         "tempdir",
         "tempfile",
         "unparse",
-        "vartype"
+        "vartype",
+        "xlog"
     ],
     "rust-analyzer.showUnlinkedFileNotification": false
 }
