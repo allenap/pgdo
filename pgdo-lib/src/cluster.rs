@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::{env, fs, io};
 
-use nix::errno::Errno;
 use postgres;
 use shell_quote::sh::escape_into;
 pub use sqlx;
@@ -236,14 +235,6 @@ impl Cluster {
 
     /// Create the cluster if it does not already exist.
     pub fn create(&self) -> Result<State, ClusterError> {
-        match self._create() {
-            Err(ClusterError::UnixError(Errno::EAGAIN)) if exists(self) => Ok(Unmodified),
-            Err(ClusterError::UnixError(Errno::EAGAIN)) => Err(ClusterError::InUse),
-            other => other,
-        }
-    }
-
-    fn _create(&self) -> Result<State, ClusterError> {
         if exists(self) {
             // Nothing more to do; the cluster is already in place.
             Ok(Unmodified)
@@ -267,16 +258,8 @@ impl Cluster {
 
     /// Start the cluster if it's not already running.
     pub fn start(&self) -> Result<State, ClusterError> {
-        match self._start() {
-            Err(ClusterError::UnixError(Errno::EAGAIN)) if self.running()? => Ok(Unmodified),
-            Err(ClusterError::UnixError(Errno::EAGAIN)) => Err(ClusterError::InUse),
-            other => other,
-        }
-    }
-
-    fn _start(&self) -> Result<State, ClusterError> {
         // Ensure that the cluster has been created.
-        self._create()?;
+        self.create()?;
         // Check if we're running already.
         if self.running()? {
             // We didn't start this cluster; say so.
@@ -426,14 +409,6 @@ impl Cluster {
 
     /// Stop the cluster if it's running.
     pub fn stop(&self) -> Result<State, ClusterError> {
-        match self._stop() {
-            Err(ClusterError::UnixError(Errno::EAGAIN)) if !self.running()? => Ok(Unmodified),
-            Err(ClusterError::UnixError(Errno::EAGAIN)) => Err(ClusterError::InUse),
-            other => other,
-        }
-    }
-
-    fn _stop(&self) -> Result<State, ClusterError> {
         // If the cluster's not already running, don't do anything.
         if !self.running()? {
             return Ok(Unmodified);
@@ -453,14 +428,7 @@ impl Cluster {
 
     /// Destroy the cluster if it exists, after stopping it.
     pub fn destroy(&self) -> Result<State, ClusterError> {
-        match self._destroy() {
-            Err(ClusterError::UnixError(Errno::EAGAIN)) => Err(ClusterError::InUse),
-            other => other,
-        }
-    }
-
-    fn _destroy(&self) -> Result<State, ClusterError> {
-        if self._stop()? == Modified || self.datadir.is_dir() {
+        if self.stop()? == Modified || self.datadir.is_dir() {
             fs::remove_dir_all(&self.datadir)?;
             Ok(Modified)
         } else {
