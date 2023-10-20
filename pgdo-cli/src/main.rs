@@ -4,12 +4,22 @@ mod args;
 mod command;
 mod runner;
 
+use std::io::{stdout, IsTerminal};
+
 use clap::Parser;
 
 pub(crate) type ExitResult = color_eyre::Result<std::process::ExitCode>;
 
 fn main() -> ExitResult {
+    // Configure exception reporting.
     color_eyre::install()?;
+    // Configure logging.
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .with_local_timestamps()
+        .with_colors(stdout().is_terminal())
+        .env()
+        .init()?;
     // Parse command-line arguments.
     let Options { command, default } = Options::parse();
     // Use the default command when none has been specified.

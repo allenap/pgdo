@@ -19,6 +19,9 @@ path = "src/main.rs"
 clap = { version = "4.4.6", features = ["derive", "env"] }
 color-eyre = "0.6.2"
 ctrlc = { version = "3.4.1", features = ["termination"] }
+either = "1.9.0"
+log = "0.4.20"
 pgdo-lib = { version = "0.3.1", path = "../pgdo-lib" }
-tokio = { version = "^1.33.0", features = ["full"] }
+simple_logger = "4.2.0"
+tokio = { version = "1.33.0", features = ["full"] }
 uuid = { version = "1.4.1", features = ["v5"] }
