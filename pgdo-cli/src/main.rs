@@ -13,10 +13,11 @@ pub(crate) type ExitResult = color_eyre::Result<std::process::ExitCode>;
 fn main() -> ExitResult {
     // Configure exception reporting.
     color_eyre::install()?;
-    // Configure logging.
+    // Configure logging. Not using local timestamps because `simple_logger`
+    // panics when emitting log messages from within a Tokio runtime context:
+    // https://github.com/borntyping/rust-simple_logger/issues/84
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Warn)
-        .with_local_timestamps()
         .with_colors(stdout().is_terminal())
         .env()
         .init()?;
