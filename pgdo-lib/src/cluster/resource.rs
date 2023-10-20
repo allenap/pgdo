@@ -1,3 +1,5 @@
+use std::{ffi::OsStr, process::ExitStatus};
+
 use super::{
     coordinate::{resource, CoordinateError, State},
     exists, Cluster, ClusterError,
@@ -51,6 +53,21 @@ impl<'a> ClusterShared<'a> {
     pub fn running(&self) -> Result<bool, ClusterError> {
         self.cluster.running()
     }
+
+    /// Forwards to [`Cluster::pool`].
+    pub fn pool(&self, database: Option<&str>) -> sqlx::PgPool {
+        self.cluster.pool(database)
+    }
+
+    /// Forwards to [`Cluster::exec`].
+    pub fn exec<T: AsRef<OsStr>>(
+        &self,
+        database: Option<&str>,
+        command: T,
+        args: &[T],
+    ) -> Result<ExitStatus, ClusterError> {
+        self.cluster.exec(database, command, args)
+    }
 }
 
 pub struct ClusterExclusive<'a> {
@@ -76,5 +93,20 @@ impl<'a> ClusterExclusive<'a> {
 
     pub fn running(&self) -> Result<bool, ClusterError> {
         self.cluster.running()
+    }
+
+    /// Forwards to [`Cluster::pool`].
+    pub fn pool(&self, database: Option<&str>) -> sqlx::PgPool {
+        self.cluster.pool(database)
+    }
+
+    /// Forwards to [`Cluster::exec`].
+    pub fn exec<T: AsRef<OsStr>>(
+        &self,
+        database: Option<&str>,
+        command: T,
+        args: &[T],
+    ) -> Result<ExitStatus, ClusterError> {
+        self.cluster.exec(database, command, args)
     }
 }
