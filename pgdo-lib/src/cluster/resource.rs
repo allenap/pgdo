@@ -1,11 +1,15 @@
-use crate::lock;
-
 use super::{
-    coordinate::{resource, State},
+    coordinate::{resource, CoordinateError, State},
     exists, Cluster, ClusterError,
 };
 
 pub type Resource<'a> = resource::ResourceFree<'a, Cluster>;
+
+impl From<ClusterError> for CoordinateError<ClusterError> {
+    fn from(err: ClusterError) -> Self {
+        Self::ControlError(err)
+    }
+}
 
 impl<'a> resource::Faceted<'a> for Cluster {
     type FacetFree = ClusterFree<'a>;
@@ -73,19 +77,4 @@ impl<'a> ClusterExclusive<'a> {
     pub fn running(&self) -> Result<bool, ClusterError> {
         self.cluster.running()
     }
-}
-
-pub fn start_exclusive(cluster: Cluster) -> Result<(), ClusterError> {
-    let lock = lock::UnlockedFile::try_from(&cluster.datadir)?;
-    let resource = resource::ResourceFree::new(lock, cluster);
-    let resource = resource.exclusive().unwrap();
-    let facet = resource.facet();
-    facet.start()?;
-    let resource = resource.shared().unwrap();
-    let facet = resource.facet();
-    println!("running: {}", facet.running()?);
-    let resource = resource.exclusive().unwrap();
-    resource.facet().stop()?;
-    resource.release().unwrap();
-    Ok(())
 }

@@ -1,12 +1,12 @@
 use std::{ffi::OsStr, path::PathBuf};
 
-use color_eyre::eyre::{eyre, Result, WrapErr};
+use color_eyre::eyre::{eyre, WrapErr};
 use color_eyre::{Help, SectionExt};
 
 use super::ExitResult;
 use crate::{args, runner};
 
-use pgdo::cluster;
+use pgdo::cluster::{self, config};
 
 /// Clone an existing cluster and arrange to continuously archive WAL
 /// (Write-Ahead Log) files into that new cluster.
@@ -44,19 +44,50 @@ impl From<Backup> for super::Command {
 
 fn backup(destination: PathBuf) -> impl FnOnce(&cluster::Cluster) -> ExitResult {
     move |cluster| {
-        let mut conn = cluster.connect(None)?;
-        let archive_settings = ArchiveSettings::query(&mut conn)?;
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let pool = cluster.pool(None);
 
-        if let Some(archive_command) = archive_settings.archive_command {
-            return Err(eyre!("Archive command is already set; cannot proceed")
-                .with_section(|| archive_command.header("archive_command:")));
-        }
-        if let Some(archive_library) = archive_settings.archive_library {
-            return Err(eyre!("Archive library is already set; cannot proceed")
-                .with_section(|| archive_library.header("archive_command:")));
-        }
+            // Ensure that `wal_level` is set to `replica` or `logical`. If not,
+            // set it to `replica`.
+            match WAL_LEVEL.get(&pool).await? {
+                Some(config::Value::String(level)) if level == "replica" || level == "logical" => {}
+                Some(_) => WAL_LEVEL.set(&pool, "replica").await?, // TODO: Restart server.
+                None => return Err(eyre!("WAL is not supported; cannot proceed")),
+            }
 
-        dbg!(archive_settings);
+            // Ensure that `archive_mode` is set to `on` or `always`. If not,
+            // set it to `on`.
+            match ARCHIVE_MODE.get(&pool).await? {
+                Some(config::Value::String(level)) if level == "on" || level == "always" => {}
+                Some(_) => ARCHIVE_MODE.set(&pool, "on").await?, // TODO: Restart server.
+                None => return Err(eyre!("Archiving is not supported; cannot proceed")),
+            }
+
+            match ARCHIVE_COMMAND.get(&pool).await? {
+                // Re. "(disabled)", see `show_archive_command` in xlog.c.
+                Some(config::Value::String(command)) if command == "(disabled)" => {}
+                Some(archive_command) => {
+                    return Err(eyre!("Archive command is already set; cannot proceed")
+                        .with_section(|| archive_command.header("archive_command:")))
+                }
+                None => {}
+            }
+            match ARCHIVE_LIBRARY.get(&pool).await? {
+                Some(config::Value::String(library)) if library.is_empty() => {}
+                Some(archive_library) => {
+                    return Err(eyre!("Archive library is already set; cannot proceed")
+                        .with_section(|| archive_library.header("archive_command:")));
+                }
+                None => {}
+            }
+
+            ARCHIVE_COMMAND
+                .set(&pool, "echo pgdo-archive p=%p f=%f && false")
+                .await?;
+
+            Ok(())
+        })?;
 
         if true {
             return ExitResult::Ok(std::process::ExitCode::SUCCESS);
@@ -78,49 +109,7 @@ fn backup(destination: PathBuf) -> impl FnOnce(&cluster::Cluster) -> ExitResult 
     }
 }
 
-#[derive(Debug, Default)]
-struct ArchiveSettings {
-    archive_mode: Option<String>,
-    archive_command: Option<String>,
-    archive_library: Option<String>,
-    wal_level: Option<String>,
-}
-
-impl ArchiveSettings {
-    fn query(conn: &mut cluster::postgres::Client) -> Result<Self, cluster::ClusterError> {
-        let results = conn.query(
-            r"
-                select
-                    name,
-                    nullif(
-                        -- See `show_archive_command` in xlog.c.
-                        nullif(setting, '(disabled)')
-                        , ''
-                    ) setting
-                from
-                    pg_settings
-                where
-                    name in (
-                        'archive_mode',
-                        'archive_command',
-                        'archive_library',
-                        'wal_level'
-                    )
-            ",
-            &[],
-        )?;
-        let mut settings = Self::default();
-        for row in results {
-            let name: String = row.try_get("name")?;
-            let value: Option<String> = row.try_get("setting")?;
-            match name.as_ref() {
-                "archive_mode" => settings.archive_mode = value,
-                "archive_command" => settings.archive_command = value,
-                "archive_library" => settings.archive_library = value,
-                "wal_level" => settings.wal_level = value,
-                _ => unreachable!(),
-            }
-        }
-        Ok(settings)
-    }
-}
+static ARCHIVE_MODE: config::Parameter = config::Parameter("archive_mode");
+static ARCHIVE_COMMAND: config::Parameter = config::Parameter("archive_command");
+static ARCHIVE_LIBRARY: config::Parameter = config::Parameter("archive_library");
+static WAL_LEVEL: config::Parameter = config::Parameter("wal_level");
