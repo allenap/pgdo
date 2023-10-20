@@ -33,10 +33,10 @@ pub use error::CoordinateError;
 #[derive(Debug, PartialEq, Eq)]
 pub enum State {
     /// The action we requested was performed from this process, e.g. we tried
-    /// to create the cluster, and we did indeed create the cluster.
+    /// to create the subject, and we did indeed create the subject.
     Modified,
     /// The action we requested was performed by another process, or was not
-    /// necessary, e.g. we tried to stop the cluster but it was already stopped.
+    /// necessary, e.g. we tried to stop the subject but it was already stopped.
     Unmodified,
 }
 
@@ -50,13 +50,13 @@ pub trait Subject {
     fn running(&self) -> Result<bool, Self::Error>;
 }
 
-/// Perform `action` in `cluster`.
+/// Perform `action` in `subject`.
 ///
-/// Using the given lock for synchronisation, this creates the cluster if it
+/// Using the given lock for synchronisation, this creates the subject if it
 /// does not exist, starts it if it's not running, performs the `action`, then
-/// (maybe) stops the cluster again, and finally returns the result of `action`.
-/// If there are other users of the cluster – i.e. if an exclusive lock cannot
-/// be acquired during the shutdown phase – then the cluster is left running.
+/// (maybe) stops the subject again, and finally returns the result of `action`.
+/// If there are other users of the subject – i.e. if an exclusive lock cannot
+/// be acquired during the shutdown phase – then the subject is left running.
 pub fn run_and_stop<S, F, T>(
     control: &S,
     lock: lock::UnlockedFile,
@@ -75,13 +75,13 @@ where
     }
 }
 
-/// Perform `action` in `cluster` **if it exists**.
+/// Perform `action` in `subject` **if it exists**.
 ///
-/// Using the given lock for synchronisation, this starts the cluster it if it's
-/// not running, performs the `action`, then (maybe) stops the cluster again,
+/// Using the given lock for synchronisation, this starts the subject it if it's
+/// not running, performs the `action`, then (maybe) stops the subject again,
 /// and finally returns the result of `action`. If there are other users of the
-/// cluster – i.e. if an exclusive lock cannot be acquired during the shutdown
-/// phase – then the cluster is left running.
+/// subject – i.e. if an exclusive lock cannot be acquired during the shutdown
+/// phase – then the subject is left running.
 pub fn run_and_stop_if_exists<S, F, T>(
     control: &S,
     lock: lock::UnlockedFile,
@@ -100,12 +100,12 @@ where
     }
 }
 
-/// Perform `action` in `cluster`, destroying the cluster before returning.
+/// Perform `action` in `subject`, destroying the subject before returning.
 ///
-/// Similar to [`run_and_stop`] except this attempts to destroy the cluster
-/// – i.e. stop the cluster and completely delete its data directory – before
-/// returning. If there are other users of the cluster – i.e. if an exclusive
-/// lock cannot be acquired during the shutdown phase – then the cluster is left
+/// Similar to [`run_and_stop`] except this attempts to destroy the subject
+/// – i.e. stop the subject and completely delete its data directory – before
+/// returning. If there are other users of the subject – i.e. if an exclusive
+/// lock cannot be acquired during the shutdown phase – then the subject is left
 /// running and is **not** destroyed.
 pub fn run_and_destroy<S, F, T>(
     control: &S,
@@ -132,12 +132,12 @@ fn startup<S: Subject>(
     loop {
         lock = match lock.try_lock_exclusive() {
             Ok(Left(lock)) => {
-                // The cluster is locked exclusively by someone/something else.
+                // The subject is locked exclusively by someone/something else.
                 // Switch to a shared lock optimistically. This blocks until we
                 // get the shared lock.
                 let lock = lock.lock_shared()?;
-                // The cluster may have been started while that exclusive lock
-                // was held, so we must check if the cluster is running now –
+                // The subject may have been started while that exclusive lock
+                // was held, so we must check if the subject is running now –
                 // otherwise we loop back to the top again.
                 if control.running().map_err(CoordinateError::ControlError)? {
                     return Ok(lock);
@@ -145,7 +145,7 @@ fn startup<S: Subject>(
                 // Release all locks then sleep for a random time between 200ms
                 // and 1000ms in an attempt to make sure that when there are
                 // many competing processes one of them rapidly acquires an
-                // exclusive lock and is able to create and start the cluster.
+                // exclusive lock and is able to create and start the subject.
                 let lock = lock.unlock()?;
                 let delay = rand::thread_rng().next_u32();
                 let delay = 200 + (delay % 800);
@@ -154,7 +154,7 @@ fn startup<S: Subject>(
                 lock
             }
             Ok(Right(lock)) => {
-                // We have an exclusive lock, so try to start the cluster.
+                // We have an exclusive lock, so try to start the subject.
                 control.start().map_err(CoordinateError::ControlError)?;
                 // Once started, downgrade to a shared log.
                 return Ok(lock.lock_shared()?);
@@ -171,12 +171,12 @@ fn startup_if_exists<S: Subject>(
     loop {
         lock = match lock.try_lock_exclusive() {
             Ok(Left(lock)) => {
-                // The cluster is locked exclusively by someone/something else.
+                // The subject is locked exclusively by someone/something else.
                 // Switch to a shared lock optimistically. This blocks until we
                 // get the shared lock.
                 let lock = lock.lock_shared()?;
-                // The cluster may have been started while that exclusive lock
-                // was held, so we must check if the cluster is running now –
+                // The subject may have been started while that exclusive lock
+                // was held, so we must check if the subject is running now –
                 // otherwise we loop back to the top again.
                 if control.running().map_err(CoordinateError::ControlError)? {
                     return Ok(lock);
@@ -184,7 +184,7 @@ fn startup_if_exists<S: Subject>(
                 // Release all locks then sleep for a random time between 200ms
                 // and 1000ms in an attempt to make sure that when there are
                 // many competing processes one of them rapidly acquires an
-                // exclusive lock and is able to create and start the cluster.
+                // exclusive lock and is able to create and start the subject.
                 let lock = lock.unlock()?;
                 let delay = rand::thread_rng().next_u32();
                 let delay = 200 + (delay % 800);
@@ -193,7 +193,7 @@ fn startup_if_exists<S: Subject>(
                 lock
             }
             Ok(Right(lock)) => {
-                // We have an exclusive lock, so try to start the cluster.
+                // We have an exclusive lock, so try to start the subject.
                 if control.exists().map_err(CoordinateError::ControlError)? {
                     control.start().map_err(CoordinateError::ControlError)?;
                 } else {
@@ -217,13 +217,13 @@ where
 {
     match lock.try_lock_exclusive() {
         Ok(Left(lock)) => {
-            // The cluster is in use by someone/something else. There's nothing
+            // The subject is in use by someone/something else. There's nothing
             // more we can do here.
             lock.unlock()?;
             Ok(None)
         }
         Ok(Right(lock)) => {
-            // We have an exclusive lock, so we can mutate the cluster.
+            // We have an exclusive lock, so we can mutate the subject.
             match action() {
                 Ok(result) => {
                     lock.unlock()?;
