@@ -16,6 +16,7 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
+pub mod cleanup;
 mod error;
 pub mod resource;
 
