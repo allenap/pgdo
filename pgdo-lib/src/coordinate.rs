@@ -32,6 +32,8 @@ use rand::RngCore;
 use crate::lock;
 pub use error::CoordinateError;
 
+use self::finally::with_finally;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum State {
     /// The action we requested was performed from this process, e.g. we tried
@@ -65,16 +67,14 @@ pub fn run_and_stop<S, F, T>(
     action: F,
 ) -> Result<T, CoordinateError<S::Error>>
 where
-    S: Subject,
+    S: std::panic::RefUnwindSafe + Subject,
     F: std::panic::UnwindSafe + FnOnce() -> T,
 {
     let lock = startup(control, lock)?;
-    let action_res = std::panic::catch_unwind(action);
-    let shutdown_res = shutdown::<S, _, _>(lock, || control.stop());
-    match action_res {
-        Ok(result) => shutdown_res.map(|_| result),
-        Err(err) => std::panic::resume_unwind(err),
-    }
+    with_finally(
+        || shutdown::<S, _, _>(lock, || control.stop()),
+        || -> Result<T, CoordinateError<S::Error>> { Ok(action()) },
+    )
 }
 
 /// Perform `action` in `subject` **if it exists**.
@@ -90,16 +90,14 @@ pub fn run_and_stop_if_exists<S, F, T>(
     action: F,
 ) -> Result<T, CoordinateError<S::Error>>
 where
-    S: Subject,
+    S: std::panic::RefUnwindSafe + Subject,
     F: std::panic::UnwindSafe + FnOnce() -> T,
 {
     let lock = startup_if_exists(control, lock)?;
-    let action_res = std::panic::catch_unwind(action);
-    let shutdown_res = shutdown::<S, _, _>(lock, || control.stop());
-    match action_res {
-        Ok(result) => shutdown_res.map(|_| result),
-        Err(err) => std::panic::resume_unwind(err),
-    }
+    with_finally(
+        || shutdown::<S, _, _>(lock, || control.stop()),
+        || -> Result<T, CoordinateError<S::Error>> { Ok(action()) },
+    )
 }
 
 /// Perform `action` in `subject`, destroying the subject before returning.
@@ -115,16 +113,14 @@ pub fn run_and_destroy<S, F, T>(
     action: F,
 ) -> Result<T, CoordinateError<S::Error>>
 where
-    S: Subject,
+    S: std::panic::RefUnwindSafe + Subject,
     F: std::panic::UnwindSafe + FnOnce() -> T,
 {
     let lock = startup(control, lock)?;
-    let action_res = std::panic::catch_unwind(action);
-    let shutdown_res = shutdown::<S, _, _>(lock, || control.destroy());
-    match action_res {
-        Ok(result) => shutdown_res.map(|_| result),
-        Err(err) => std::panic::resume_unwind(err),
-    }
+    with_finally(
+        || shutdown::<S, _, _>(lock, || control.destroy()),
+        || -> Result<T, CoordinateError<S::Error>> { Ok(action()) },
+    )
 }
 
 fn startup<S: Subject>(
