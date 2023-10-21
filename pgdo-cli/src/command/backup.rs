@@ -1,4 +1,8 @@
-use std::{ffi::OsStr, path::PathBuf, process::ExitCode};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
 use color_eyre::eyre::{eyre, WrapErr};
 use color_eyre::{Help, SectionExt};
@@ -139,26 +143,15 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
     // Temporary location into which we'll later make the base backup.
     let destination_data_tmp =
         tempfile::TempDir::with_prefix_in(format!(".tmp.{DESTINATION_DATA_PREFIX}"), &destination)?;
-    // Paths, shell escaped as necessary.
-    let pgdo_exe = std::env::current_exe()?;
-    let pgdo_exe_shell = shell_quote::sh::quote(&pgdo_exe)
-        .to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| {
-            eyre!("Cannot shell escape current executable path")
-                .with_section(|| format!("{pgdo_exe:?}").header("Current executable path:"))
-        })?;
-    let destination_wal_shell = shell_quote::sh::quote(&destination_wal)
-        .to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| {
-            eyre!("Cannot shell escape WAL destination path")
-                .with_section(|| format!("{destination_wal:?}").header("WAL destination path:"))
-        })?;
+
     // The command we use to copy WAL files to `destination_wal`.
     // <https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-ARCHIVING-WAL>.
-    let archive_command =
-        format!("{pgdo_exe_shell} backup:tools wal:archive %p {destination_wal_shell}/%f",);
+    let archive_command = {
+        // Paths, shell escaped as necessary.
+        let pgdo_exe_shell = std::env::current_exe().map(quote_sh)??;
+        let destination_wal_shell = quote_sh(&destination_wal)?;
+        format!("{pgdo_exe_shell} backup:tools wal:archive %p {destination_wal_shell}/%f",)
+    };
 
     log::info!("Starting cluster (if not already started)…");
     let (started, resource) = cluster::resource::startup_if_exists(resource)?;
@@ -342,4 +335,15 @@ where
             }
         }
     }
+}
+
+fn quote_sh<P: AsRef<Path>>(path: P) -> color_eyre::Result<String> {
+    let path = path.as_ref();
+    shell_quote::sh::quote(path)
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            eyre!("Cannot shell escape given path")
+                .with_section(|| format!("{path:?}").header("Path:"))
+        })
 }
