@@ -4,21 +4,16 @@ use std::{
     process::ExitCode,
 };
 
-use color_eyre::eyre::{eyre, WrapErr};
+use color_eyre::eyre::{bail, eyre, WrapErr};
 use color_eyre::{Help, SectionExt};
-use either::{Either, Left, Right};
+use either::{Left, Right};
 
 use super::ExitResult;
 use crate::{args, runner};
 
 use pgdo::{
     cluster::{self, config},
-    coordinate::{
-        cleanup::with_cleanup,
-        finally::with_finally,
-        resource::{ResourceFree, ResourceShared},
-        State,
-    },
+    coordinate::{cleanup::with_cleanup, finally::with_finally, resource::ResourceFree, State},
     lock,
 };
 
@@ -47,7 +42,7 @@ impl Backup {
         match backup(resource, destination) {
             Ok(exit_code) => Ok(exit_code),
             Err(error) => {
-                log::error!("backup failed; cluster may still be running");
+                log::error!("Backup failed; cluster may still be running");
                 Err(error)
             }
         }
@@ -155,32 +150,28 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
 
     log::info!("Starting cluster (if not already started)…");
     let (started, resource) = cluster::resource::startup_if_exists(resource)?;
+    let resource = std::sync::RwLock::new(resource);
 
-    // From here on we want an exclusive lock; if we have to set `archive_mode`
-    // or `wal_level` then we need to restart the server.
-    let resource = match resource {
-        Right(exclusive) => exclusive,
-        Left(shared) => {
-            log::info!("Obtaining exclusive lock…");
-            retry(shared, ResourceShared::try_exclusive)?
-        }
-    };
-
-    let facet = resource.facet();
-    let do_cleanup = || {
-        if started == State::Modified {
-            // We started the cluster, so we try to shut it down.
-            log::info!("Shutting down cluster…");
-            facet.stop()
-        } else {
-            Ok(State::Unmodified)
+    let do_cleanup = || -> Result<State, cluster::ClusterError> {
+        match (started, resource.read().as_deref()) {
+            (State::Modified, Ok(Right(resource))) => {
+                // We started the cluster AND we have an exclusive lock, so we
+                // try to shut it down.
+                log::info!("Shutting down cluster…");
+                resource.facet().stop()
+            }
+            _ => Ok(State::Unmodified),
         }
     };
 
     let needs_restart = with_cleanup(do_cleanup, || {
         let rt = tokio::runtime::Runtime::new()?;
         rt.block_on(async {
-            let pool = facet.pool(None);
+            let pool = match resource.read().as_deref() {
+                Ok(Left(resource)) => resource.facet().pool(None),
+                Ok(Right(resource)) => resource.facet().pool(None),
+                Err(err) => bail!("Could not acquire resource: {err}"),
+            };
             let mut restart: bool = false;
 
             // Ensure that `wal_level` is set to `replica` or `logical`. If not,
@@ -239,15 +230,29 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
         })
     })?;
 
-    if needs_restart {
-        // Need to restart the cluster.
-        with_cleanup(do_cleanup, || {
-            log::info!("Stopping cluster…");
-            facet.stop().and_then(|_| {
-                log::info!("Starting cluster…");
-                facet.start()
-            })
-        })?;
+    match (needs_restart, resource.read().as_deref()) {
+        (true, Ok(Left(_))) => {
+            // Need to restart the cluster BUT we do NOT have an exclusive lock.
+            log::error!(concat!(
+                "The configuration changes that were made only go into effect after the cluster is restarted. ",
+                "The cluster is in use, and so cannot be restarted automatically. ",
+                "Please restart the cluster manually then try this backup again."
+            ));
+            return Ok(ExitCode::FAILURE);
+        }
+        (true, Ok(Right(resource))) => {
+            // Need to restart the cluster AND we have an exclusive lock.
+            let facet = resource.facet();
+            with_cleanup(do_cleanup, || {
+                log::info!("Restarting cluster; stopping…");
+                facet.stop().and_then(|_| {
+                    log::info!("Restarting cluster; starting up again…");
+                    facet.start()
+                })
+            })?;
+        }
+        (_, Err(err)) => bail!("Could not acquire resource: {err}"),
+        (_, _) => {}
     };
 
     let backup = with_finally(do_cleanup, || {
@@ -259,12 +264,28 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
             "plain".as_ref(),
             "--progress".as_ref(),
         ];
-        facet
-            .exec(None, "pg_basebackup".as_ref(), args)
-            .wrap_err("Executing command in cluster failed")
+        match resource.read().as_deref() {
+            Ok(Left(resource)) => resource.facet().exec(None, "pg_basebackup".as_ref(), args),
+            Ok(Right(resource)) => resource.facet().exec(None, "pg_basebackup".as_ref(), args),
+            Err(err) => bail!("Could not acquire resource: {err}"),
+        }
+        .wrap_err("Executing command in cluster failed")
     })?;
 
-    resource.release()?;
+    // Drop `resource`. What I _want_ to do is take the resource out from the
+    // `RwLock` and call `release` on the resources therein, but doing that
+    // yields a "borrowed data escapes outside of function" error way back at
+    // `startup_if_exists`. It thinks that `resource`'s lifetime should be
+    // longer than 'static. Doesn't make much sense right now.
+    drop(resource);
+    // Re. the commentary above, it's the following code that doesn't work:
+    //
+    // ```rust
+    // let resource = resource
+    //     .into_inner()?
+    //     .either(ResourceShared::release, ResourceExclusive::release)?;
+    // ```
+    //
 
     if backup.success() {
         // Before calculating the target directory name or doing the actual
@@ -313,29 +334,6 @@ static DESTINATION_DATA_PREFIX: &str = "data.";
 static DESTINATION_LOCK_NAME: &str = ".lock";
 
 // ----------------------------------------------------------------------------
-
-fn pause() {
-    use std::{thread::sleep, time::Duration};
-    static PAUSE: Duration = Duration::from_millis(2000);
-    sleep(PAUSE);
-}
-
-fn retry<F, L, R, E>(init: L, mut func: F) -> Result<R, E>
-where
-    F: FnMut(L) -> Result<Either<L, R>, E>,
-{
-    let mut either = func(init)?;
-    loop {
-        match either {
-            Right(right) => break Ok(right),
-            Left(left) => {
-                pause();
-                log::info!("… Retrying…");
-                either = func(left)?;
-            }
-        }
-    }
-}
 
 fn quote_sh<P: AsRef<Path>>(path: P) -> color_eyre::Result<String> {
     let path = path.as_ref();

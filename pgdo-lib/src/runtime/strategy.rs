@@ -167,7 +167,7 @@ pub enum Strategy {
     /// Each strategy is consulted in turn.
     Chain(VecDeque<Strategy>),
     /// Delegate to another strategy; needed when implementing [`StrategyLike`].
-    Delegated(Box<dyn StrategyLike>),
+    Delegated(Box<dyn StrategyLike + Send + Sync>),
     /// A single runtime; it always picks itself.
     Single(Runtime),
 }

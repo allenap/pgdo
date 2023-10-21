@@ -34,7 +34,7 @@ pub use error::CoordinateError;
 
 use self::finally::with_finally;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum State {
     /// The action we requested was performed from this process, e.g. we tried
     /// to create the subject, and we did indeed create the subject.
