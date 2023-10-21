@@ -177,9 +177,11 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
             // Ensure that `wal_level` is set to `replica` or `logical`. If not,
             // set it to `replica`.
             match WAL_LEVEL.get(&pool).await? {
-                Some(config::Value::String(level)) if level == "replica" || level == "logical" => {}
+                Some(config::Value::String(level)) if level == "replica" || level == "logical" => {
+                    log::debug!("{WAL_LEVEL} already set to {level:?}");
+                }
                 Some(_) => {
-                    log::info!("Setting wal_level to 'replica'");
+                    log::info!("Setting {WAL_LEVEL} to 'replica'");
                     WAL_LEVEL.set(&pool, "replica").await?;
                     restart = true
                 }
@@ -189,9 +191,11 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
             // Ensure that `archive_mode` is set to `on` or `always`. If not,
             // set it to `on`.
             match ARCHIVE_MODE.get(&pool).await? {
-                Some(config::Value::String(level)) if level == "on" || level == "always" => {}
+                Some(config::Value::String(level)) if level == "on" || level == "always" => {
+                    log::debug!("{ARCHIVE_MODE} already set to {level:?}");
+                }
                 Some(_) => {
-                    log::info!("Setting archive_mode to 'on'");
+                    log::info!("Setting {ARCHIVE_MODE} to 'on'");
                     ARCHIVE_MODE.set(&pool, "on").await?;
                     restart = true
                 }
@@ -200,9 +204,11 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
 
             // We can't set `archive_command` if `archive_library` is already set.
             match ARCHIVE_LIBRARY.get(&pool).await? {
-                Some(config::Value::String(library)) if library.is_empty() => {}
+                Some(config::Value::String(library)) if library.is_empty() => {
+                    log::debug!("{ARCHIVE_LIBRARY} not set (good for us)");
+                }
                 Some(archive_library) => {
-                    return Err(eyre!("Archive library is already set; cannot proceed")
+                    return Err(eyre!("{ARCHIVE_LIBRARY} is already set; cannot proceed")
                         .with_section(|| archive_library.header("archive_command:")));
                 }
                 None => return Err(eyre!("Archiving is not supported; cannot proceed")),
@@ -210,17 +216,17 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
 
             match ARCHIVE_COMMAND.get(&pool).await? {
                 Some(config::Value::String(command)) if command == archive_command => {
-                    log::info!("Parameter archive_command already set to {archive_command:?}");
+                    log::debug!("{ARCHIVE_COMMAND} already set to {archive_command:?}");
                 }
                 // Re. "(disabled)", see `show_archive_command` in xlog.c.
                 Some(config::Value::String(command))
                     if command.is_empty() || command == "(disabled)" =>
                 {
-                    log::info!("Setting archive_command to {archive_command:?}");
+                    log::info!("Setting {ARCHIVE_COMMAND} to {archive_command:?}");
                     ARCHIVE_COMMAND.set(&pool, archive_command).await?;
                 }
                 Some(archive_command) => {
-                    return Err(eyre!("Archive command is already set; cannot proceed")
+                    return Err(eyre!("{ARCHIVE_COMMAND} is already set; cannot proceed")
                         .with_section(|| archive_command.header("archive_command:")))
                 }
                 None => return Err(eyre!("Archiving is not supported; cannot proceed")),
