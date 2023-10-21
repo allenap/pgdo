@@ -15,6 +15,7 @@ use pgdo::{
         resource::{ResourceFree, ResourceShared},
         State,
     },
+    lock,
 };
 
 /// Clone an existing cluster and arrange to continuously archive WAL
@@ -133,21 +134,11 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
     std::fs::create_dir_all(&destination)?;
     let destination = destination.canonicalize()?;
     // Where we're going to copy WAL files to.
-    let destination_wal = destination.join("pg_wal");
+    let destination_wal = destination.join("wal");
     std::fs::create_dir_all(&destination_wal)?;
-    // Where we're going to copy a new base backup to.
-    let destination_data = destination.join(format!(
-        "data.{:08}",
-        std::fs::read_dir(&destination)?
-            .filter_map(|entry| entry.ok())
-            .filter_map(|entry| match entry.file_name().to_str() {
-                Some(name) if name.starts_with("data.") => name[5..].parse::<u32>().ok(),
-                Some(_) | None => None,
-            })
-            .max()
-            .unwrap_or_default()
-            + 1
-    ));
+    // Temporary location into which we'll later make the base backup.
+    let destination_data_tmp =
+        tempfile::TempDir::with_prefix_in(format!(".tmp.{DESTINATION_DATA_PREFIX}"), &destination)?;
     // Paths, shell escaped as necessary.
     let pgdo_exe = std::env::current_exe()?;
     let pgdo_exe_shell = shell_quote::sh::quote(&pgdo_exe)
@@ -266,11 +257,11 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
         })?;
     };
 
-    let status = with_finally(do_cleanup, || {
+    let backup = with_finally(do_cleanup, || {
         log::info!("Performing base backup…");
         let args: &[&OsStr] = &[
             "--pgdata".as_ref(),
-            destination_data.as_ref(),
+            destination_data_tmp.path().as_ref(),
             "--format".as_ref(),
             "plain".as_ref(),
             "--progress".as_ref(),
@@ -282,13 +273,51 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
 
     resource.release()?;
 
-    runner::check_exit(status)
+    if backup.success() {
+        // Before calculating the target directory name or doing the actual
+        // rename, take out a coordinating lock in `destination`.
+        let destination_lock =
+            lock::UnlockedFile::try_from(&destination.join(DESTINATION_LOCK_NAME))?
+                .lock_exclusive()?;
+
+        // Where we're going to move the new backup to. This is always a
+        // directory named `{DESTINATION_DATA_PREFIX}.NNNNNNNNNN` where NNNNNNNNNN
+        // is a zero-padded integer, the next available in `destination`.
+        let destination_data = destination.join(format!(
+            "{DESTINATION_DATA_PREFIX}{:010}",
+            std::fs::read_dir(&destination)?
+                .filter_map(|entry| entry.ok())
+                .filter_map(|entry| match entry.file_name().to_str() {
+                    Some(name) if name.starts_with(DESTINATION_DATA_PREFIX) =>
+                        name[DESTINATION_DATA_PREFIX.len()..].parse::<u32>().ok(),
+                    Some(_) | None => None,
+                })
+                .max()
+                .unwrap_or_default()
+                + 1
+        ));
+
+        // Do the rename.
+        std::fs::rename(&destination_data_tmp, destination_data)?;
+        drop(destination_lock);
+
+        // We don't need the temporary file to do clean-up now.
+        let _ = destination_data_tmp.into_path();
+    }
+
+    runner::check_exit(backup)
 }
 
 static ARCHIVE_MODE: config::Parameter = config::Parameter("archive_mode");
 static ARCHIVE_COMMAND: config::Parameter = config::Parameter("archive_command");
 static ARCHIVE_LIBRARY: config::Parameter = config::Parameter("archive_library");
 static WAL_LEVEL: config::Parameter = config::Parameter("wal_level");
+
+// Successful backups have this directory name prefix.
+static DESTINATION_DATA_PREFIX: &str = "data.";
+
+// Coordinating lock for working in the backup destination directory.
+static DESTINATION_LOCK_NAME: &str = ".lock";
 
 // ----------------------------------------------------------------------------
 
