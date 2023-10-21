@@ -272,20 +272,22 @@ fn backup(resource: ResourceFree<cluster::Cluster>, destination: PathBuf) -> Exi
         .wrap_err("Executing command in cluster failed")
     })?;
 
-    // Drop `resource`. What I _want_ to do is take the resource out from the
-    // `RwLock` and call `release` on the resources therein, but doing that
-    // yields a "borrowed data escapes outside of function" error way back at
-    // `startup_if_exists`. It thinks that `resource`'s lifetime should be
-    // longer than 'static. Doesn't make much sense right now.
-    drop(resource);
-    // Re. the commentary above, it's the following code that doesn't work:
+    // Explicitly release resources, but allow the `ResourceFree` that we get
+    // back to immediately be dropped. This allows errors to be visible.
     //
-    // ```rust
-    // let resource = resource
-    //     .into_inner()?
-    //     .either(ResourceShared::release, ResourceExclusive::release)?;
-    // ```
-    //
+    // NOTE: The `unwrap_or_else` is to deal with lock poisoning. `PoisonError`
+    // captures the panic that poisoned the lock, which can reference variables
+    // in the function – which in turn can upset the compiler if we return the
+    // `PoisonError` from this function, i.e. it sees lifetime violations. These
+    // are confusing to diagnose. Anyway, while we don't expect poisoning, it is
+    // in the types and so we must deal with it.
+    resource
+        .into_inner()
+        .unwrap_or_else(|err| err.into_inner())
+        .either(
+            cluster::resource::ResourceShared::release,
+            cluster::resource::ResourceExclusive::release,
+        )?;
 
     if backup.success() {
         // Before calculating the target directory name or doing the actual
