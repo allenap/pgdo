@@ -76,6 +76,11 @@ impl BackupTools {
                     fs::{read, write},
                     io::ErrorKind::NotFound,
                 };
+                // TODO: Don't load entire WAL files into memory. I've read that
+                // WAL files can grow to be pretty large (`wal_segment_size`,
+                // with a default of 16MiB, multiplied by the number of segments
+                // – which can vary, and grow large esp. when there is sustained
+                // write activity). This somewhat naïve approach may not scale.
                 match (read(&source), read(&target)) {
                     (Ok(wal_in), Err(err)) if err.kind() == NotFound => {
                         log::info!("WAL archiving from {source:?} to {target:?}");
