@@ -44,7 +44,7 @@ impl Backup {
     pub async fn do_configure_archiving<'a>(
         &self,
         resource: &'a StartupResource<'a>,
-        archive_command: String,
+        archive_command: &str,
     ) -> Result<bool, BackupError> {
         let pool = match resource {
             Left(resource) => resource.facet().pool(None),
@@ -99,9 +99,7 @@ impl Backup {
                 )))
             }
             None => {
-                return Err(BackupError::ConfigError(
-                    "Archiving is not supported; cannot proceed".into(),
-                ))
+                log::debug!("{ARCHIVE_LIBRARY} is not supported (good for us)");
             }
         }
 
@@ -114,7 +112,7 @@ impl Backup {
                 if command.is_empty() || command == "(disabled)" =>
             {
                 log::info!("Setting {ARCHIVE_COMMAND} to {archive_command:?}");
-                ARCHIVE_COMMAND.set(&pool, &archive_command).await?;
+                ARCHIVE_COMMAND.set(&pool, archive_command).await?;
             }
             Some(archive_command) => {
                 return Err(BackupError::ConfigError(format!(

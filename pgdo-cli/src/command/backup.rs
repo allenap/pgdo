@@ -161,7 +161,7 @@ fn backup<D: AsRef<Path>>(
             match resource.read().as_deref() {
                 Ok(resource) => {
                     backup
-                        .do_configure_archiving(resource, archive_command)
+                        .do_configure_archiving(resource, &archive_command)
                         .await
                 }
                 Err(err) => panic!("Could not acquire resource: {err}"),
