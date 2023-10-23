@@ -3,21 +3,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use either::{Either, Left, Right};
+use either::{Left, Right};
 use tempfile::TempDir;
 
-use super::{
-    config,
-    resource::{ResourceExclusive, ResourceShared},
-};
+use super::{config, resource::StartupResource};
 use crate::lock;
 use crate::prelude::CoordinateError;
 
 pub use error::BackupError;
-
-// ----------------------------------------------------------------------------
-
-type BackupResource<'a> = Either<ResourceShared<'a>, ResourceExclusive<'a>>;
 
 // ----------------------------------------------------------------------------
 
@@ -50,7 +43,7 @@ impl Backup {
     /// does nothing (and returns `false`).
     pub async fn do_configure_archiving<'a>(
         &self,
-        resource: &'a BackupResource<'a>,
+        resource: &'a StartupResource<'a>,
         archive_command: String,
     ) -> Result<bool, BackupError> {
         let pool = match resource {
@@ -147,7 +140,7 @@ impl Backup {
     /// [`Backup::do_configure_archiving`]).
     pub fn do_base_backup<'a>(
         &self,
-        resource: &'a BackupResource<'a>,
+        resource: &'a StartupResource<'a>,
     ) -> Result<PathBuf, BackupError> {
         let args: &[&OsStr] = &[
             "--pgdata".as_ref(),

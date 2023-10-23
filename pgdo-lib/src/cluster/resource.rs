@@ -9,9 +9,13 @@ use super::{
     exists, Cluster, ClusterError,
 };
 
+// ----------------------------------------------------------------------------
+
 pub type ResourceFree<'a> = resource::ResourceFree<'a, Cluster>;
 pub type ResourceShared<'a> = resource::ResourceShared<'a, Cluster>;
 pub type ResourceExclusive<'a> = resource::ResourceExclusive<'a, Cluster>;
+
+// ----------------------------------------------------------------------------
 
 impl From<ClusterError> for CoordinateError<ClusterError> {
     fn from(err: ClusterError) -> Self {
@@ -121,9 +125,13 @@ impl<'a> ClusterExclusive<'a> {
     }
 }
 
+// ----------------------------------------------------------------------------
+
+pub type StartupResource<'a> = Either<ResourceShared<'a>, ResourceExclusive<'a>>;
+
 pub fn startup(
     mut resource: ResourceFree,
-) -> Result<(State, Either<ResourceShared, ResourceExclusive>), CoordinateError<ClusterError>> {
+) -> Result<(State, StartupResource), CoordinateError<ClusterError>> {
     loop {
         resource = match resource.try_exclusive() {
             Ok(Left(resource)) => {
@@ -160,7 +168,7 @@ pub fn startup(
 
 pub fn startup_if_exists(
     mut resource: ResourceFree,
-) -> Result<(State, Either<ResourceShared, ResourceExclusive>), CoordinateError<ClusterError>> {
+) -> Result<(State, StartupResource), CoordinateError<ClusterError>> {
     loop {
         resource = match resource.try_exclusive() {
             Ok(Left(resource)) => {
