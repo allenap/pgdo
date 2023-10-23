@@ -1,6 +1,9 @@
 //! Create, start, introspect, stop, and destroy PostgreSQL clusters.
 
+pub mod backup;
 pub mod config;
+pub mod resource;
+
 mod error;
 
 use std::ffi::{OsStr, OsString};
@@ -9,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::{env, fs, io};
 
-use nix::errno::Errno;
 use postgres;
 use shell_quote::sh::escape_into;
 pub use sqlx;
@@ -18,7 +20,13 @@ use crate::runtime::{
     strategy::{Strategy, StrategyLike},
     Runtime,
 };
-use crate::version;
+use crate::{
+    coordinate::{
+        self,
+        State::{self, *},
+    },
+    version,
+};
 pub use error::ClusterError;
 
 /// `template0` is always present in a PostgreSQL cluster.
@@ -229,14 +237,6 @@ impl Cluster {
 
     /// Create the cluster if it does not already exist.
     pub fn create(&self) -> Result<State, ClusterError> {
-        match self._create() {
-            Err(ClusterError::UnixError(Errno::EAGAIN)) if exists(self) => Ok(Unmodified),
-            Err(ClusterError::UnixError(Errno::EAGAIN)) => Err(ClusterError::InUse),
-            other => other,
-        }
-    }
-
-    fn _create(&self) -> Result<State, ClusterError> {
         if exists(self) {
             // Nothing more to do; the cluster is already in place.
             Ok(Unmodified)
@@ -260,16 +260,8 @@ impl Cluster {
 
     /// Start the cluster if it's not already running.
     pub fn start(&self) -> Result<State, ClusterError> {
-        match self._start() {
-            Err(ClusterError::UnixError(Errno::EAGAIN)) if self.running()? => Ok(Unmodified),
-            Err(ClusterError::UnixError(Errno::EAGAIN)) => Err(ClusterError::InUse),
-            other => other,
-        }
-    }
-
-    fn _start(&self) -> Result<State, ClusterError> {
         // Ensure that the cluster has been created.
-        self._create()?;
+        self.create()?;
         // Check if we're running already.
         if self.running()? {
             // We didn't start this cluster; say so.
@@ -419,14 +411,6 @@ impl Cluster {
 
     /// Stop the cluster if it's running.
     pub fn stop(&self) -> Result<State, ClusterError> {
-        match self._stop() {
-            Err(ClusterError::UnixError(Errno::EAGAIN)) if !self.running()? => Ok(Unmodified),
-            Err(ClusterError::UnixError(Errno::EAGAIN)) => Err(ClusterError::InUse),
-            other => other,
-        }
-    }
-
-    fn _stop(&self) -> Result<State, ClusterError> {
         // If the cluster's not already running, don't do anything.
         if !self.running()? {
             return Ok(Unmodified);
@@ -446,18 +430,11 @@ impl Cluster {
 
     /// Destroy the cluster if it exists, after stopping it.
     pub fn destroy(&self) -> Result<State, ClusterError> {
-        match self._destroy() {
-            Err(ClusterError::UnixError(Errno::EAGAIN)) => Err(ClusterError::InUse),
-            other => other,
-        }
-    }
-
-    fn _destroy(&self) -> Result<State, ClusterError> {
-        if self._stop()? == Modified || self.datadir.is_dir() {
-            fs::remove_dir_all(&self.datadir)?;
-            Ok(Modified)
-        } else {
-            Ok(Unmodified)
+        self.stop()?;
+        match fs::remove_dir_all(&self.datadir) {
+            Ok(()) => Ok(Modified),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Unmodified),
+            Err(err) => Err(err)?,
         }
     }
 }
@@ -467,19 +444,6 @@ impl AsRef<Path> for Cluster {
         &self.datadir
     }
 }
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum State {
-    /// The action we requested was performed from this process, e.g. we tried
-    /// to create the cluster, and we did indeed create the cluster.
-    Modified,
-    /// The action we requested was performed by another process, or was not
-    /// necessary, e.g. we tried to stop the cluster but it was already stopped.
-    Unmodified,
-}
-
-// For convenience.
-use State::{Modified, Unmodified};
 
 /// A fairly simplistic but quick check: does the directory exist and does it
 /// look like a PostgreSQL cluster data directory, i.e. does it contain a file
@@ -507,5 +471,30 @@ pub fn version<P: AsRef<Path>>(
         Ok(version) => Ok(Some(version.parse()?)),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err)?,
+    }
+}
+
+/// [`Cluster`] can be coordinated.
+impl coordinate::Subject for Cluster {
+    type Error = ClusterError;
+
+    fn start(&self) -> Result<State, Self::Error> {
+        self.start()
+    }
+
+    fn stop(&self) -> Result<State, Self::Error> {
+        self.stop()
+    }
+
+    fn destroy(&self) -> Result<State, Self::Error> {
+        self.destroy()
+    }
+
+    fn exists(&self) -> Result<bool, Self::Error> {
+        Ok(exists(self))
+    }
+
+    fn running(&self) -> Result<bool, Self::Error> {
+        self.running()
     }
 }

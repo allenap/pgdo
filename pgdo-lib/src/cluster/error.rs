@@ -6,7 +6,6 @@ use crate::{cluster, runtime, version};
 #[derive(Debug)]
 pub enum ClusterError {
     IoError(io::Error),
-    UnixError(nix::Error),
     UnsupportedVersion(version::Version),
     VersionError(version::VersionError),
     RuntimeNotFound(version::PartialVersion),
@@ -23,7 +22,6 @@ impl fmt::Display for ClusterError {
         use ClusterError::*;
         match *self {
             IoError(ref e) => write!(fmt, "input/output error: {e}"),
-            UnixError(ref e) => write!(fmt, "UNIX error: {e}"),
             UnsupportedVersion(ref e) => write!(fmt, "PostgreSQL version not supported: {e}"),
             VersionError(ref e) => write!(fmt, "PostgreSQL version not known: {e}"),
             RuntimeNotFound(ref v) => write!(fmt, "PostgreSQL runtime not found for version {v}"),
@@ -41,7 +39,6 @@ impl error::Error for ClusterError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match *self {
             Self::IoError(ref error) => Some(error),
-            Self::UnixError(ref error) => Some(error),
             Self::UnsupportedVersion(_) => None,
             Self::VersionError(ref error) => Some(error),
             Self::RuntimeNotFound(_) => None,
@@ -58,12 +55,6 @@ impl error::Error for ClusterError {
 impl From<io::Error> for ClusterError {
     fn from(error: io::Error) -> ClusterError {
         Self::IoError(error)
-    }
-}
-
-impl From<nix::Error> for ClusterError {
-    fn from(error: nix::Error) -> ClusterError {
-        Self::UnixError(error)
     }
 }
 

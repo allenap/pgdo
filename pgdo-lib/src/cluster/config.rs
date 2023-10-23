@@ -244,6 +244,12 @@ impl From<String> for Value {
     }
 }
 
+impl From<&String> for Value {
+    fn from(value: &String) -> Self {
+        Value::String(value.clone())
+    }
+}
+
 macro_rules! value_number_from {
     ($($from_type:ty),*) => {
         $(

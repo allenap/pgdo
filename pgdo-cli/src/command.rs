@@ -1,3 +1,4 @@
+mod backup;
 mod clone;
 mod exec;
 mod runtimes;
@@ -18,6 +19,12 @@ pub(crate) enum Command {
     Clone(clone::Clone),
 
     #[clap(display_order = 4)]
+    Backup(backup::Backup),
+
+    #[clap(name = "backup:tools", hide = true)]
+    BackupTools(backup::BackupTools),
+
+    #[clap(display_order = 5)]
     Runtimes(runtimes::Runtimes),
 }
 
@@ -27,6 +34,8 @@ impl Command {
             Self::Shell(shell) => shell.invoke(),
             Self::Exec(exec) => exec.invoke(),
             Self::Clone(clone) => clone.invoke(),
+            Self::Backup(backup) => backup.invoke(),
+            Self::BackupTools(tools) => tools.invoke(),
             Self::Runtimes(runtimes) => runtimes.invoke(),
         }
     }

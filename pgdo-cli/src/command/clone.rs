@@ -5,7 +5,7 @@ use color_eyre::eyre::WrapErr;
 use super::ExitResult;
 use crate::{args, runner};
 
-/// Clone an existing cluster.
+/// Perform a one-off clone/backup of an existing cluster.
 #[derive(clap::Args)]
 #[clap(next_help_heading = Some("Options for clone"))]
 pub struct Clone {

@@ -4,6 +4,14 @@
 # $ cargo install sqlx-cli
 #
 
-exec cargo run --package pgdo-cli --bin pgdo -- exec -- cargo sqlx "$@"
+if [ -v PGHOST ] && [ -v PGDATABASE ]; then
+    # Assume we're within `pgdo exec`; see other branch for how we end up here.
+    export DATABASE_URL="postgresql://?host=${PGHOST}&dbname=${PGDATABASE}"
+    exec cargo sqlx "$@"
+else
+    # Use `pgdo` itself – in this directory – to get PostgreSQL running, and
+    # then re-`exec` this script.
+    exec cargo run --package pgdo-cli --bin pgdo -- exec -- "$0" "$@"
+fi
 
 # End.

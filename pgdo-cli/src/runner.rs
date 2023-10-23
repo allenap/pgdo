@@ -1,5 +1,7 @@
 use std::fs;
 use std::io;
+use std::os::unix::prelude::OsStrExt;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::process::ExitStatus;
 
@@ -59,6 +61,21 @@ pub(crate) fn ensure_database(cluster: &cluster::Cluster, database_name: &str) -
 
 const UUID_NS: uuid::Uuid = uuid::Uuid::from_u128(93875103436633470414348750305797058811);
 
+/// Provide an unlocked lock for the given directory.
+pub fn lock_for<P: AsRef<Path>>(path: P) -> Result<(PathBuf, lock::UnlockedFile)> {
+    let path = path
+        .as_ref()
+        .canonicalize()
+        .wrap_err("Could not canonicalize cluster directory")
+        .with_section(|| format!("{}", path.as_ref().display()).header("Cluster directory:"))?;
+    let name = path.as_os_str().as_bytes();
+    let lock_uuid = uuid::Uuid::new_v5(&UUID_NS, name);
+    let lock = lock::UnlockedFile::try_from(&lock_uuid)
+        .wrap_err("Could not create UUID-based lock file")
+        .with_section(|| lock_uuid.to_string().header("UUID for lock file:"))?;
+    Ok((path, lock))
+}
+
 #[allow(clippy::enum_variant_names)]
 pub(crate) enum Runner {
     RunAndStop,
@@ -100,21 +117,9 @@ where
         }
     };
 
-    // Obtain a canonical path to the cluster directory.
-    let cluster_dir = cluster_dir
-        .canonicalize()
-        .wrap_err("Could not canonicalize cluster directory")
-        .with_section(|| format!("{}", cluster_dir.display()).header("Cluster directory:"))?;
-
-    // Use the canonical path to construct the UUID with which we'll lock this
-    // cluster. Use the `Debug` form of `database_dir` for the lock file UUID.
-    let lock_uuid = uuid::Uuid::new_v5(&UUID_NS, format!("{:?}", &cluster_dir).as_bytes());
-    let lock = lock::UnlockedFile::try_from(&lock_uuid)
-        .wrap_err("Could not create UUID-based lock file")
-        .with_section(|| lock_uuid.to_string().header("UUID for lock file:"))?;
-
+    let (datadir, lock) = lock_for(&cluster_dir)?;
     let strategy = determine_strategy(fallback)?;
-    let cluster = cluster::Cluster::new(&cluster_dir, strategy)?;
+    let cluster = cluster::Cluster::new(datadir, strategy)?;
 
     let runner = match runner {
         Runner::RunAndStop => coordinate::run_and_stop,
@@ -122,10 +127,11 @@ where
         Runner::RunAndDestroy => coordinate::run_and_destroy,
     };
 
-    runner(&cluster, lock, |cluster: &cluster::Cluster| {
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(initialise(cluster_mode, cluster))?;
-        drop(rt);
+    runner(&cluster, lock, || {
+        if let Some(cluster_mode) = cluster_mode {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(set_cluster_mode(cluster_mode, &cluster))?;
+        }
 
         // Ignore SIGINT, TERM, and HUP (with ctrlc feature "termination"). The
         // child process will receive the signal, presumably terminate, then
@@ -133,14 +139,14 @@ where
         ctrlc::set_handler(|| ()).wrap_err("Could not set signal handler")?;
 
         // Finally, run the given action.
-        action(cluster)
+        action(&cluster)
     })?
 }
 
-/// Create an initialisation function that will set appropriate PostgreSQL
-/// settings, e.g. `fsync`, `full_page_writes`, etc. that need to be set early.
-async fn initialise(
-    mode: Option<args::ClusterMode>,
+/// Set the cluster's "mode", i.e. configure appropriate PostgreSQL settings,
+/// e.g. `fsync`, `full_page_writes`, etc. that need to be set early.
+async fn set_cluster_mode(
+    mode: args::ClusterMode,
     cluster: &cluster::Cluster,
 ) -> Result<(), cluster::ClusterError> {
     use pgdo::cluster::config::{self, Parameter};
@@ -150,7 +156,7 @@ async fn initialise(
     static SYNCHRONOUS_COMMIT: Parameter = Parameter("synchronous_commit");
 
     match mode {
-        Some(args::ClusterMode::Fast) => {
+        args::ClusterMode::Fast => {
             let pool = cluster.pool(None);
             FSYNC.set(&pool, false).await?;
             FULL_PAGE_WRITES.set(&pool, false).await?;
@@ -159,7 +165,7 @@ async fn initialise(
             config::reload(&pool).await?;
             Ok(())
         }
-        Some(args::ClusterMode::Slow) => {
+        args::ClusterMode::Slow => {
             let pool = cluster.pool(None);
             FSYNC.reset(&pool).await?;
             FULL_PAGE_WRITES.reset(&pool).await?;
@@ -168,6 +174,5 @@ async fn initialise(
             config::reload(&pool).await?;
             Ok(())
         }
-        None => Ok(()),
     }
 }

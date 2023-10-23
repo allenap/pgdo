@@ -34,6 +34,7 @@
         "pgdo",
         "PGHOST",
         "pidfile",
+        "PITR",
         "POSIX",
         "postgresfixture",
         "prettyplease",
@@ -41,6 +42,7 @@
         "runtimes",
         "rustfmt",
         "rustup",
+        "sakila",
         "shellsession",
         "SIGINT",
         "softprops",
@@ -53,7 +55,8 @@
         "tempdir",
         "tempfile",
         "unparse",
-        "vartype"
+        "vartype",
+        "xlog"
     ],
     "rust-analyzer.showUnlinkedFileNotification": false
 }

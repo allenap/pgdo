@@ -7,8 +7,8 @@ use pgdo::cluster::{
     exists,
     sqlx::{query, Row},
     version, Cluster, ClusterError,
-    State::*,
 };
+use pgdo::coordinate::State::*;
 use pgdo::version::{PartialVersion, Version};
 use pgdo_test::for_all_runtimes;
 
@@ -38,7 +38,8 @@ fn cluster_does_not_exist() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_does_exist() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
     let cluster = Cluster::new(&data_dir, runtime.clone())?;
     cluster.create()?;
     assert!(exists(&cluster));
@@ -58,7 +59,7 @@ fn cluster_has_no_version_when_it_does_not_exist() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_has_version_when_it_does_exist() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
+    let data_dir = tempfile::tempdir()?; // NOT a subdirectory.
     let version_file = data_dir.path().join("PG_VERSION");
     File::create(&version_file)?;
     let pg_version: PartialVersion = runtime.version.into();
@@ -96,8 +97,9 @@ fn cluster_has_log_file() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_create_creates_cluster() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
-    let cluster = Cluster::new(&data_dir, runtime)?;
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
     assert!(!exists(&cluster));
     assert!(cluster.create()? == Modified);
     assert!(exists(&cluster));
@@ -107,8 +109,9 @@ fn cluster_create_creates_cluster() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
-    let cluster = Cluster::new(&data_dir, runtime.clone())?;
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime.clone())?;
     cluster.start()?;
     let result = block_on(async {
         let pool = cluster.pool(None);
@@ -176,8 +179,9 @@ fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResu
 #[for_all_runtimes]
 #[test]
 fn cluster_create_does_nothing_when_it_already_exists() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
-    let cluster = Cluster::new(&data_dir, runtime)?;
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
     assert!(!exists(&cluster));
     assert!(cluster.create()? == Modified);
     assert!(exists(&cluster));
@@ -188,8 +192,9 @@ fn cluster_create_does_nothing_when_it_already_exists() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_start_stop_starts_and_stops_cluster() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
-    let cluster = Cluster::new(&data_dir, runtime)?;
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
     cluster.create()?;
     assert!(!cluster.running()?);
     cluster.start()?;
@@ -202,8 +207,9 @@ fn cluster_start_stop_starts_and_stops_cluster() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_destroy_stops_and_removes_cluster() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
-    let cluster = Cluster::new(&data_dir, runtime)?;
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
     cluster.create()?;
     cluster.start()?;
     assert!(exists(&cluster));
@@ -214,9 +220,35 @@ fn cluster_destroy_stops_and_removes_cluster() -> TestResult {
 
 #[for_all_runtimes]
 #[test]
+fn cluster_destroy_removes_cluster() -> TestResult {
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
+    cluster.create()?;
+    assert!(exists(&cluster));
+    cluster.destroy()?;
+    assert!(!exists(&cluster));
+    Ok(())
+}
+
+#[for_all_runtimes]
+#[test]
+fn cluster_destroy_does_nothing_if_cluster_does_not_exist() -> TestResult {
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
+    assert!(!exists(&cluster));
+    cluster.destroy()?;
+    assert!(!exists(&cluster));
+    Ok(())
+}
+
+#[for_all_runtimes]
+#[test]
 fn cluster_databases_returns_vec_of_database_names() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
-    let cluster = Cluster::new(&data_dir, runtime)?;
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
     cluster.start()?;
 
     let expected: HashSet<String> = ["postgres", "template0", "template1"]
@@ -235,8 +267,9 @@ fn cluster_databases_returns_vec_of_database_names() -> TestResult {
 fn cluster_databases_with_non_plain_names_can_be_created_and_dropped() -> TestResult {
     // PostgreSQL identifiers containing hyphens, for example, or where we
     // want to preserve capitalisation, are possible.
-    let data_dir = tempfile::tempdir()?;
-    let cluster = Cluster::new(&data_dir, runtime)?;
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
     cluster.start()?;
     cluster.createdb("foo-bar")?;
     cluster.createdb("Foo-BAR")?;
@@ -257,8 +290,9 @@ fn cluster_databases_with_non_plain_names_can_be_created_and_dropped() -> TestRe
 #[for_all_runtimes]
 #[test]
 fn cluster_databases_that_already_exist_can_be_created_without_error() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
-    let cluster = Cluster::new(&data_dir, runtime)?;
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
     cluster.start()?;
     assert!(matches!(cluster.createdb("foo-bar")?, Modified));
     assert!(matches!(cluster.createdb("foo-bar")?, Unmodified));
@@ -269,8 +303,9 @@ fn cluster_databases_that_already_exist_can_be_created_without_error() -> TestRe
 #[for_all_runtimes]
 #[test]
 fn cluster_databases_that_do_not_exist_can_be_dropped_without_error() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
-    let cluster = Cluster::new(&data_dir, runtime)?;
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
     cluster.start()?;
     cluster.createdb("foo-bar")?;
     assert!(matches!(cluster.dropdb("foo-bar")?, Modified));
