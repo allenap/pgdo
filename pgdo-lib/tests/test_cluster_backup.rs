@@ -7,7 +7,7 @@ use pgdo_test::for_all_runtimes;
 
 type TestResult = Result<(), ClusterError>;
 
-#[for_all_runtimes]
+#[for_all_runtimes(min = "10")]
 #[test]
 fn cluster_backup() -> TestResult {
     let rt = tokio::runtime::Runtime::new()?;
