@@ -1,7 +1,6 @@
 use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
-    sync::{PoisonError, RwLock},
 };
 
 use either::{Either, Left, Right};
@@ -9,13 +8,10 @@ use tempfile::TempDir;
 
 use super::{
     config,
-    resource::{ResourceExclusive, ResourceFree, ResourceShared},
+    resource::{ResourceExclusive, ResourceShared},
 };
 use crate::lock;
-use crate::{
-    coordinate::{cleanup::with_cleanup, finally::with_finally, State},
-    prelude::CoordinateError,
-};
+use crate::prelude::CoordinateError;
 
 pub use error::BackupError;
 
@@ -27,12 +23,14 @@ type BackupResource<'a> = Either<ResourceShared<'a>, ResourceExclusive<'a>>;
 
 #[derive(Debug)]
 pub struct Backup {
-    destination: PathBuf,
-    destination_wal: PathBuf,
-    destination_tmp: TempDir,
+    pub destination: PathBuf,
+    pub destination_wal: PathBuf,
+    pub destination_tmp: TempDir,
 }
 
 impl Backup {
+    /// Creates the destination directory and the WAL archive directory if these
+    /// do not exist, and allocates a temporary location for the base backup.
     pub fn prepare<D: AsRef<Path>>(destination: D) -> Result<Self, BackupError> {
         let destination = destination.as_ref().canonicalize()?;
         let destination_wal = destination.join("wal");
@@ -45,6 +43,11 @@ impl Backup {
         Ok(Self { destination, destination_wal, destination_tmp })
     }
 
+    /// Configures the cluster for continuous archiving.
+    ///
+    /// Returns a flag indicating if the cluster must be restarted for changes
+    /// to take effect. If the cluster is already configured appropriately, this
+    /// does nothing (and returns `false`).
     pub async fn do_configure_archiving<'a>(
         &self,
         resource: &'a BackupResource<'a>,
@@ -135,11 +138,17 @@ impl Backup {
         Ok(restart)
     }
 
+    /// Performs a "base backup" of the cluster.
+    ///
+    /// Returns the directory into which the backup has been created. This is
+    /// always a subdirectory of [`self.destination`].
+    ///
+    /// This must be performed _after_ configuring continuous archiving (see
+    /// [`Backup::do_configure_archiving`]).
     pub fn do_base_backup<'a>(
         &self,
         resource: &'a BackupResource<'a>,
     ) -> Result<PathBuf, BackupError> {
-        log::info!("Performing base backup…");
         let args: &[&OsStr] = &[
             "--pgdata".as_ref(),
             self.destination_tmp.path().as_ref(),
@@ -187,103 +196,6 @@ impl Backup {
     }
 }
 
-#[allow(unused)]
-fn backup<D: AsRef<Path>>(resource: ResourceFree, destination: D) -> Result<(), BackupError> {
-    // TODO: Clean up old WAL files?
-    // TODO: Handle table-spaces?
-
-    let backup = Backup::prepare(&destination)?;
-
-    log::info!("Starting cluster (if not already started)…");
-    let (started, resource) = super::resource::startup_if_exists(resource)?;
-    let resource = RwLock::new(resource);
-
-    let do_cleanup = || -> Result<State, super::ClusterError> {
-        match (started, resource.read().as_deref()) {
-            (State::Modified, Ok(Right(resource))) => {
-                // We started the cluster AND we have an exclusive lock, so we
-                // try to shut it down.
-                log::info!("Shutting down cluster…");
-                resource.facet().stop()
-            }
-            _ => Ok(State::Unmodified),
-        }
-    };
-
-    // The command we use to copy WAL files to `destination_wal`.
-    // <https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-ARCHIVING-WAL>.
-    let archive_command = {
-        let pgdo_exe_shell = std::env::current_exe().map(quote_sh)??;
-        let destination_wal_shell = quote_sh(&backup.destination_wal)?;
-        format!("{pgdo_exe_shell} backup:tools wal:archive %p {destination_wal_shell}/%f")
-    };
-
-    let needs_restart = with_cleanup(do_cleanup, || {
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(async {
-            match resource.read().as_deref() {
-                Ok(resource) => {
-                    backup
-                        .do_configure_archiving(resource, archive_command)
-                        .await
-                }
-                Err(err) => panic!("Could not acquire resource: {err}"),
-            }
-        })
-    })?;
-
-    if needs_restart {
-        match resource.read().as_deref() {
-            Ok(Left(_)) => {
-                // Need to restart the cluster BUT we do NOT have an exclusive lock.
-                return Err(BackupError::GeneralError(concat!(
-                    "The configuration changes that were made only go into effect after the cluster is restarted. ",
-                    "The cluster is in use, and so cannot be restarted automatically. ",
-                    "Please restart the cluster manually then try this backup again.",
-                ).into()));
-            }
-            Ok(Right(resource)) => {
-                // Need to restart the cluster AND we have an exclusive lock.
-                let facet = resource.facet();
-                with_cleanup(do_cleanup, || {
-                    log::info!("Restarting cluster; stopping…");
-                    facet.stop().and_then(|_| {
-                        log::info!("Restarting cluster; starting up again…");
-                        facet.start()
-                    })
-                })?;
-            }
-            Err(err) => panic!("Could not acquire resource: {err}"),
-        };
-    }
-
-    log::info!("Performing base backup…");
-    let destination_data = match resource.read().as_deref() {
-        Ok(resource) => with_finally(do_cleanup, || backup.do_base_backup(resource)),
-        Err(err) => panic!("Could not acquire resource: {err}"),
-    }?;
-    log::info!("Base backup complete; find it at {destination_data:?}");
-
-    // Explicitly release resources, but allow the `ResourceFree` that we get
-    // back to immediately be dropped. This allows errors to be visible.
-    //
-    // NOTE: The `unwrap_or_else` is to deal with lock poisoning. `PoisonError`
-    // captures the panic that poisoned the lock, which can reference variables
-    // in the function – which in turn can upset the compiler if we return the
-    // `PoisonError` from this function, i.e. it sees lifetime violations. These
-    // are confusing to diagnose. Anyway, while we don't expect poisoning, it is
-    // in the types and so we must deal with it.
-    resource
-        .into_inner()
-        .unwrap_or_else(PoisonError::into_inner)
-        .either(
-            super::resource::ResourceShared::release,
-            super::resource::ResourceExclusive::release,
-        )?;
-
-    Ok(())
-}
-
 // ----------------------------------------------------------------------------
 
 static ARCHIVE_MODE: config::Parameter = config::Parameter("archive_mode");
@@ -296,16 +208,6 @@ static DESTINATION_DATA_PREFIX: &str = "data.";
 
 // Coordinating lock for working in the backup destination directory.
 static DESTINATION_LOCK_NAME: &str = ".lock";
-
-// ----------------------------------------------------------------------------
-
-fn quote_sh<P: AsRef<Path>>(path: P) -> Result<String, BackupError> {
-    let path = path.as_ref();
-    shell_quote::sh::quote(path)
-        .to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| BackupError::GeneralError(format!("could not quote {path:?} for shell")))
-}
 
 // ----------------------------------------------------------------------------
 
