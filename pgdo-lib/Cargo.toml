@@ -28,7 +28,7 @@ regex = "^1.10.2"
 shell-quote = "^0.3.1"
 tempfile = "^3.8.0"
 tokio = { version = "^1.33.0", features = ["full"] }
-uuid = { version = "^1.4.1", features = ["v5"] }
+uuid = { version = "^1.5.0", features = ["v5"] }
 
 [dependencies.sqlx]
 version = "^0.7.2"
