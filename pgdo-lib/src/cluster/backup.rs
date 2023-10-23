@@ -25,10 +25,10 @@ impl Backup {
     /// Creates the destination directory and the WAL archive directory if these
     /// do not exist, and allocates a temporary location for the base backup.
     pub fn prepare<D: AsRef<Path>>(destination: D) -> Result<Self, BackupError> {
+        std::fs::create_dir_all(&destination)?;
         let destination = destination.as_ref().canonicalize()?;
         let destination_wal = destination.join("wal");
         std::fs::create_dir_all(&destination_wal)?;
-        std::fs::create_dir_all(&destination)?;
         // Temporary location into which we'll make the base backup.
         let destination_tmp_prefix = format!(".tmp.{DESTINATION_DATA_PREFIX}");
         let destination_tmp = TempDir::with_prefix_in(destination_tmp_prefix, &destination)?;
