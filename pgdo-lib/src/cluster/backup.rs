@@ -1,8 +1,16 @@
-use std::{ffi::OsStr, path::Path, sync::PoisonError};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+    sync::{PoisonError, RwLock},
+};
 
-use either::{Left, Right};
+use either::{Either, Left, Right};
+use tempfile::TempDir;
 
-use super::{config, resource::ResourceFree};
+use super::{
+    config,
+    resource::{ResourceExclusive, ResourceFree, ResourceShared},
+};
 use crate::lock;
 use crate::{
     coordinate::{cleanup::with_cleanup, finally::with_finally, State},
@@ -11,32 +19,184 @@ use crate::{
 
 pub use error::BackupError;
 
-#[allow(clippy::too_many_lines, unused)]
+// ----------------------------------------------------------------------------
+
+type BackupResource<'a> = Either<ResourceShared<'a>, ResourceExclusive<'a>>;
+
+// ----------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub struct Backup {
+    destination: PathBuf,
+    destination_wal: PathBuf,
+    destination_tmp: TempDir,
+}
+
+impl Backup {
+    pub fn prepare<D: AsRef<Path>>(destination: D) -> Result<Self, BackupError> {
+        let destination = destination.as_ref().canonicalize()?;
+        let destination_wal = destination.join("wal");
+        std::fs::create_dir_all(&destination_wal)?;
+        std::fs::create_dir_all(&destination)?;
+        // Temporary location into which we'll make the base backup.
+        let destination_tmp_prefix = format!(".tmp.{DESTINATION_DATA_PREFIX}");
+        let destination_tmp = TempDir::with_prefix_in(destination_tmp_prefix, &destination)?;
+        // All good; we're done.
+        Ok(Self { destination, destination_wal, destination_tmp })
+    }
+
+    pub async fn do_configure_archiving<'a>(
+        &self,
+        resource: &'a BackupResource<'a>,
+        archive_command: String,
+    ) -> Result<bool, BackupError> {
+        let pool = match resource {
+            Left(resource) => resource.facet().pool(None),
+            Right(resource) => resource.facet().pool(None),
+        };
+        let mut restart: bool = false;
+
+        // Ensure that `wal_level` is set to `replica` or `logical`. If not,
+        // set it to `replica`.
+        match WAL_LEVEL.get(&pool).await? {
+            Some(config::Value::String(level)) if level == "replica" || level == "logical" => {
+                log::debug!("{WAL_LEVEL} already set to {level:?}");
+            }
+            Some(_) => {
+                log::info!("Setting {WAL_LEVEL} to 'replica'");
+                WAL_LEVEL.set(&pool, "replica").await?;
+                restart = true;
+            }
+            None => {
+                return Err(BackupError::ConfigError(
+                    "WAL is not supported; cannot proceed".into(),
+                ))
+            }
+        }
+
+        // Ensure that `archive_mode` is set to `on` or `always`. If not,
+        // set it to `on`.
+        match ARCHIVE_MODE.get(&pool).await? {
+            Some(config::Value::String(level)) if level == "on" || level == "always" => {
+                log::debug!("{ARCHIVE_MODE} already set to {level:?}");
+            }
+            Some(_) => {
+                log::info!("Setting {ARCHIVE_MODE} to 'on'");
+                ARCHIVE_MODE.set(&pool, "on").await?;
+                restart = true;
+            }
+            None => {
+                return Err(BackupError::ConfigError(
+                    "Archiving is not supported; cannot proceed".into(),
+                ))
+            }
+        }
+
+        // We can't set `archive_command` if `archive_library` is already set.
+        match ARCHIVE_LIBRARY.get(&pool).await? {
+            Some(config::Value::String(library)) if library.is_empty() => {
+                log::debug!("{ARCHIVE_LIBRARY} not set (good for us)");
+            }
+            Some(archive_library) => {
+                return Err(BackupError::ConfigError(format!(
+                    "{ARCHIVE_LIBRARY} is already set to {archive_library:?}; cannot proceed"
+                )))
+            }
+            None => {
+                return Err(BackupError::ConfigError(
+                    "Archiving is not supported; cannot proceed".into(),
+                ))
+            }
+        }
+
+        match ARCHIVE_COMMAND.get(&pool).await? {
+            Some(config::Value::String(command)) if command == archive_command => {
+                log::debug!("{ARCHIVE_COMMAND} already set to {archive_command:?}");
+            }
+            // Re. "(disabled)", see `show_archive_command` in xlog.c.
+            Some(config::Value::String(command))
+                if command.is_empty() || command == "(disabled)" =>
+            {
+                log::info!("Setting {ARCHIVE_COMMAND} to {archive_command:?}");
+                ARCHIVE_COMMAND.set(&pool, &archive_command).await?;
+            }
+            Some(archive_command) => {
+                return Err(BackupError::ConfigError(format!(
+                    "{ARCHIVE_COMMAND} is already set to {archive_command:?}; cannot proceed"
+                )))
+            }
+            None => {
+                return Err(BackupError::ConfigError(
+                    "Archiving is not supported; cannot proceed".into(),
+                ))
+            }
+        }
+
+        Ok(restart)
+    }
+
+    pub fn do_base_backup<'a>(
+        &self,
+        resource: &'a BackupResource<'a>,
+    ) -> Result<PathBuf, BackupError> {
+        log::info!("Performing base backup…");
+        let args: &[&OsStr] = &[
+            "--pgdata".as_ref(),
+            self.destination_tmp.path().as_ref(),
+            "--format".as_ref(),
+            "plain".as_ref(),
+            "--progress".as_ref(),
+        ];
+        let status = match resource {
+            Left(resource) => resource.facet().exec(None, "pg_basebackup".as_ref(), args),
+            Right(resource) => resource.facet().exec(None, "pg_basebackup".as_ref(), args),
+        }?;
+        if !status.success() {
+            Err(status)?;
+        }
+        // Before calculating the target directory name or doing the actual
+        // rename, take out a coordinating lock in `destination`.
+        let destination_lock =
+            lock::UnlockedFile::try_from(&self.destination.join(DESTINATION_LOCK_NAME))?
+                .lock_exclusive()
+                .map_err(CoordinateError::UnixError)?;
+
+        // Where we're going to move the new backup to. This is always a
+        // directory named `{DESTINATION_DATA_PREFIX}.NNNNNNNNNN` where
+        // NNNNNNNNNN is a zero-padded integer, the next available in
+        // `destination`.
+        let destination_data = self.destination.join(format!(
+            "{DESTINATION_DATA_PREFIX}{:010}",
+            std::fs::read_dir(&self.destination)?
+                .filter_map(Result::ok)
+                .filter_map(|entry| match entry.file_name().to_str() {
+                    Some(name) if name.starts_with(DESTINATION_DATA_PREFIX) =>
+                        name[DESTINATION_DATA_PREFIX.len()..].parse::<u32>().ok(),
+                    Some(_) | None => None,
+                })
+                .max()
+                .unwrap_or_default()
+                + 1
+        ));
+
+        // Do the rename.
+        std::fs::rename(&self.destination_tmp, &destination_data)?;
+        drop(destination_lock);
+
+        Ok(destination_data)
+    }
+}
+
+#[allow(unused)]
 fn backup<D: AsRef<Path>>(resource: ResourceFree, destination: D) -> Result<(), BackupError> {
     // TODO: Clean up old WAL files?
     // TODO: Handle table-spaces?
 
-    std::fs::create_dir_all(&destination)?;
-    let destination = destination.as_ref().canonicalize()?;
-    // Where we're going to copy WAL files to.
-    let destination_wal = destination.join("wal");
-    std::fs::create_dir_all(&destination_wal)?;
-    // Temporary location into which we'll later make the base backup.
-    let destination_data_tmp =
-        tempfile::TempDir::with_prefix_in(format!(".tmp.{DESTINATION_DATA_PREFIX}"), &destination)?;
-
-    // The command we use to copy WAL files to `destination_wal`.
-    // <https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-ARCHIVING-WAL>.
-    let archive_command = {
-        // Paths, shell escaped as necessary.
-        let pgdo_exe_shell = std::env::current_exe().map(quote_sh)??;
-        let destination_wal_shell = quote_sh(&destination_wal)?;
-        format!("{pgdo_exe_shell} backup:tools wal:archive %p {destination_wal_shell}/%f",)
-    };
+    let backup = Backup::prepare(&destination)?;
 
     log::info!("Starting cluster (if not already started)…");
     let (started, resource) = super::resource::startup_if_exists(resource)?;
-    let resource = std::sync::RwLock::new(resource);
+    let resource = RwLock::new(resource);
 
     let do_cleanup = || -> Result<State, super::ClusterError> {
         match (started, resource.read().as_deref()) {
@@ -50,135 +210,59 @@ fn backup<D: AsRef<Path>>(resource: ResourceFree, destination: D) -> Result<(), 
         }
     };
 
+    // The command we use to copy WAL files to `destination_wal`.
+    // <https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-ARCHIVING-WAL>.
+    let archive_command = {
+        let pgdo_exe_shell = std::env::current_exe().map(quote_sh)??;
+        let destination_wal_shell = quote_sh(&backup.destination_wal)?;
+        format!("{pgdo_exe_shell} backup:tools wal:archive %p {destination_wal_shell}/%f")
+    };
+
     let needs_restart = with_cleanup(do_cleanup, || {
         let rt = tokio::runtime::Runtime::new()?;
         rt.block_on(async {
-            let pool = match resource.read().as_deref() {
-                Ok(Left(resource)) => resource.facet().pool(None),
-                Ok(Right(resource)) => resource.facet().pool(None),
+            match resource.read().as_deref() {
+                Ok(resource) => {
+                    backup
+                        .do_configure_archiving(resource, archive_command)
+                        .await
+                }
                 Err(err) => panic!("Could not acquire resource: {err}"),
-            };
-            let mut restart: bool = false;
-
-            // Ensure that `wal_level` is set to `replica` or `logical`. If not,
-            // set it to `replica`.
-            match WAL_LEVEL.get(&pool).await? {
-                Some(config::Value::String(level)) if level == "replica" || level == "logical" => {
-                    log::debug!("{WAL_LEVEL} already set to {level:?}");
-                }
-                Some(_) => {
-                    log::info!("Setting {WAL_LEVEL} to 'replica'");
-                    WAL_LEVEL.set(&pool, "replica").await?;
-                    restart = true;
-                }
-                None => {
-                    return Err(BackupError::ConfigError(
-                        "WAL is not supported; cannot proceed".into(),
-                    ))
-                }
             }
-
-            // Ensure that `archive_mode` is set to `on` or `always`. If not,
-            // set it to `on`.
-            match ARCHIVE_MODE.get(&pool).await? {
-                Some(config::Value::String(level)) if level == "on" || level == "always" => {
-                    log::debug!("{ARCHIVE_MODE} already set to {level:?}");
-                }
-                Some(_) => {
-                    log::info!("Setting {ARCHIVE_MODE} to 'on'");
-                    ARCHIVE_MODE.set(&pool, "on").await?;
-                    restart = true;
-                }
-                None => {
-                    return Err(BackupError::ConfigError(
-                        "Archiving is not supported; cannot proceed".into(),
-                    ))
-                }
-            }
-
-            // We can't set `archive_command` if `archive_library` is already set.
-            match ARCHIVE_LIBRARY.get(&pool).await? {
-                Some(config::Value::String(library)) if library.is_empty() => {
-                    log::debug!("{ARCHIVE_LIBRARY} not set (good for us)");
-                }
-                Some(archive_library) => {
-                    return Err(BackupError::ConfigError(format!(
-                        "{ARCHIVE_LIBRARY} is already set to {archive_library:?}; cannot proceed"
-                    )))
-                }
-                None => {
-                    return Err(BackupError::ConfigError(
-                        "Archiving is not supported; cannot proceed".into(),
-                    ))
-                }
-            }
-
-            match ARCHIVE_COMMAND.get(&pool).await? {
-                Some(config::Value::String(command)) if command == archive_command => {
-                    log::debug!("{ARCHIVE_COMMAND} already set to {archive_command:?}");
-                }
-                // Re. "(disabled)", see `show_archive_command` in xlog.c.
-                Some(config::Value::String(command))
-                    if command.is_empty() || command == "(disabled)" =>
-                {
-                    log::info!("Setting {ARCHIVE_COMMAND} to {archive_command:?}");
-                    ARCHIVE_COMMAND.set(&pool, archive_command).await?;
-                }
-                Some(archive_command) => {
-                    return Err(BackupError::ConfigError(format!(
-                        "{ARCHIVE_COMMAND} is already set to {archive_command:?}; cannot proceed"
-                    )))
-                }
-                None => {
-                    return Err(BackupError::ConfigError(
-                        "Archiving is not supported; cannot proceed".into(),
-                    ))
-                }
-            }
-
-            Ok(restart)
         })
     })?;
 
-    match (needs_restart, resource.read().as_deref()) {
-        (true, Ok(Left(_))) => {
-            // Need to restart the cluster BUT we do NOT have an exclusive lock.
-            return Err(BackupError::GeneralError(concat!(
-                "The configuration changes that were made only go into effect after the cluster is restarted. ",
-                "The cluster is in use, and so cannot be restarted automatically. ",
-                "Please restart the cluster manually then try this backup again.",
-            ).into()));
-        }
-        (true, Ok(Right(resource))) => {
-            // Need to restart the cluster AND we have an exclusive lock.
-            let facet = resource.facet();
-            with_cleanup(do_cleanup, || {
-                log::info!("Restarting cluster; stopping…");
-                facet.stop().and_then(|_| {
-                    log::info!("Restarting cluster; starting up again…");
-                    facet.start()
-                })
-            })?;
-        }
-        (_, Err(err)) => panic!("Could not acquire resource: {err}"),
-        (_, _) => {}
-    };
-
-    let backup = with_finally(do_cleanup, || {
-        log::info!("Performing base backup…");
-        let args: &[&OsStr] = &[
-            "--pgdata".as_ref(),
-            destination_data_tmp.path().as_ref(),
-            "--format".as_ref(),
-            "plain".as_ref(),
-            "--progress".as_ref(),
-        ];
+    if needs_restart {
         match resource.read().as_deref() {
-            Ok(Left(resource)) => resource.facet().exec(None, "pg_basebackup".as_ref(), args),
-            Ok(Right(resource)) => resource.facet().exec(None, "pg_basebackup".as_ref(), args),
+            Ok(Left(_)) => {
+                // Need to restart the cluster BUT we do NOT have an exclusive lock.
+                return Err(BackupError::GeneralError(concat!(
+                    "The configuration changes that were made only go into effect after the cluster is restarted. ",
+                    "The cluster is in use, and so cannot be restarted automatically. ",
+                    "Please restart the cluster manually then try this backup again.",
+                ).into()));
+            }
+            Ok(Right(resource)) => {
+                // Need to restart the cluster AND we have an exclusive lock.
+                let facet = resource.facet();
+                with_cleanup(do_cleanup, || {
+                    log::info!("Restarting cluster; stopping…");
+                    facet.stop().and_then(|_| {
+                        log::info!("Restarting cluster; starting up again…");
+                        facet.start()
+                    })
+                })?;
+            }
             Err(err) => panic!("Could not acquire resource: {err}"),
-        }
-    })?;
+        };
+    }
+
+    log::info!("Performing base backup…");
+    let destination_data = match resource.read().as_deref() {
+        Ok(resource) => with_finally(do_cleanup, || backup.do_base_backup(resource)),
+        Err(err) => panic!("Could not acquire resource: {err}"),
+    }?;
+    log::info!("Base backup complete; find it at {destination_data:?}");
 
     // Explicitly release resources, but allow the `ResourceFree` that we get
     // back to immediately be dropped. This allows errors to be visible.
@@ -197,47 +281,10 @@ fn backup<D: AsRef<Path>>(resource: ResourceFree, destination: D) -> Result<(), 
             super::resource::ResourceExclusive::release,
         )?;
 
-    match backup.code() {
-        None => Err(BackupError::GeneralError(format!(
-            "Backup command terminated: {backup}"
-        )))?,
-        Some(0) => {
-            // Before calculating the target directory name or doing the actual
-            // rename, take out a coordinating lock in `destination`.
-            let destination_lock =
-                lock::UnlockedFile::try_from(&destination.join(DESTINATION_LOCK_NAME))?
-                    .lock_exclusive()
-                    .map_err(CoordinateError::UnixError)?;
-
-            // Where we're going to move the new backup to. This is always a
-            // directory named `{DESTINATION_DATA_PREFIX}.NNNNNNNNNN` where NNNNNNNNNN
-            // is a zero-padded integer, the next available in `destination`.
-            let destination_data = destination.join(format!(
-                "{DESTINATION_DATA_PREFIX}{:010}",
-                std::fs::read_dir(&destination)?
-                    .filter_map(Result::ok)
-                    .filter_map(|entry| match entry.file_name().to_str() {
-                        Some(name) if name.starts_with(DESTINATION_DATA_PREFIX) =>
-                            name[DESTINATION_DATA_PREFIX.len()..].parse::<u32>().ok(),
-                        Some(_) | None => None,
-                    })
-                    .max()
-                    .unwrap_or_default()
-                    + 1
-            ));
-
-            // Do the rename.
-            std::fs::rename(&destination_data_tmp, destination_data)?;
-            drop(destination_lock);
-
-            // We don't need the temporary file to do clean-up now.
-            let _ = destination_data_tmp.into_path();
-        }
-        Some(code) => Err(backup)?,
-    }
-
     Ok(())
 }
+
+// ----------------------------------------------------------------------------
 
 static ARCHIVE_MODE: config::Parameter = config::Parameter("archive_mode");
 static ARCHIVE_COMMAND: config::Parameter = config::Parameter("archive_command");
