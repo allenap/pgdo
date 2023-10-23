@@ -18,7 +18,6 @@ pub use error::BackupError;
 pub struct Backup {
     pub destination: PathBuf,
     pub destination_wal: PathBuf,
-    pub destination_tmp: TempDir,
 }
 
 impl Backup {
@@ -29,11 +28,7 @@ impl Backup {
         let destination = destination.as_ref().canonicalize()?;
         let destination_wal = destination.join("wal");
         std::fs::create_dir_all(&destination_wal)?;
-        // Temporary location into which we'll make the base backup.
-        let destination_tmp_prefix = format!(".tmp.{DESTINATION_DATA_PREFIX}");
-        let destination_tmp = TempDir::with_prefix_in(destination_tmp_prefix, &destination)?;
-        // All good; we're done.
-        Ok(Self { destination, destination_wal, destination_tmp })
+        Ok(Self { destination, destination_wal })
     }
 
     /// Configures the cluster for continuous archiving.
@@ -140,9 +135,13 @@ impl Backup {
         &self,
         resource: &'a StartupResource<'a>,
     ) -> Result<PathBuf, BackupError> {
+        // Temporary location into which we'll make the base backup.
+        let destination_tmp =
+            TempDir::with_prefix_in(DESTINATION_DATA_PREFIX_TMP, &self.destination)?;
+
         let args: &[&OsStr] = &[
             "--pgdata".as_ref(),
-            self.destination_tmp.path().as_ref(),
+            destination_tmp.path().as_ref(),
             "--format".as_ref(),
             "plain".as_ref(),
             "--progress".as_ref(),
@@ -180,7 +179,7 @@ impl Backup {
         ));
 
         // Do the rename.
-        std::fs::rename(&self.destination_tmp, &destination_data)?;
+        std::fs::rename(&destination_tmp, &destination_data)?;
         drop(destination_lock);
 
         Ok(destination_data)
@@ -196,6 +195,9 @@ static WAL_LEVEL: config::Parameter = config::Parameter("wal_level");
 
 // Successful backups have this directory name prefix.
 static DESTINATION_DATA_PREFIX: &str = "data.";
+
+// In-progress backups have this directory name prefix.
+static DESTINATION_DATA_PREFIX_TMP: &str = ".tmp.data.";
 
 // Coordinating lock for working in the backup destination directory.
 static DESTINATION_LOCK_NAME: &str = ".lock";
