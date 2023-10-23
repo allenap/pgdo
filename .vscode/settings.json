@@ -42,6 +42,7 @@
         "runtimes",
         "rustfmt",
         "rustup",
+        "sakila",
         "shellsession",
         "SIGINT",
         "softprops",

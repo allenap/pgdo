@@ -14,14 +14,13 @@ version.workspace = true
 publish = false
 
 [lib]
-proc-macro = true
 name = "pgdo_test"
 path = "src/lib.rs"
 
 [dependencies]
-quote = "^1.0.33"
-syn = "^2.0.38"
-pgdo-lib = { version = "0.3.1", path = "../pgdo-lib" }
+async-std = "^1.12.0"
+pgdo-test-macros = { path = "../pgdo-test-macros" }
 
-[build-dependencies]
-pgdo-lib = { version = "0.3.1", path = "../pgdo-lib" }
+[dependencies.sqlx]
+version = "^0.7.2"
+features = ["macros", "postgres", "runtime-tokio"]

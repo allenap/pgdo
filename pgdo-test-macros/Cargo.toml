@@ -1,0 +1,27 @@
+[package]
+authors.workspace = true
+categories.workspace = true
+description = "The convenience of SQLite – but with PostgreSQL (Testing macros package)"
+edition.workspace = true
+keywords.workspace = true
+license.workspace = true
+name = "pgdo-test-macros"
+readme = "README.md"
+repository.workspace = true
+version.workspace = true
+
+# Don't accidentally publish this crate.
+publish = false
+
+[lib]
+proc-macro = true
+name = "pgdo_test_macros"
+path = "src/lib.rs"
+
+[dependencies]
+quote = "^1.0.33"
+syn = "^2.0.38"
+pgdo-lib = { path = "../pgdo-lib" }
+
+[build-dependencies]
+pgdo-lib = { path = "../pgdo-lib" }
