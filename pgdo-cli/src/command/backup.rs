@@ -65,7 +65,7 @@ pub struct BackupTools {
 impl BackupTools {
     pub fn invoke(self) -> ExitResult {
         match self.command {
-            BackupTool::WalArchive { source, target } => copy_wal_archive(source, target),
+            BackupTool::WalArchive { source, target } => Ok(copy_wal_archive(source, target)),
         }
     }
 }
@@ -225,42 +225,91 @@ fn backup<D: AsRef<Path>>(
 }
 
 /// Copy a WAL archive file. Used in `archive_command`.
-fn copy_wal_archive(source: PathBuf, target: PathBuf) -> color_eyre::Result<ExitCode> {
+fn copy_wal_archive(source: PathBuf, target: PathBuf) -> ExitCode {
     use std::{
-        fs::{read, write},
-        io::ErrorKind::NotFound,
+        fs::File,
+        io::{self, BufRead, ErrorKind::AlreadyExists, Write},
     };
-    // TODO: Don't load entire WAL files into memory. I've read that WAL files
-    // can grow to be pretty large (`wal_segment_size`, with a default of 16MiB,
-    // multiplied by the number of segments – which can vary, and grow large
-    // esp. when there is sustained write activity). This somewhat naïve
-    // approach may not scale.
-    match (read(&source), read(&target)) {
-        (Ok(wal_in), Err(err)) if err.kind() == NotFound => {
-            log::info!("WAL archiving from {source:?} to {target:?}");
-            match write(&target, wal_in) {
-                Ok(()) => Ok(ExitCode::SUCCESS),
+    // Avoid loading entire WAL files into memory. Context: I've read that WAL
+    // files can grow to be pretty large (`wal_segment_size`, with a default of
+    // 16MiB, multiplied by the number of segments – which can vary, and grow
+    // large esp. when there is sustained write activity).
+    match File::open(&source) {
+        Ok(file_source) => {
+            // Try to open the target archive file.
+            match File::options().write(true).create_new(true).open(&target) {
+                // Target archive file is ready to write.
+                Ok(file_target) => {
+                    log::info!("WAL archiving from {source:?} to {target:?}");
+                    let mut reader = io::BufReader::new(&file_source);
+                    let mut writer = io::BufWriter::new(&file_target);
+                    match io::copy(&mut reader, &mut writer)
+                        .and_then(|_| writer.flush())
+                        .and_then(|_| file_target.sync_all())
+                    {
+                        Ok(()) => ExitCode::SUCCESS,
+                        Err(err) => {
+                            log::error!("WAL archive failure; error while copying: {err}");
+                            ExitCode::FAILURE
+                        }
+                    }
+                }
+                // Target archive file already exists.
+                Err(err) if err.kind() == AlreadyExists => {
+                    // Try to open target archive file to compare contents with
+                    // source archive file.
+                    match File::open(&target) {
+                        // Target archive file is ready to read.
+                        Ok(file_target) => {
+                            let mut reader_source = io::BufReader::new(&file_source);
+                            let mut reader_target = io::BufReader::new(&file_target);
+                            loop {
+                                let (bytes_source, bytes_target) = {
+                                    let buf_source = match reader_source.fill_buf() {
+                                        Ok(buf) => buf,
+                                        Err(err) => {
+                                            log::error!("WAL archive failure; error reading {source:?}: {err}");
+                                            break ExitCode::FAILURE;
+                                        }
+                                    };
+                                    let buf_target = match reader_target.fill_buf() {
+                                        Ok(buf) => buf,
+                                        Err(err) => {
+                                            log::error!("WAL archive failure; error reading {target:?}: {err}");
+                                            break ExitCode::FAILURE;
+                                        }
+                                    };
+                                    if buf_source.is_empty() && buf_target.is_empty() {
+                                        log::info!("WAL file {source:?} already archived okay");
+                                        break ExitCode::SUCCESS;
+                                    } else if buf_source != buf_target {
+                                        log::error!("WAL file {source:?} already archived to {target:?} **BUT CONTENTS DIFFER**");
+                                        break ExitCode::FAILURE;
+                                    };
+                                    (buf_source.len(), buf_target.len())
+                                };
+                                reader_source.consume(bytes_source);
+                                reader_target.consume(bytes_target);
+                            }
+                        }
+                        // Target archive file cannot be read.
+                        Err(err) => {
+                            log::error!("WAL archive failure; error accessing {target:?}: {err}");
+                            ExitCode::FAILURE
+                        }
+                    }
+                }
+                // Target archive file cannot be opened for writing.
                 Err(err) => {
-                    log::error!("WAL archive failure; error writing {target:?}: {err}");
-                    Ok(ExitCode::FAILURE)
+                    log::error!("WAL archive failure; error accessing {target:?}: {err}");
+                    ExitCode::FAILURE
                 }
             }
         }
-        (Ok(wal_in), Ok(wal_out)) if wal_in == wal_out => {
-            log::info!("WAL file {source:?} already archived");
-            Ok(ExitCode::SUCCESS)
-        }
-        (Ok(_), Ok(_)) => {
-            log::error!("WAL file {source:?} already archived to {target:?} BUT CONTENTS DIFFER");
-            Ok(ExitCode::FAILURE)
-        }
-        (Err(err), _) => {
+        // Source archive file cannot be read.
+        Err(err) => {
             log::error!("WAL archive failure; error accessing {source:?}: {err}");
-            Ok(ExitCode::FAILURE)
-        }
-        (_, Err(err)) => {
-            log::error!("WAL archive failure; error accessing {target:?}: {err}");
-            Ok(ExitCode::FAILURE)
+            ExitCode::FAILURE
         }
     }
 }
