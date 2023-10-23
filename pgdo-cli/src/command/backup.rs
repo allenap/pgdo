@@ -65,45 +65,7 @@ pub struct BackupTools {
 impl BackupTools {
     pub fn invoke(self) -> ExitResult {
         match self.command {
-            BackupTool::WalArchive { source, target } => {
-                use std::{
-                    fs::{read, write},
-                    io::ErrorKind::NotFound,
-                };
-                // TODO: Don't load entire WAL files into memory. I've read that
-                // WAL files can grow to be pretty large (`wal_segment_size`,
-                // with a default of 16MiB, multiplied by the number of segments
-                // – which can vary, and grow large esp. when there is sustained
-                // write activity). This somewhat naïve approach may not scale.
-                match (read(&source), read(&target)) {
-                    (Ok(wal_in), Err(err)) if err.kind() == NotFound => {
-                        log::info!("WAL archiving from {source:?} to {target:?}");
-                        match write(&target, wal_in) {
-                            Ok(()) => Ok(ExitCode::SUCCESS),
-                            Err(err) => {
-                                log::error!("WAL archive failure; error writing {target:?}: {err}");
-                                Ok(ExitCode::FAILURE)
-                            }
-                        }
-                    }
-                    (Ok(wal_in), Ok(wal_out)) if wal_in == wal_out => {
-                        log::info!("WAL file {source:?} already archived");
-                        Ok(ExitCode::SUCCESS)
-                    }
-                    (Ok(_), Ok(_)) => {
-                        log::error!("WAL file {source:?} already archived to {target:?} BUT CONTENTS DIFFER");
-                        Ok(ExitCode::FAILURE)
-                    }
-                    (Err(err), _) => {
-                        log::error!("WAL archive failure; error accessing {source:?}: {err}");
-                        Ok(ExitCode::FAILURE)
-                    }
-                    (_, Err(err)) => {
-                        log::error!("WAL archive failure; error accessing {target:?}: {err}");
-                        Ok(ExitCode::FAILURE)
-                    }
-                }
-            }
+            BackupTool::WalArchive { source, target } => copy_wal_archive(source, target),
         }
     }
 }
@@ -260,6 +222,47 @@ fn backup<D: AsRef<Path>>(
         )?;
 
     Ok(())
+}
+
+/// Copy a WAL archive file. Used in `archive_command`.
+fn copy_wal_archive(source: PathBuf, target: PathBuf) -> color_eyre::Result<ExitCode> {
+    use std::{
+        fs::{read, write},
+        io::ErrorKind::NotFound,
+    };
+    // TODO: Don't load entire WAL files into memory. I've read that WAL files
+    // can grow to be pretty large (`wal_segment_size`, with a default of 16MiB,
+    // multiplied by the number of segments – which can vary, and grow large
+    // esp. when there is sustained write activity). This somewhat naïve
+    // approach may not scale.
+    match (read(&source), read(&target)) {
+        (Ok(wal_in), Err(err)) if err.kind() == NotFound => {
+            log::info!("WAL archiving from {source:?} to {target:?}");
+            match write(&target, wal_in) {
+                Ok(()) => Ok(ExitCode::SUCCESS),
+                Err(err) => {
+                    log::error!("WAL archive failure; error writing {target:?}: {err}");
+                    Ok(ExitCode::FAILURE)
+                }
+            }
+        }
+        (Ok(wal_in), Ok(wal_out)) if wal_in == wal_out => {
+            log::info!("WAL file {source:?} already archived");
+            Ok(ExitCode::SUCCESS)
+        }
+        (Ok(_), Ok(_)) => {
+            log::error!("WAL file {source:?} already archived to {target:?} BUT CONTENTS DIFFER");
+            Ok(ExitCode::FAILURE)
+        }
+        (Err(err), _) => {
+            log::error!("WAL archive failure; error accessing {source:?}: {err}");
+            Ok(ExitCode::FAILURE)
+        }
+        (_, Err(err)) => {
+            log::error!("WAL archive failure; error accessing {target:?}: {err}");
+            Ok(ExitCode::FAILURE)
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
