@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use std::ffi::OsString;
+
 use pgdo::cluster::{backup, resource, Cluster, ClusterError};
 use pgdo::coordinate;
 use pgdo_test::for_all_runtimes;
@@ -23,42 +26,49 @@ fn cluster_backup() -> TestResult {
     assert_eq!(state, coordinate::State::Modified); // Cluster was started.
     assert!(matches!(&resource, either::Right(_))); // Exclusive lock.
 
-    // Run backup.
-    let archive_command = format!("cp %p {}/%f", &backup.destination_wal.display());
-    let restart_needed = rt
-        .block_on(backup.do_configure_archiving(&resource, &archive_command))
-        .unwrap();
-    assert!(restart_needed);
+    // Run backup 3 times.
+    for num in 1..=3 {
+        let archive_command = format!("cp %p {}/%f", &backup.destination_wal.display());
+        let restart_needed = rt
+            .block_on(backup.do_configure_archiving(&resource, &archive_command))
+            .unwrap();
+        assert!((restart_needed && num == 1) || (!restart_needed && num > 1));
 
-    // Restart cluster via the `resource`.
-    if let either::Right(ref resource) = resource {
-        resource.facet().stop()?;
-        resource.facet().start()?;
+        // Restart cluster via the `resource`.
+        if let either::Right(ref resource) = resource {
+            resource.facet().stop()?;
+            resource.facet().start()?;
+        }
+
+        // Run backup.
+        backup.do_base_backup(&resource).unwrap();
+
+        // WAL files have been archived.
+        let files_wal = backup
+            .destination_wal
+            .read_dir()?
+            .filter_map(Result::ok)
+            .filter(is_file)
+            .collect::<Vec<_>>();
+        dbg!(&files_wal);
+        assert_ne!(files_wal.len(), 0);
+
+        // A base backup is in place alongside the WAL file directory.
+        let dirs_observed = backup
+            .destination
+            .read_dir()?
+            .filter_map(Result::ok)
+            .filter(is_dir)
+            .map(|entry| entry.file_name())
+            .collect::<HashSet<OsString>>();
+        let dirs_expected = ["wal"]
+            .into_iter()
+            .map(String::from)
+            .chain((1u32..=num).map(|n| format!("data.{n:010}")))
+            .map(Into::into)
+            .collect::<HashSet<OsString>>();
+        assert_eq!(dirs_observed, dirs_expected);
     }
-
-    // Run backup.
-    backup.do_base_backup(&resource).unwrap();
-
-    // WAL files have been archived.
-    let files_wal = backup
-        .destination_wal
-        .read_dir()?
-        .filter_map(Result::ok)
-        .filter(is_file)
-        .collect::<Vec<_>>();
-    dbg!(&files_wal);
-    assert_ne!(files_wal.len(), 0);
-
-    // A base backup is in place.
-    let files_data = backup
-        .destination
-        .read_dir()?
-        .filter_map(Result::ok)
-        .filter(is_dir)
-        .filter(|entry| entry.file_name().to_string_lossy().starts_with("data."))
-        .collect::<Vec<_>>();
-    dbg!(&files_data);
-    assert_ne!(files_data.len(), 0);
 
     Ok(())
 }
