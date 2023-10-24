@@ -18,19 +18,19 @@ pub use error::BackupError;
 
 #[derive(Debug)]
 pub struct Backup {
-    pub destination: PathBuf,
-    pub destination_wal: PathBuf,
+    pub backup_dir: PathBuf,
+    pub backup_wal_dir: PathBuf,
 }
 
 impl Backup {
     /// Creates the destination directory and the WAL archive directory if these
     /// do not exist, and allocates a temporary location for the base backup.
-    pub async fn prepare<D: AsRef<Path>>(destination: D) -> Result<Self, BackupError> {
-        fs::create_dir_all(&destination).await?;
-        let destination = destination.as_ref().canonicalize()?;
-        let destination_wal = destination.join("wal");
-        fs::create_dir_all(&destination_wal).await?;
-        Ok(Self { destination, destination_wal })
+    pub async fn prepare<D: AsRef<Path>>(backup_dir: D) -> Result<Self, BackupError> {
+        fs::create_dir_all(&backup_dir).await?;
+        let backup_dir = backup_dir.as_ref().canonicalize()?;
+        let backup_wal_dir = backup_dir.join("wal");
+        fs::create_dir_all(&backup_wal_dir).await?;
+        Ok(Self { backup_dir, backup_wal_dir })
     }
 
     /// Configures the cluster for continuous archiving.
@@ -129,7 +129,7 @@ impl Backup {
     /// Performs a "base backup" of the cluster.
     ///
     /// Returns the directory into which the backup has been created. This is
-    /// always a subdirectory of [`self.destination`].
+    /// always a subdirectory of [`self.backup_dir`].
     ///
     /// This must be performed _after_ configuring continuous archiving (see
     /// [`Backup::do_configure_archiving`]).
@@ -138,13 +138,12 @@ impl Backup {
         resource: &'a StartupResource<'a>,
     ) -> Result<PathBuf, BackupError> {
         // Temporary location into which we'll make the base backup.
-        let destination_tmp = block_in_place(|| {
-            TempDir::with_prefix_in(DESTINATION_DATA_PREFIX_TMP, &self.destination)
-        })?;
+        let backup_tmp_dir =
+            block_in_place(|| TempDir::with_prefix_in(BACKUP_DATA_PREFIX_TMP, &self.backup_dir))?;
 
         let args: &[&OsStr] = &[
             "--pgdata".as_ref(),
-            destination_tmp.path().as_ref(),
+            backup_tmp_dir.path().as_ref(),
             "--format".as_ref(),
             "plain".as_ref(),
             "--progress".as_ref(),
@@ -157,24 +156,23 @@ impl Backup {
             Err(status)?;
         }
         // Before calculating the target directory name or doing the actual
-        // rename, take out a coordinating lock in `destination`.
-        let destination_lock = block_in_place(|| {
-            lock::UnlockedFile::try_from(&self.destination.join(DESTINATION_LOCK_NAME))?
+        // rename, take out a coordinating lock in `backup_dir`.
+        let backup_lock = block_in_place(|| {
+            lock::UnlockedFile::try_from(&self.backup_dir.join(BACKUP_LOCK_NAME))?
                 .lock_exclusive()
                 .map_err(CoordinateError::UnixError)
         })?;
 
         // Where we're going to move the new backup to. This is always a
-        // directory named `{DESTINATION_DATA_PREFIX}.NNNNNNNNNN` where
-        // NNNNNNNNNN is a zero-padded integer, the next available in
-        // `destination`.
-        let destination_data = self.destination.join(format!(
-            "{DESTINATION_DATA_PREFIX}{:010}",
-            ReadDirStream::new(fs::read_dir(&self.destination).await?)
+        // directory named `{BACKUP_DATA_PREFIX}.NNNNNNNNNN` where NNNNNNNNNN is
+        // a zero-padded integer, the next available in `destination`.
+        let backup_data_dir = self.backup_dir.join(format!(
+            "{BACKUP_DATA_PREFIX}{:010}",
+            ReadDirStream::new(fs::read_dir(&self.backup_dir).await?)
                 .filter_map(Result::ok)
                 .filter_map(|entry| match entry.file_name().to_str() {
-                    Some(name) if name.starts_with(DESTINATION_DATA_PREFIX) =>
-                        name[DESTINATION_DATA_PREFIX.len()..].parse::<u32>().ok(),
+                    Some(name) if name.starts_with(BACKUP_DATA_PREFIX) =>
+                        name[BACKUP_DATA_PREFIX.len()..].parse::<u32>().ok(),
                     Some(_) | None => None,
                 })
                 .fold(0, Ord::max)
@@ -183,10 +181,10 @@ impl Backup {
         ));
 
         // Do the rename.
-        fs::rename(&destination_tmp, &destination_data).await?;
-        drop(destination_lock);
+        fs::rename(&backup_tmp_dir, &backup_data_dir).await?;
+        drop(backup_lock);
 
-        Ok(destination_data)
+        Ok(backup_data_dir)
     }
 }
 
@@ -198,13 +196,13 @@ static ARCHIVE_LIBRARY: config::Parameter = config::Parameter("archive_library")
 static WAL_LEVEL: config::Parameter = config::Parameter("wal_level");
 
 // Successful backups have this directory name prefix.
-static DESTINATION_DATA_PREFIX: &str = "data.";
+static BACKUP_DATA_PREFIX: &str = "data.";
 
 // In-progress backups have this directory name prefix.
-static DESTINATION_DATA_PREFIX_TMP: &str = ".tmp.data.";
+static BACKUP_DATA_PREFIX_TMP: &str = ".tmp.data.";
 
-// Coordinating lock for working in the backup destination directory.
-static DESTINATION_LOCK_NAME: &str = ".lock";
+// Coordinating lock for working in the backup directory.
+static BACKUP_LOCK_NAME: &str = ".lock";
 
 // ----------------------------------------------------------------------------
 

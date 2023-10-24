@@ -16,28 +16,33 @@ use pgdo::{
     coordinate::{cleanup::with_cleanup, finally::with_finally, State},
 };
 
-/// Clone an existing cluster and arrange to continuously archive WAL
-/// (Write-Ahead Log) files into that new cluster.
+/// Point-in-time backup for an existing cluster.
+///
+/// Configures continuous WAL (Write-Ahead Log) archiving into the given
+/// destination directory, then takes a base backup of the whole cluster.
+///
+/// Subsequent runs will take an additional base backup – without overwriting
+/// previous backups – which can make recovery faster.
 #[derive(clap::Args)]
 #[clap(next_help_heading = Some("Options for backup"))]
 pub struct Backup {
     #[clap(flatten)]
     pub cluster: args::ClusterArgs,
 
-    /// The directory into which to clone the cluster.
-    #[clap(long = "destination", display_order = 100)]
-    pub destination: PathBuf,
+    /// The directory into which to write backups.
+    #[clap(long = "backup-into", value_name = "DIR", display_order = 100)]
+    pub backup_dir: PathBuf,
 }
 
 impl Backup {
     pub fn invoke(self) -> ExitResult {
-        let Self { cluster, destination } = self;
+        let Self { cluster, backup_dir } = self;
 
         let (datadir, lock) = runner::lock_for(cluster.dir)?;
         let strategy = runner::determine_strategy(None)?;
         let cluster = cluster::Cluster::new(datadir, strategy)?;
         let resource = resource::ResourceFree::new(lock, cluster);
-        backup(resource, destination)?;
+        backup(resource, backup_dir)?;
 
         Ok(ExitCode::SUCCESS)
     }
@@ -90,11 +95,11 @@ pub(crate) enum BackupTool {
 
 // ----------------------------------------------------------------------------
 
-/// Perform a backup of the given `resource` to `destination`.
+/// Perform a backup of the given `resource` to `backup_dir`.
 ///
 /// This is a twofold process:
-/// - Configure archiving into the destination.
-/// - Perform a base backup into the destination.
+/// - Configure archiving into `backup_dir`.
+/// - Perform a base backup into `backup_dir`.
 ///
 /// TODO: Clean up old WAL files?
 ///
@@ -102,14 +107,14 @@ pub(crate) enum BackupTool {
 ///
 fn backup<D: AsRef<Path>>(
     resource: resource::ResourceFree,
-    destination: D,
+    backup_dir: D,
 ) -> color_eyre::Result<()> {
-    // `Backup::prepare` creates the destination directory and the WAL archive
-    // directory if these do not exist, and allocates a temporary location for
-    // the base backup.
+    // `Backup::prepare` creates `backup_dir` and the WAL archive directory if
+    // these do not exist, and allocates a temporary location for the base
+    // backup.
     let backup = {
         let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(async { backup::Backup::prepare(&destination).await })?
+        rt.block_on(async { backup::Backup::prepare(&backup_dir).await })?
     };
 
     log::info!("Starting cluster (if not already started)…");
@@ -152,7 +157,7 @@ fn backup<D: AsRef<Path>>(
     // <https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-ARCHIVING-WAL>.
     let archive_command = {
         let pgdo_exe_shell = std::env::current_exe().map(quote_sh)??;
-        let destination_wal_shell = quote_sh(&backup.destination_wal)?;
+        let destination_wal_shell = quote_sh(&backup.backup_wal_dir)?;
         format!("{pgdo_exe_shell} backup:tools wal:archive %p {destination_wal_shell}/%f")
     };
 

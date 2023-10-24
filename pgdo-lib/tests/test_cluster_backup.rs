@@ -30,7 +30,7 @@ fn cluster_backup() -> TestResult {
 
     // Run backup 3 times.
     for num in 1..=3 {
-        let archive_command = format!("cp %p {}/%f", &backup.destination_wal.display());
+        let archive_command = format!("cp %p {}/%f", &backup.backup_wal_dir.display());
         let restart_needed = rt
             .block_on(backup.do_configure_archiving(&resource, &archive_command))
             .unwrap();
@@ -47,7 +47,7 @@ fn cluster_backup() -> TestResult {
 
         // WAL files have been archived.
         let files_wal = backup
-            .destination_wal
+            .backup_wal_dir
             .read_dir()?
             .filter_map(Result::ok)
             .filter(is_file)
@@ -57,7 +57,7 @@ fn cluster_backup() -> TestResult {
 
         // A base backup is in place alongside the WAL file directory.
         let dirs_observed = backup
-            .destination
+            .backup_dir
             .read_dir()?
             .filter_map(Result::ok)
             .filter(is_dir)
