@@ -1,3 +1,5 @@
+//! A [resource][`crate::coordinate::resource`] for a [`Cluster`].
+
 use std::time::Duration;
 use std::{ffi::OsStr, process::ExitStatus};
 
@@ -23,6 +25,8 @@ impl From<ClusterError> for CoordinateError<ClusterError> {
     }
 }
 
+// ----------------------------------------------------------------------------
+
 impl<'a> resource::Faceted<'a> for Cluster {
     type FacetFree = ClusterFree<'a>;
     type FacetShared = ClusterShared<'a>;
@@ -41,10 +45,17 @@ impl<'a> resource::Faceted<'a> for Cluster {
     }
 }
 
+// ----------------------------------------------------------------------------
+
 pub struct ClusterFree<'a> {
     cluster: &'a Cluster,
 }
 
+/// When the cluster is not locked, all one can do is check for its existence
+/// and if it is running. However, be careful of TOCTOU errors if you're using
+/// this for more than informational purposes.
+///
+/// [TOCTOU]: https://en.wikipedia.org/wiki/Time-of-check_to_time-of-use
 impl<'a> ClusterFree<'a> {
     pub fn exists(&self) -> Result<bool, ClusterError> {
         Ok(exists(self.cluster))
@@ -55,10 +66,16 @@ impl<'a> ClusterFree<'a> {
     }
 }
 
+// ----------------------------------------------------------------------------
+
 pub struct ClusterShared<'a> {
     cluster: &'a Cluster,
 }
 
+/// When the cluster is shared, one can connect to the cluster, and execute
+/// processes. It is possible to abuse this and shutdown the cluster, for
+/// example, but that's on you; there's only so much that this library can do to
+/// prevent misuse.
 impl<'a> ClusterShared<'a> {
     pub fn exists(&self) -> Result<bool, ClusterError> {
         Ok(exists(self.cluster))
@@ -84,10 +101,14 @@ impl<'a> ClusterShared<'a> {
     }
 }
 
+// ----------------------------------------------------------------------------
+
 pub struct ClusterExclusive<'a> {
     cluster: &'a Cluster,
 }
 
+/// When you have exclusive control of a cluster, you can start, stop, destroy,
+/// reconfigure it – anything.
 impl<'a> ClusterExclusive<'a> {
     pub fn start(&self) -> Result<State, ClusterError> {
         self.cluster.start()
@@ -129,6 +150,19 @@ impl<'a> ClusterExclusive<'a> {
 
 pub type StartupResource<'a> = Either<ResourceShared<'a>, ResourceExclusive<'a>>;
 
+/// Creates the cluster, if it doesn't already exist, and starts it in a
+/// cooperative manner.
+///
+/// The return value has two parts: the state, [`State`], and the resource,
+/// [`StartupResource`].
+///
+/// The state is [`State::Unmodified`] if the cluster was already running, else
+/// [`State::Modified`] if the cluster was created or started by this function.
+///
+/// The resource is [`Left(ResourceShared)`] if the cluster is already in use,
+/// or [`Right(ResourceExclusive)`] otherwise. Typically one would drop the
+/// exclusive hold down to shared as soon as possible, but the option is there
+/// to do maintenance, for example, that requires an exclusive hold.
 pub fn startup(
     mut resource: ResourceFree,
 ) -> Result<(State, StartupResource), CoordinateError<ClusterError>> {
@@ -166,6 +200,8 @@ pub fn startup(
     }
 }
 
+/// Similar to [`startup`] but does not create the cluster, and thus only
+/// succeeds if the cluster already exists.
 pub fn startup_if_exists(
     mut resource: ResourceFree,
 ) -> Result<(State, StartupResource), CoordinateError<ClusterError>> {
@@ -208,6 +244,17 @@ pub fn startup_if_exists(
     }
 }
 
+/// Shuts down the cluster if it is running and if there are no other concurrent
+/// users.
+///
+/// The return value has two parts: the state, [`State`], and the resource.
+///
+/// The state is [`State::Unmodified`] if the cluster could not be shut down or
+/// if it was already shut down, else [`State::Modified`].
+///
+/// The resource is [`Left(ResourceShared)`] if the cluster is already in use –
+/// i.e. the resource passed in is returned – else [`Right(ResourceExclusive)`]
+/// otherwise.
 pub fn shutdown(
     resource: ResourceShared,
 ) -> Result<(State, Either<ResourceShared, ResourceExclusive>), CoordinateError<ClusterError>> {
@@ -231,6 +278,8 @@ pub fn shutdown(
     }
 }
 
+/// Similar to [`shutdown`] but also attempts to destroy the cluster, i.e.
+/// remove it entirely from the filesystem.
 pub fn destroy(
     resource: ResourceShared,
 ) -> Result<(State, Either<ResourceShared, ResourceExclusive>), CoordinateError<ClusterError>> {

@@ -54,6 +54,7 @@
         "synchronisation",
         "tempdir",
         "tempfile",
+        "TOCTOU",
         "unparse",
         "vartype",
         "xlog"
