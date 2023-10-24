@@ -17,7 +17,9 @@ fn cluster_backup() -> TestResult {
     let backup_dir = tempfile::TempDir::new()?;
 
     let cluster = Cluster::new(data_dir, runtime)?;
-    let backup = backup::Backup::prepare(backup_dir.path()).unwrap();
+    let backup = rt
+        .block_on(backup::Backup::prepare(backup_dir.path()))
+        .unwrap();
     let lock = pgdo::lock::UnlockedFile::try_from(&temp_dir.path().join(".lock"))?;
     let resource = coordinate::resource::ResourceFree::new(lock, cluster);
 
@@ -41,7 +43,7 @@ fn cluster_backup() -> TestResult {
         }
 
         // Run backup.
-        backup.do_base_backup(&resource).unwrap();
+        rt.block_on(backup.do_base_backup(&resource)).unwrap();
 
         // WAL files have been archived.
         let files_wal = backup

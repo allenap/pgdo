@@ -5,6 +5,8 @@ use std::{
 
 use either::{Left, Right};
 use tempfile::TempDir;
+use tokio::{fs, task::block_in_place};
+use tokio_stream::{wrappers::ReadDirStream, StreamExt};
 
 use super::{config, resource::StartupResource};
 use crate::lock;
@@ -23,11 +25,11 @@ pub struct Backup {
 impl Backup {
     /// Creates the destination directory and the WAL archive directory if these
     /// do not exist, and allocates a temporary location for the base backup.
-    pub fn prepare<D: AsRef<Path>>(destination: D) -> Result<Self, BackupError> {
-        std::fs::create_dir_all(&destination)?;
+    pub async fn prepare<D: AsRef<Path>>(destination: D) -> Result<Self, BackupError> {
+        fs::create_dir_all(&destination).await?;
         let destination = destination.as_ref().canonicalize()?;
         let destination_wal = destination.join("wal");
-        std::fs::create_dir_all(&destination_wal)?;
+        fs::create_dir_all(&destination_wal).await?;
         Ok(Self { destination, destination_wal })
     }
 
@@ -131,13 +133,14 @@ impl Backup {
     ///
     /// This must be performed _after_ configuring continuous archiving (see
     /// [`Backup::do_configure_archiving`]).
-    pub fn do_base_backup<'a>(
+    pub async fn do_base_backup<'a>(
         &self,
         resource: &'a StartupResource<'a>,
     ) -> Result<PathBuf, BackupError> {
         // Temporary location into which we'll make the base backup.
-        let destination_tmp =
-            TempDir::with_prefix_in(DESTINATION_DATA_PREFIX_TMP, &self.destination)?;
+        let destination_tmp = block_in_place(|| {
+            TempDir::with_prefix_in(DESTINATION_DATA_PREFIX_TMP, &self.destination)
+        })?;
 
         let args: &[&OsStr] = &[
             "--pgdata".as_ref(),
@@ -146,19 +149,20 @@ impl Backup {
             "plain".as_ref(),
             "--progress".as_ref(),
         ];
-        let status = match resource {
+        let status = block_in_place(|| match resource {
             Left(resource) => resource.facet().exec(None, "pg_basebackup".as_ref(), args),
             Right(resource) => resource.facet().exec(None, "pg_basebackup".as_ref(), args),
-        }?;
+        })?;
         if !status.success() {
             Err(status)?;
         }
         // Before calculating the target directory name or doing the actual
         // rename, take out a coordinating lock in `destination`.
-        let destination_lock =
+        let destination_lock = block_in_place(|| {
             lock::UnlockedFile::try_from(&self.destination.join(DESTINATION_LOCK_NAME))?
                 .lock_exclusive()
-                .map_err(CoordinateError::UnixError)?;
+                .map_err(CoordinateError::UnixError)
+        })?;
 
         // Where we're going to move the new backup to. This is always a
         // directory named `{DESTINATION_DATA_PREFIX}.NNNNNNNNNN` where
@@ -166,20 +170,20 @@ impl Backup {
         // `destination`.
         let destination_data = self.destination.join(format!(
             "{DESTINATION_DATA_PREFIX}{:010}",
-            std::fs::read_dir(&self.destination)?
+            ReadDirStream::new(fs::read_dir(&self.destination).await?)
                 .filter_map(Result::ok)
                 .filter_map(|entry| match entry.file_name().to_str() {
                     Some(name) if name.starts_with(DESTINATION_DATA_PREFIX) =>
                         name[DESTINATION_DATA_PREFIX.len()..].parse::<u32>().ok(),
                     Some(_) | None => None,
                 })
-                .max()
-                .unwrap_or_default()
+                .fold(0, Ord::max)
+                .await
                 + 1
         ));
 
         // Do the rename.
-        std::fs::rename(&destination_tmp, &destination_data)?;
+        fs::rename(&destination_tmp, &destination_data).await?;
         drop(destination_lock);
 
         Ok(destination_data)

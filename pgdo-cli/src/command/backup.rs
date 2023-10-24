@@ -107,7 +107,10 @@ fn backup<D: AsRef<Path>>(
     // `Backup::prepare` creates the destination directory and the WAL archive
     // directory if these do not exist, and allocates a temporary location for
     // the base backup.
-    let backup = backup::Backup::prepare(&destination)?;
+    let backup = {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async { backup::Backup::prepare(&destination).await })?
+    };
 
     log::info!("Starting cluster (if not already started)…");
     let (started, resource) = resource::startup_if_exists(resource)?;
@@ -199,7 +202,10 @@ fn backup<D: AsRef<Path>>(
 
     log::info!("Performing base backup…");
     let destination_data = match resource.read().as_deref() {
-        Ok(resource) => with_finally(do_cleanup, || backup.do_base_backup(resource)),
+        Ok(resource) => with_finally(do_cleanup, || {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async { backup.do_base_backup(resource).await })
+        }),
         Err(err) => panic!("Could not acquire resource: {err}"),
     }?;
     log::info!("Base backup complete; find it at {destination_data:?}");
