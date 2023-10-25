@@ -196,7 +196,7 @@ static ARCHIVE_LIBRARY: config::Parameter = config::Parameter("archive_library")
 static WAL_LEVEL: config::Parameter = config::Parameter("wal_level");
 
 // Successful backups have this directory name prefix.
-static BACKUP_DATA_PREFIX: &str = "data.";
+pub static BACKUP_DATA_PREFIX: &str = "data.";
 
 // In-progress backups have this directory name prefix.
 static BACKUP_DATA_PREFIX_TMP: &str = ".tmp.data.";
