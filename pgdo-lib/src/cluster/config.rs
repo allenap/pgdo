@@ -1,4 +1,4 @@
-use std::{fmt, str::FromStr};
+use std::{borrow::Cow, fmt, str::FromStr};
 
 use postgres_protocol::escape::{escape_identifier, escape_literal};
 
@@ -31,8 +31,10 @@ impl<'a> fmt::Display for AlterSystem<'a> {
     /// Render SQL that will apply this change.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AlterSystem::Set(p, v) => write!(f, "ALTER SYSTEM SET {p} TO {v}"),
-            AlterSystem::Reset(p) => write!(f, "ALTER SYSTEM RESET {p}"),
+            AlterSystem::Set(p, v) => {
+                write!(f, "ALTER SYSTEM SET {} TO {}", p.as_sql(), v.as_sql())
+            }
+            AlterSystem::Reset(p) => write!(f, "ALTER SYSTEM RESET {}", p.as_sql()),
             AlterSystem::ResetAll => write!(f, "ALTER SYSTEM RESET ALL"),
         }
     }
@@ -143,6 +145,11 @@ impl Setting {
 pub struct Parameter<'a>(pub &'a str);
 
 impl<'a> Parameter<'a> {
+    /// Return this parameter name escaped as an SQL identifier.
+    pub fn as_sql(&self) -> Cow<'_, str> {
+        escape_identifier(self.0).into()
+    }
+
     /// Get the current [`Value`] for this parameter.
     ///
     /// If you want the full/raw [`Setting`], use [`Setting::get`] instead.
@@ -177,7 +184,7 @@ impl<'a> Parameter<'a> {
 
 impl<'a> fmt::Display for Parameter<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", escape_identifier(self.0))
+        write!(f, "{}", self.0)
     }
 }
 
@@ -208,20 +215,28 @@ pub enum Value {
     Time(String, TimeUnit),
 }
 
+impl Value {
+    /// Return this parameter value escaped as an SQL literal.
+    pub fn as_sql(&self) -> Cow<'_, str> {
+        match self {
+            Value::Boolean(true) => "true".into(),
+            Value::Boolean(false) => "false".into(),
+            Value::String(value) => escape_literal(value).into(),
+            Value::Number(value) => value.into(),
+            Value::Memory(value, unit) => escape_literal(&format!("{value}{unit}")).into(),
+            Value::Time(value, unit) => escape_literal(&format!("{value}{unit}")).into(),
+        }
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Boolean(value) => write!(f, "{value}"),
-            Value::String(value) => write!(f, "{}", escape_literal(value)),
+            Value::String(value) => write!(f, "{value}"),
             Value::Number(value) => write!(f, "{value}"),
-            Value::Memory(value, unit) => {
-                let value = format!("{value}{unit}");
-                write!(f, "{}", escape_literal(&value))
-            }
-            Value::Time(value, unit) => {
-                let value = format!("{value}{unit}");
-                write!(f, "{}", escape_literal(&value))
-            }
+            Value::Memory(value, unit) => write!(f, "{value}{unit}"),
+            Value::Time(value, unit) => write!(f, "{value}{unit}"),
         }
     }
 }
@@ -424,50 +439,47 @@ mod tests {
     };
 
     #[test]
-    fn test_parameter_display() {
-        assert_eq!(format!("{}", Parameter("foo")), "\"foo\"");
-        assert_eq!(format!("{}", Parameter("foo \\bar")), "\"foo \\bar\"");
-        assert_eq!(format!("{}", Parameter("foo\"bar")), "\"foo\"\"bar\"");
+    fn test_parameter_as_sql() {
+        assert_eq!(Parameter("foo").as_sql(), "\"foo\"");
+        assert_eq!(Parameter("foo \\bar").as_sql(), "\"foo \\bar\"");
+        assert_eq!(Parameter("foo\"bar").as_sql(), "\"foo\"\"bar\"");
     }
 
     #[test]
-    fn test_value_display_bool() {
-        assert_eq!(format!("{}", Value::Boolean(false)), "false");
-        assert_eq!(format!("{}", Value::Boolean(true)), "true");
+    fn test_value_as_sql_bool() {
+        assert_eq!(Value::Boolean(false).as_sql(), "false");
+        assert_eq!(Value::Boolean(true).as_sql(), "true");
     }
 
     #[test]
-    fn test_value_display_string() {
-        assert_eq!(format!("{}", Value::from("foo")), "'foo'");
-        assert_eq!(format!("{}", Value::from("foo \\bar")), " E'foo \\\\bar'");
-        assert_eq!(format!("{}", Value::from("foo'\"'bar")), "'foo''\"''bar'");
+    fn test_value_as_sql_string() {
+        assert_eq!(Value::from("foo").as_sql(), "'foo'");
+        assert_eq!(Value::from("foo \\bar").as_sql(), " E'foo \\\\bar'");
+        assert_eq!(Value::from("foo'\"'bar").as_sql(), "'foo''\"''bar'");
     }
 
     #[test]
-    fn test_value_display_number() {
+    fn test_value_as_sql_number() {
         // Numbers are represented as strings, and displayed verbatim, with no
         // escaping. Not ideal. An alternative would be to have signed/unsigned
         // integers (as i128/u128) and floating points (as f64) separately. But
         // PostgreSQL also has arbitrary precision numbers. For now, we'll live
         // with this.
-        assert_eq!(format!("{}", Value::Number("123".into())), "123");
-        assert_eq!(format!("{}", Value::Number("123.456".into())), "123.456");
+        assert_eq!(Value::Number("123".into()).as_sql(), "123");
+        assert_eq!(Value::Number("123.456".into()).as_sql(), "123.456");
     }
 
     #[test]
-    fn test_value_display_memory() {
+    fn test_value_as_sql_memory() {
         assert_eq!(
-            format!("{}", Value::Memory("123.4".into(), Gibibytes)),
+            Value::Memory("123.4".into(), Gibibytes).as_sql(),
             "'123.4GB'",
         );
     }
 
     #[test]
-    fn test_value_display_time() {
-        assert_eq!(
-            format!("{}", Value::Time("123.4".into(), Hours)),
-            "'123.4h'",
-        );
+    fn test_value_as_sql_time() {
+        assert_eq!(Value::Time("123.4".into(), Hours).as_sql(), "'123.4h'",);
     }
 
     macro_rules! test_value_number_from {

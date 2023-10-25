@@ -53,10 +53,10 @@ impl Backup {
         // set it to `replica`.
         match WAL_LEVEL.get(&pool).await? {
             Some(config::Value::String(level)) if level == "replica" || level == "logical" => {
-                log::debug!("{WAL_LEVEL} already set to {level:?}");
+                log::debug!("{WAL_LEVEL:?} already set to {level:?}");
             }
             Some(_) => {
-                log::info!("Setting {WAL_LEVEL} to 'replica'");
+                log::info!("Setting {WAL_LEVEL:?} to 'replica'");
                 WAL_LEVEL.set(&pool, "replica").await?;
                 restart = true;
             }
@@ -71,10 +71,10 @@ impl Backup {
         // set it to `on`.
         match ARCHIVE_MODE.get(&pool).await? {
             Some(config::Value::String(level)) if level == "on" || level == "always" => {
-                log::debug!("{ARCHIVE_MODE} already set to {level:?}");
+                log::debug!("{ARCHIVE_MODE:?} already set to {level:?}");
             }
             Some(_) => {
-                log::info!("Setting {ARCHIVE_MODE} to 'on'");
+                log::info!("Setting {ARCHIVE_MODE:?} to 'on'");
                 ARCHIVE_MODE.set(&pool, "on").await?;
                 restart = true;
             }
@@ -88,32 +88,32 @@ impl Backup {
         // We can't set `archive_command` if `archive_library` is already set.
         match ARCHIVE_LIBRARY.get(&pool).await? {
             Some(config::Value::String(library)) if library.is_empty() => {
-                log::debug!("{ARCHIVE_LIBRARY} not set (good for us)");
+                log::debug!("{ARCHIVE_LIBRARY:?} not set (good for us)");
             }
             Some(archive_library) => {
                 return Err(BackupError::ConfigError(format!(
-                    "{ARCHIVE_LIBRARY} is already set to {archive_library:?}; cannot proceed"
+                    "{ARCHIVE_LIBRARY:?} is already set to {archive_library:?}; cannot proceed"
                 )))
             }
             None => {
-                log::debug!("{ARCHIVE_LIBRARY} is not supported (good for us)");
+                log::debug!("{ARCHIVE_LIBRARY:?} is not supported (good for us)");
             }
         }
 
         match ARCHIVE_COMMAND.get(&pool).await? {
             Some(config::Value::String(command)) if command == archive_command => {
-                log::debug!("{ARCHIVE_COMMAND} already set to {archive_command:?}");
+                log::debug!("{ARCHIVE_COMMAND:?} already set to {archive_command:?}");
             }
             // Re. "(disabled)", see `show_archive_command` in xlog.c.
             Some(config::Value::String(command))
                 if command.is_empty() || command == "(disabled)" =>
             {
-                log::info!("Setting {ARCHIVE_COMMAND} to {archive_command:?}");
+                log::info!("Setting {ARCHIVE_COMMAND:?} to {archive_command:?}");
                 ARCHIVE_COMMAND.set(&pool, archive_command).await?;
             }
             Some(archive_command) => {
                 return Err(BackupError::ConfigError(format!(
-                    "{ARCHIVE_COMMAND} is already set to {archive_command:?}; cannot proceed"
+                    "{ARCHIVE_COMMAND:?} is already set to {archive_command:?}; cannot proceed"
                 )))
             }
             None => {
