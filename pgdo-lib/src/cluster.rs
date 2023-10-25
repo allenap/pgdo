@@ -260,6 +260,17 @@ impl Cluster {
 
     /// Start the cluster if it's not already running.
     pub fn start(&self) -> Result<State, ClusterError> {
+        self.start_with_options(&[])
+    }
+
+    /// Start the cluster if it's not already running with the given options.
+    ///
+    /// Returns [`State::Unmodified`] if the cluster is already running, meaning
+    /// the given options were **NOT** applied.
+    pub fn start_with_options(
+        &self,
+        options: &[(config::Parameter, config::Value)],
+    ) -> Result<State, ClusterError> {
         // Ensure that the cluster has been created.
         self.create()?;
         // Check if we're running already.
@@ -267,14 +278,26 @@ impl Cluster {
             // We didn't start this cluster; say so.
             return Ok(Unmodified);
         }
+        // Construct the options that `pg_ctl` will pass through to `postgres`.
+        // These have to be carefully escaped for the target shell – which is
+        // likely to be `sh`. Here's what they mean:
+        //  -h <arg> -- host name; empty arg means Unix socket only.
+        //  -k -- socket directory.
+        //  -c name=value -- set a configuration parameter.
+        let options = {
+            let mut arg = b"-h '' -k "[..].into();
+            escape_into(&self.datadir, &mut arg);
+            for (parameter, value) in options {
+                arg.extend(b" -c ");
+                escape_into(&format!("{parameter}={value}",), &mut arg);
+            }
+            OsString::from_vec(arg)
+        };
         // Next, invoke `pg_ctl` to start the cluster.
-        // pg_ctl options:
         //  -l <file> -- log file.
         //  -s -- no informational messages.
         //  -w -- wait until startup is complete.
-        // postgres options:
-        //  -h <arg> -- host name; empty arg means Unix socket only.
-        //  -k -- socket directory.
+        //  -o <string> -- options to pass through to `postgres`.
         self.ctl()?
             .arg("start")
             .arg("-l")
@@ -282,11 +305,7 @@ impl Cluster {
             .arg("-s")
             .arg("-w")
             .arg("-o")
-            .arg({
-                let mut arg = b"-h '' -k "[..].into();
-                escape_into(&self.datadir, &mut arg);
-                OsString::from_vec(arg)
-            })
+            .arg(options)
             .output()?;
         // We did actually start the cluster; say so.
         Ok(Modified)

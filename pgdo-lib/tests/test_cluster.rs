@@ -206,6 +206,23 @@ fn cluster_start_stop_starts_and_stops_cluster() -> TestResult {
 
 #[for_all_runtimes]
 #[test]
+fn cluster_start_with_options() -> TestResult {
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
+    cluster.start_with_options(&[("example.setting".into(), "Hello, World!".into())])?;
+    let example_setting = block_on(async {
+        let pool = cluster.pool(None);
+        query("SHOW example.setting").fetch_one(&pool).await
+    })
+    .map(|row| row.get::<String, _>(0))?;
+    assert_eq!(example_setting, "Hello, World!");
+    cluster.stop()?;
+    Ok(())
+}
+
+#[for_all_runtimes]
+#[test]
 fn cluster_destroy_stops_and_removes_cluster() -> TestResult {
     let temp_dir = tempfile::tempdir()?;
     let data_dir = temp_dir.path().join("data");
