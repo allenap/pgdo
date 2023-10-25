@@ -23,6 +23,7 @@
         "errno",
         "fcntl",
         "globset",
+        "ilog",
         "initdb",
         "lockpath",
         "logfile",

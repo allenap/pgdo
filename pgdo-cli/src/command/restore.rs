@@ -4,11 +4,16 @@ use std::{
 };
 
 use color_eyre::eyre::eyre;
-// use color_eyre::{Help, SectionExt};
+use color_eyre::{Help, SectionExt};
+
+use crate::runner;
 
 use super::ExitResult;
 
-use pgdo::cluster::backup;
+use pgdo::{
+    cluster::{self, backup},
+    coordinate::State,
+};
 
 /// Point-in-time restore/recovery from a backup made previously with the
 /// `backup` command.
@@ -43,6 +48,7 @@ impl From<Restore> for super::Command {
 /// Restore the latest backup into the given `resource` from `backup_dir`.
 fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> color_eyre::Result<()> {
     let backup_dir = backup_dir.as_ref().canonicalize()?;
+    let backup_wal_dir = backup_dir.join("wal");
 
     // Find latest backup.
     let backup_data_dir = backup_dir
@@ -68,9 +74,12 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> color_eyre::Result<
     // Check on the restore directory.
     std::fs::create_dir_all(&restore_dir)?;
     let restore_dir = restore_dir.as_ref().canonicalize()?;
-    // if restore_dir.read_dir()?.next().is_some() {
-    //     return Err(eyre!("Restore directory is not empty"));
-    // }
+    if restore_dir.read_dir()?.next().is_some() {
+        return Err(eyre!("Restore directory is not empty"));
+    }
+    let mut perms = restore_dir.metadata()?.permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o700);
+    std::fs::set_permissions(&restore_dir, perms)?;
 
     // Copy base backup into place.
     //
@@ -88,10 +97,10 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> color_eyre::Result<
             fs_extra::dir::TransitState::NoAccess => fs_extra::dir::TransitProcessResult::Abort,
             fs_extra::dir::TransitState::Normal => {
                 print!(
-                    "\r{}/{} bytes copied; {}% complete",
-                    progress.copied_bytes,
-                    progress.total_bytes,
-                    progress.copied_bytes * 100 / progress.total_bytes,
+                    "\r{count}/{total} bytes copied; {pct}% complete",
+                    pct = percent(progress.copied_bytes, progress.total_bytes).unwrap_or_default(),
+                    count = progress.copied_bytes,
+                    total = progress.total_bytes,
                 );
                 fs_extra::dir::TransitProcessResult::ContinueOrAbort
             }
@@ -112,27 +121,78 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> color_eyre::Result<
         Ok::<_, std::io::Error>(())
     })?;
 
+    // Create the `recovery.signal` file in the restore.
+    std::fs::write(restore_dir.join("recovery.signal"), "")?;
+
     // Start up the cluster with `restore_command = some/command` and
     // `recovery_target_action = "shutdown"` (or "pause" if we want to
     // interactively inspect the cluster).
+    let backup_wal_dir_shell = quote_sh(backup_wal_dir)?;
+    let restore_command = format!("cp {backup_wal_dir_shell}/%f %p");
 
-    // let (datadir, lock) = runner::lock_for(cluster.dir)?;
-    // let strategy = runner::determine_strategy(None)?;
-    // let cluster = cluster::Cluster::new(datadir, strategy)?;
-    // let resource = resource::ResourceFree::new(lock, cluster);
+    let (datadir, _lock) = runner::lock_for(&restore_dir)?;
+    let strategy = runner::determine_strategy(None)?;
+    let cluster = cluster::Cluster::new(datadir, strategy)?;
+
+    // TODO: Startup via resource.
+    // let resource = cluster::resource::ResourceFree::new(lock, cluster);
+
+    if cluster.start_with_options(&[
+        (RESTORE_COMMAND, restore_command.into()),
+        (RECOVERY_TARGET, "immediate".into()),
+        (RECOVERY_TARGET_ACTION, "shutdown".into()),
+    ])? == State::Unmodified
+    {
+        return Err(eyre!(
+            "Restored cluster is already running in {restore_dir:?}!"
+        ));
+    }
+
+    let start = std::time::Instant::now();
+    while cluster.running()? {
+        std::thread::sleep(std::time::Duration::from_millis(2000));
+        print!(
+            "\rWaiting for restore to complete… ({} seconds elapsed)",
+            start.elapsed().as_secs()
+        );
+    }
+    // Clear the line. Hacky.
+    print!("\r                                                               \r");
+
+    println!("Restore complete! Use `pgdo -D {restore_dir:?}` to start the cluster.");
 
     Ok(())
 }
 
+static RESTORE_COMMAND: cluster::config::Parameter = cluster::config::Parameter("restore_command");
+static RECOVERY_TARGET: cluster::config::Parameter = cluster::config::Parameter("recovery_target");
+static RECOVERY_TARGET_ACTION: cluster::config::Parameter =
+    cluster::config::Parameter("recovery_target_action");
+
 // ----------------------------------------------------------------------------
 
-// fn quote_sh<P: AsRef<Path>>(path: P) -> color_eyre::Result<String> {
-//     let path = path.as_ref();
-//     shell_quote::sh::quote(path)
-//         .to_str()
-//         .map(str::to_owned)
-//         .ok_or_else(|| {
-//             eyre!("Cannot shell escape given path")
-//                 .with_section(|| format!("{path:?}").header("Path:"))
-//         })
-// }
+fn quote_sh<P: AsRef<Path>>(path: P) -> color_eyre::Result<String> {
+    let path = path.as_ref();
+    shell_quote::sh::quote(path)
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            eyre!("Cannot shell escape given path")
+                .with_section(|| format!("{path:?}").header("Path:"))
+        })
+}
+
+/// Calculate `numerator` divided by `denominator` as a percentage.
+///
+/// When `numerator` is very large we cannot multiply it by 100 without risking
+/// wrapping, so this is careful to use checked arithmetic to avoid wrapping or
+/// overflow. It scales down `numerator` and `denominator` by powers of two
+/// until a percentage can be calculated. If `denominator` is zero, returns
+/// `None`.
+fn percent(numerator: u64, denominator: u64) -> Option<u64> {
+    (0..=100u8.ilog2()).find_map(|n| {
+        (numerator >> n)
+            .checked_mul(100)
+            .and_then(|numerator| numerator.checked_div(denominator >> n))
+    })
+}
