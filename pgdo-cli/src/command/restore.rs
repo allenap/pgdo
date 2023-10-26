@@ -159,6 +159,9 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> color_eyre::Result<
     // Clear the line. Hacky.
     print!("\r                                                               \r");
 
+    // Remove the `recovery.signal` file in the restore.
+    std::fs::remove_file(restore_dir.join("recovery.signal"))?;
+
     let restore_dir_sh = quote_sh(&restore_dir)?;
 
     // Determine superusers in the restored cluster. This can help us give the
