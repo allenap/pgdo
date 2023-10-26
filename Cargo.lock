@@ -1239,6 +1239,7 @@ dependencies = [
  "shell-quote",
  "simple_logger",
  "tempfile",
+ "thiserror",
  "tokio",
  "uuid",
 ]

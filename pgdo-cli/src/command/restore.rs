@@ -4,7 +4,6 @@ use std::{
 };
 
 use color_eyre::eyre::eyre;
-use color_eyre::{Help, SectionExt};
 
 use crate::runner;
 
@@ -45,8 +44,32 @@ impl From<Restore> for super::Command {
 
 // ----------------------------------------------------------------------------
 
+#[derive(thiserror::Error, Debug)]
+enum RestoreError {
+    #[error("input/output error: {0}")]
+    IoError(#[from] std::io::Error),
+    #[error("file copy error: {0}")]
+    FileCopyError(#[from] fs_extra::error::Error),
+    #[error("cluster error: {0}")]
+    ClusterError(#[from] pgdo::cluster::ClusterError),
+    #[error(transparent)]
+    Other(#[from] color_eyre::Report),
+}
+
+impl From<&'static str> for RestoreError {
+    fn from(s: &'static str) -> Self {
+        Self::Other(eyre!(s))
+    }
+}
+
+impl From<String> for RestoreError {
+    fn from(s: String) -> Self {
+        Self::Other(eyre!(s))
+    }
+}
+
 /// Restore the latest backup into the given `resource` from `backup_dir`.
-fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> color_eyre::Result<()> {
+fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreError> {
     let backup_dir = backup_dir.as_ref().canonicalize()?;
     let backup_wal_dir = backup_dir.join("wal");
 
@@ -66,16 +89,14 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> color_eyre::Result<
         .map(|(_, entry)| entry.path());
     let backup_data_dir = match backup_data_dir {
         Some(backup_data_dir) => backup_data_dir,
-        None => {
-            return Err(eyre!("No base backup found in {backup_dir:?}"));
-        }
+        None => return Err(format!("no base backup found in {backup_dir:?}"))?,
     };
 
     // Check on the restore directory.
     std::fs::create_dir_all(&restore_dir)?;
     let restore_dir = restore_dir.as_ref().canonicalize()?;
     if restore_dir.read_dir()?.next().is_some() {
-        return Err(eyre!("Restore directory is not empty"));
+        Err("Restore directory is not empty")?;
     }
     let mut perms = restore_dir.metadata()?.permissions();
     std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o700);
@@ -143,9 +164,9 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> color_eyre::Result<
         (RECOVERY_TARGET_ACTION, "shutdown".into()),
     ])? == State::Unmodified
     {
-        return Err(eyre!(
+        Err(format!(
             "Restored cluster is already running in {restore_dir:?}!"
-        ));
+        ))?;
     }
 
     let start = std::time::Instant::now();
@@ -196,15 +217,12 @@ static RECOVERY_TARGET_ACTION: cluster::config::Parameter =
 
 // ----------------------------------------------------------------------------
 
-fn quote_sh<S: AsRef<std::ffi::OsStr>>(string: S) -> color_eyre::Result<String> {
+fn quote_sh<S: AsRef<std::ffi::OsStr>>(string: S) -> Result<String, String> {
     let string = string.as_ref();
     shell_quote::sh::quote(string)
         .to_str()
         .map(str::to_owned)
-        .ok_or_else(|| {
-            eyre!("Cannot shell escape given string")
-                .with_section(|| format!("{string:?}").header("Path:"))
-        })
+        .ok_or_else(|| format!("Cannot shell escape given string: {string:?}"))
 }
 
 /// Calculate `numerator` divided by `denominator` as a percentage.
