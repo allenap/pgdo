@@ -17,7 +17,7 @@ docker build \
     "${project_debug}"
 
 exec docker run \
-    --rm --interactive --tty --platform=linux/amd64 \
+    --rm --interactive --tty \
     --volume "${project_root}:/home/pgdo/workspace" \
     --workdir /home/pgdo/workspace \
     "${image_tag}"
