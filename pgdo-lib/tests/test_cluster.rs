@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use pgdo::cluster::{
-    exists,
+    self, exists,
     sqlx::{query, Row},
     version, Cluster, ClusterError,
 };
@@ -330,5 +330,17 @@ fn cluster_databases_that_do_not_exist_can_be_dropped_without_error() -> TestRes
     assert!(matches!(cluster.dropdb("foo-bar")?, Modified));
     assert!(matches!(cluster.dropdb("foo-bar")?, Unmodified));
     cluster.stop()?;
+    Ok(())
+}
+
+#[for_all_runtimes]
+#[test]
+fn determine_superuser_role_names() -> TestResult {
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
+    cluster.create()?;
+    let superusers = cluster::determine_superuser_role_names(&cluster)?;
+    assert!(!superusers.is_empty());
     Ok(())
 }

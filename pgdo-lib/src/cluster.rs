@@ -493,6 +493,75 @@ pub fn version<P: AsRef<Path>>(
     }
 }
 
+/// Determine the names of superuser roles in a cluster (that can log in).
+///
+/// It may not be possible to even connect to a running cluster when you don't
+/// know a role to use.
+///
+/// This gets around the problem by launching the cluster in single-user mode
+/// and matching the output of a single query of the `pg_roles` table. It's
+/// hacky and fragile but it may work for you.
+///
+/// If no superusers are found, this returns an error containing the output from
+/// the `postgres` process.
+///
+/// # Panics
+///
+/// This function panics if the regular expression used to match the output does
+/// not compile; that's a bug and should never occur in a release build.
+///
+/// It can also panic if the thread that writes to the single-user `postgres`
+/// process itself panics, but under normal circumstances that also should never
+/// happen.
+///
+pub fn determine_superuser_role_names(
+    cluster: &Cluster,
+) -> Result<std::collections::HashSet<String>, ClusterError> {
+    use regex::Regex;
+    use std::io::Write;
+    use std::panic::panic_any;
+    use std::process::Stdio;
+
+    static QUERY: &[u8] = b"select rolname from pg_roles where rolsuper and rolcanlogin\n";
+    lazy_static! {
+        static ref RE: Regex = Regex::new(r#"\brolname\s*=\s*"(.+)""#)
+            .expect("invalid regex (for matching single-user role names)");
+    }
+
+    let mut child = cluster
+        .runtime()?
+        .execute("postgres")
+        .arg("--single")
+        .arg("-D")
+        .arg(&cluster.datadir)
+        .arg("postgres")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let mut stdin = child.stdin.take().expect("could not take stdin");
+    let writer = std::thread::spawn(move || stdin.write_all(QUERY));
+    let output = child.wait_with_output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let superusers: std::collections::HashSet<_> = RE
+        .captures_iter(&stdout)
+        .filter_map(|capture| capture.get(1))
+        .map(|m| m.as_str().to_owned())
+        .collect();
+
+    match writer.join() {
+        Err(err) => panic_any(err),
+        Ok(result) => result?,
+    }
+
+    if superusers.is_empty() {
+        return Err(ClusterError::CommandError(output));
+    }
+
+    Ok(superusers)
+}
+
 /// [`Cluster`] can be coordinated.
 impl coordinate::Subject for Cluster {
     type Error = ClusterError;
