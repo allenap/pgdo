@@ -1263,6 +1263,7 @@ dependencies = [
  "shell-quote",
  "sqlx",
  "tempfile",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "uuid",

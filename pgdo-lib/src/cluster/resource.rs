@@ -86,7 +86,7 @@ impl<'a> ClusterShared<'a> {
     }
 
     /// Forwards to [`Cluster::pool`].
-    pub fn pool(&self, database: Option<&str>) -> sqlx::PgPool {
+    pub fn pool(&self, database: Option<&str>) -> Result<sqlx::PgPool, ClusterError> {
         self.cluster.pool(database)
     }
 
@@ -131,7 +131,7 @@ impl<'a> ClusterExclusive<'a> {
     }
 
     /// Forwards to [`Cluster::pool`].
-    pub fn pool(&self, database: Option<&str>) -> sqlx::PgPool {
+    pub fn pool(&self, database: Option<&str>) -> Result<sqlx::PgPool, ClusterError> {
         self.cluster.pool(database)
     }
 

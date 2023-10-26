@@ -157,7 +157,7 @@ async fn set_cluster_mode(
 
     match mode {
         args::ClusterMode::Fast => {
-            let pool = cluster.pool(None);
+            let pool = cluster.pool(None)?;
             FSYNC.set(&pool, false).await?;
             FULL_PAGE_WRITES.set(&pool, false).await?;
             SYNCHRONOUS_COMMIT.set(&pool, false).await?;
@@ -166,7 +166,7 @@ async fn set_cluster_mode(
             Ok(())
         }
         args::ClusterMode::Slow => {
-            let pool = cluster.pool(None);
+            let pool = cluster.pool(None)?;
             FSYNC.reset(&pool).await?;
             FULL_PAGE_WRITES.reset(&pool).await?;
             SYNCHRONOUS_COMMIT.reset(&pool).await?;

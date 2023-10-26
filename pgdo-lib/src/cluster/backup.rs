@@ -46,7 +46,7 @@ impl Backup {
         let pool = match resource {
             Left(resource) => resource.facet().pool(None),
             Right(resource) => resource.facet().pool(None),
-        };
+        }?;
         let mut restart: bool = false;
 
         // Ensure that `wal_level` is set to `replica` or `logical`. If not,

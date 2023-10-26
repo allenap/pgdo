@@ -10,7 +10,7 @@ use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
-use std::{env, fs, io};
+use std::{fs, io};
 
 use postgres;
 use shell_quote::sh::escape_into;
@@ -315,12 +315,12 @@ impl Cluster {
     ///
     /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
     fn connect(&self, database: Option<&str>) -> Result<postgres::Client, ClusterError> {
-        let user = &env::var("USER").unwrap_or_else(|_| "USER-not-set".to_string());
+        let user = crate::util::current_user()?;
         let host = self.datadir.to_string_lossy(); // postgres crate API limitation.
         let client = postgres::Client::configure()
-            .user(user)
-            .dbname(database.unwrap_or(DATABASE_POSTGRES))
             .host(&host)
+            .dbname(database.unwrap_or(DATABASE_POSTGRES))
+            .user(&user)
             .connect(postgres::NoTls)?;
         Ok(client)
     }
@@ -331,24 +331,27 @@ impl Cluster {
     /// Tokio context to work, e.g.:
     ///
     /// ```rust,no_run
+    /// # use pgdo::cluster::ClusterError;
     /// # let runtime = pgdo::runtime::strategy::Strategy::default();
     /// # let cluster = pgdo::cluster::Cluster::new("some/where", runtime)?;
     /// let tokio = tokio::runtime::Runtime::new()?;
     /// let rows = tokio.block_on(async {
-    ///   let pool = cluster.pool(None);
-    ///   sqlx::query("SELECT 1").fetch_all(&pool).await
+    ///   let pool = cluster.pool(None)?;
+    ///   let rows = sqlx::query("SELECT 1").fetch_all(&pool).await?;
+    ///   Ok::<_, ClusterError>(rows)
     /// })?;
-    /// # Ok::<(), pgdo::cluster::ClusterError>(())
+    /// # Ok::<(), ClusterError>(())
     /// ```
     ///
     /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
-    pub fn pool(&self, database: Option<&str>) -> sqlx::PgPool {
-        sqlx::PgPool::connect_lazy_with(
+    pub fn pool(&self, database: Option<&str>) -> Result<sqlx::PgPool, ClusterError> {
+        Ok(sqlx::PgPool::connect_lazy_with(
             sqlx::postgres::PgConnectOptions::new()
                 .socket(&self.datadir)
                 .database(database.unwrap_or(DATABASE_POSTGRES))
+                .username(&crate::util::current_user()?)
                 .application_name("pgdo"),
-        )
+        ))
     }
 
     /// Run `psql` against this cluster, in the given database.

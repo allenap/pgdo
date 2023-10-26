@@ -114,8 +114,8 @@ fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResu
     let cluster = Cluster::new(data_dir, runtime.clone())?;
     cluster.start()?;
     let result = block_on(async {
-        let pool = cluster.pool(None);
-        query("SHOW ALL").fetch_all(&pool).await
+        let pool = cluster.pool(None)?;
+        Ok::<_, ClusterError>(query("SHOW ALL").fetch_all(&pool).await?)
     })?;
     let params: std::collections::HashMap<String, String> = result
         .into_iter()
@@ -214,8 +214,8 @@ fn cluster_start_with_options() -> TestResult {
     let cluster = Cluster::new(data_dir, runtime)?;
     cluster.start_with_options(&[("example.setting".into(), "Hello, World!".into())])?;
     let example_setting = block_on(async {
-        let pool = cluster.pool(None);
-        query("SHOW example.setting").fetch_one(&pool).await
+        let pool = cluster.pool(None)?;
+        Ok::<_, ClusterError>(query("SHOW example.setting").fetch_one(&pool).await?)
     })
     .map(|row| row.get::<String, _>(0))?;
     assert_eq!(example_setting, "Hello, World!");
