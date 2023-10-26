@@ -204,7 +204,9 @@ fn cluster_start_stop_starts_and_stops_cluster() -> TestResult {
     Ok(())
 }
 
-#[for_all_runtimes]
+/// Versions before 9.2 don't appear to support custom settings, i.e. those with
+/// a period in the middle, so it's hard to test this on older versions.
+#[for_all_runtimes(min = "9.2")]
 #[test]
 fn cluster_start_with_options() -> TestResult {
     let temp_dir = tempfile::tempdir()?;
