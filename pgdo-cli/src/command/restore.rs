@@ -159,7 +159,29 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> color_eyre::Result<
     // Clear the line. Hacky.
     print!("\r                                                               \r");
 
-    println!("Restore complete! Use `pgdo -D {restore_dir:?}` to start the cluster.");
+    let restore_dir_sh = quote_sh(&restore_dir)?;
+
+    // Determine superusers in the restored cluster. This can help us give the
+    // user more specific advice about how to start the cluster.
+    let superusers = cluster::determine_superuser_role_names(&cluster)?;
+    match pgdo::util::current_user() {
+        Ok(user) if superusers.contains(&user) => {
+            println!("Restore complete!");
+            println!("Use `pgdo -D {restore_dir_sh}` to start the cluster.");
+        }
+        Ok(_) | Err(_) => match superusers.iter().min() {
+            Some(user) => {
+                let user_sh = quote_sh(user)?;
+                println!("Restore complete!");
+                println!("WARNING: Current user does not match any superuser role in the restored cluster.");
+                println!("Try `PGUSER={user_sh} pgdo -D {restore_dir_sh}` to start the cluster.");
+            }
+            None => {
+                println!("Restore complete! Use `pgdo -D {restore_dir_sh}` to start the cluster.");
+                println!("WARNING: No superuser role was found in the restored cluster!");
+            }
+        },
+    }
 
     Ok(())
 }
@@ -171,14 +193,14 @@ static RECOVERY_TARGET_ACTION: cluster::config::Parameter =
 
 // ----------------------------------------------------------------------------
 
-fn quote_sh<P: AsRef<Path>>(path: P) -> color_eyre::Result<String> {
-    let path = path.as_ref();
-    shell_quote::sh::quote(path)
+fn quote_sh<S: AsRef<std::ffi::OsStr>>(string: S) -> color_eyre::Result<String> {
+    let string = string.as_ref();
+    shell_quote::sh::quote(string)
         .to_str()
         .map(str::to_owned)
         .ok_or_else(|| {
-            eyre!("Cannot shell escape given path")
-                .with_section(|| format!("{path:?}").header("Path:"))
+            eyre!("Cannot shell escape given string")
+                .with_section(|| format!("{string:?}").header("Path:"))
         })
 }
 
