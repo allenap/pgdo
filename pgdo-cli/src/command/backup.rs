@@ -30,7 +30,7 @@ pub struct Backup {
     pub cluster: args::ClusterArgs,
 
     /// The directory into which to write backups.
-    #[clap(long = "backup-into", value_name = "DIR", display_order = 100)]
+    #[clap(long = "into", value_name = "DIR", display_order = 100)]
     pub backup_dir: PathBuf,
 }
 
