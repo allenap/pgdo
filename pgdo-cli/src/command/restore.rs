@@ -1,4 +1,5 @@
 use std::{
+    io::Write,
     path::{Path, PathBuf},
     process::ExitCode,
 };
@@ -12,7 +13,6 @@ use super::ExitResult;
 use pgdo::{
     cluster::{self, backup},
     coordinate::State,
-    util::percent,
 };
 
 /// Point-in-time restore/recovery from a backup made previously with the
@@ -71,6 +71,8 @@ impl From<String> for RestoreError {
 
 /// Restore the latest backup into the given `resource` from `backup_dir`.
 fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreError> {
+    let term = console::Term::stdout();
+
     let backup_dir = backup_dir.as_ref().canonicalize()?;
     let backup_wal_dir = backup_dir.join("wal");
 
@@ -87,21 +89,19 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
             Some(_) | None => None,
         })
         .max_by_key(|(n, _)| *n)
-        .map(|(_, entry)| entry.path());
-    let backup_data_dir = match backup_data_dir {
-        Some(backup_data_dir) => backup_data_dir,
-        None => return Err(format!("no base backup found in {backup_dir:?}"))?,
-    };
+        .map(|(_, entry)| entry.path())
+        .ok_or_else(|| format!("No base backup found in {backup_dir:?}"))?;
 
     // Check on the restore directory.
     std::fs::create_dir_all(&restore_dir)?;
     let restore_dir = restore_dir.as_ref().canonicalize()?;
     if restore_dir.read_dir()?.next().is_some() {
         Err("Restore directory is not empty")?;
+    } else {
+        let mut perms = restore_dir.metadata()?.permissions();
+        std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o700);
+        std::fs::set_permissions(&restore_dir, perms)?;
     }
-    let mut perms = restore_dir.metadata()?.permissions();
-    std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o700);
-    std::fs::set_permissions(&restore_dir, perms)?;
 
     // Copy base backup into place.
     //
@@ -110,26 +110,36 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     // name. This is a misunderstanding. The file name is valid – the OS gave it
     // to us! – but it's just not UTF-8. This is not likely to be a problem
     // though; just noting it because it's one of my pet peeves.
-    fs_extra::dir::copy_with_progress(
-        backup_data_dir,
-        &restore_dir,
-        &fs_extra::dir::CopyOptions::new().content_only(true),
-        |progress| match progress.state {
-            fs_extra::dir::TransitState::Exists => fs_extra::dir::TransitProcessResult::Abort,
-            fs_extra::dir::TransitState::NoAccess => fs_extra::dir::TransitProcessResult::Abort,
-            fs_extra::dir::TransitState::Normal => {
-                print!(
-                    "\r{count}/{total} bytes copied; {pct}% complete",
-                    pct = percent(progress.copied_bytes, progress.total_bytes).unwrap_or_default(),
-                    count = progress.copied_bytes,
-                    total = progress.total_bytes,
-                );
-                fs_extra::dir::TransitProcessResult::ContinueOrAbort
-            }
-        },
-    )?;
-    // Clear the line. Hacky.
-    print!("\r                                                               \r");
+    {
+        let progress_bar = indicatif::ProgressBar::hidden();
+        progress_bar.set_draw_target(indicatif::ProgressDrawTarget::term(term.clone(), 20));
+        progress_bar.set_style(
+            indicatif::ProgressStyle::with_template(
+                "{wide_bar} {percent}% complete; {msg}; {eta} remaining",
+            )
+            .expect("invalid progress bar template"),
+        );
+        fs_extra::dir::copy_with_progress(
+            backup_data_dir,
+            &restore_dir,
+            &fs_extra::dir::CopyOptions::new().content_only(true),
+            |progress| match progress.state {
+                fs_extra::dir::TransitState::Exists => fs_extra::dir::TransitProcessResult::Abort,
+                fs_extra::dir::TransitState::NoAccess => fs_extra::dir::TransitProcessResult::Abort,
+                fs_extra::dir::TransitState::Normal => {
+                    progress_bar.set_length(progress.total_bytes);
+                    progress_bar.set_position(progress.copied_bytes);
+                    progress_bar.set_message(format!(
+                        "{count} of {total} copied",
+                        count = indicatif::HumanBytes(progress.copied_bytes),
+                        total = indicatif::HumanBytes(progress.total_bytes),
+                    ));
+                    fs_extra::dir::TransitProcessResult::ContinueOrAbort
+                }
+            },
+        )?;
+        progress_bar.finish_and_clear();
+    }
 
     // Remove WAL from restored backup.
     let restore_wal_dir = restore_dir.join("pg_wal");
@@ -149,8 +159,8 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     // Start up the cluster with `restore_command = some/command` and
     // `recovery_target_action = "shutdown"` (or "pause" if we want to
     // interactively inspect the cluster).
-    let backup_wal_dir_shell = quote_sh(backup_wal_dir)?;
-    let restore_command = format!("cp {backup_wal_dir_shell}/%f %p");
+    let backup_wal_dir_sh = quote_sh(backup_wal_dir)?;
+    let restore_command = format!("cp {backup_wal_dir_sh}/%f %p");
 
     let (datadir, _lock) = runner::lock_for(&restore_dir)?;
     let strategy = runner::determine_strategy(None)?;
@@ -170,40 +180,69 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
         ))?;
     }
 
-    let start = std::time::Instant::now();
-    while cluster.running()? {
-        std::thread::sleep(std::time::Duration::from_millis(2000));
-        print!(
-            "\rWaiting for restore to complete… ({} seconds elapsed)",
-            start.elapsed().as_secs()
-        );
+    // Wait for recovery to complete.
+    {
+        let start = std::time::Instant::now();
+        let interval = std::time::Duration::from_secs(1);
+        let message = "Waiting for database recovery…";
+        term.write_line(message)?;
+        while cluster.running()? {
+            std::thread::sleep(interval);
+            term.clear_last_lines(1)?;
+            writeln!(
+                &term,
+                "{message} ({} elapsed)",
+                indicatif::HumanDuration(start.elapsed())
+            )?;
+        }
+        term.clear_last_lines(1)?;
     }
-    // Clear the line. Hacky.
-    print!("\r                                                               \r");
 
-    // Remove the `recovery.signal` file in the restore.
+    // Remove the `recovery.signal` file in the restore so that subsequent
+    // starts do not initiate database recovery.
     std::fs::remove_file(restore_dir.join("recovery.signal"))?;
-
-    let restore_dir_sh = quote_sh(&restore_dir)?;
 
     // Determine superusers in the restored cluster. This can help us give the
     // user more specific advice about how to start the cluster.
     let superusers = cluster::determine_superuser_role_names(&cluster)?;
+
+    // Restore/recovery is done; give the user a hint about what next.
+    let restore_dir_sh = quote_sh(&restore_dir)?;
+    let title = console::style("Restore/recovery complete!")
+        .bold()
+        .bright()
+        .white();
+    let warning = console::style("WARNING").bold().yellow();
+    let code = console::Style::new().bold().cyan();
     match pgdo::util::current_user() {
         Ok(user) if superusers.contains(&user) => {
-            println!("Restore complete!");
-            println!("Use `pgdo -D {restore_dir_sh}` to start the cluster.");
+            writeln!(
+                &term,
+                "{title} Use {} to start the cluster.",
+                code.apply_to(format!("pgdo -D {restore_dir_sh}")),
+            )?;
         }
         Ok(_) | Err(_) => match superusers.iter().min() {
             Some(user) => {
                 let user_sh = quote_sh(user)?;
-                println!("Restore complete!");
-                println!("WARNING: Current user does not match any superuser role in the restored cluster.");
-                println!("Try `PGUSER={user_sh} pgdo -D {restore_dir_sh}` to start the cluster.");
+                writeln!(&term, "{title}")?;
+                writeln!(&term, "{warning}: Current user does not match any superuser role in the restored cluster.")?;
+                writeln!(
+                    &term,
+                    "Try {} to start the cluster.",
+                    code.apply_to(format!("PGUSER={user_sh} pgdo -D {restore_dir_sh}")),
+                )?;
             }
             None => {
-                println!("Restore complete! Use `pgdo -D {restore_dir_sh}` to start the cluster.");
-                println!("WARNING: No superuser role was found in the restored cluster!");
+                writeln!(
+                    &term,
+                    "{title} Use {} to start the cluster.",
+                    code.apply_to(format!("pgdo -D {restore_dir_sh}")),
+                )?;
+                writeln!(
+                    &term,
+                    "WARNING: No superuser role was found in the restored cluster!"
+                )?;
             }
         },
     }

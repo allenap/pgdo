@@ -25,6 +25,7 @@
         "getuid",
         "globset",
         "ilog",
+        "indicatif",
         "initdb",
         "lockpath",
         "logfile",
