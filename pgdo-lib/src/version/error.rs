@@ -1,7 +1,9 @@
-use std::{error, fmt};
+use std::fmt;
+
+use thiserror::Error;
 
 /// Error parsing a PostgreSQL version number.
-#[derive(Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq)]
 pub enum VersionError {
     BadlyFormed { text: Option<String> },
     NotFound { text: Option<String> },
@@ -33,11 +35,5 @@ impl fmt::Display for VersionError {
                 write!(fmt, "version not found")
             }
         }
-    }
-}
-
-impl error::Error for VersionError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
     }
 }

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#
+# Spin up a container with the project mounted inside it. The container has many
+# versions of PostgreSQL available, so it's possible to debug specific issues
+# that might crop up, especially those seen in CI.
+#
+
+set -euo pipefail
+
+project_root="$( cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd )"
+project_debug="${project_root}/debug"
+image_tag="pgdo:debug"
+
+docker build \
+    --file "${project_debug}/Dockerfile" \
+    --tag "${image_tag}" \
+    "${project_debug}"
+
+exec docker run \
+    --rm --interactive --tty \
+    --volume "${project_root}:/home/pgdo/workspace" \
+    --workdir /home/pgdo/workspace \
+    "${image_tag}"
+
+# End.

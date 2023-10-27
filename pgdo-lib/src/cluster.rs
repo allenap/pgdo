@@ -10,7 +10,7 @@ use std::ffi::{OsStr, OsString};
 use std::os::unix::prelude::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
-use std::{env, fs, io};
+use std::{fs, io};
 
 use postgres;
 use shell_quote::sh::escape_into;
@@ -260,6 +260,17 @@ impl Cluster {
 
     /// Start the cluster if it's not already running.
     pub fn start(&self) -> Result<State, ClusterError> {
+        self.start_with_options(&[])
+    }
+
+    /// Start the cluster if it's not already running with the given options.
+    ///
+    /// Returns [`State::Unmodified`] if the cluster is already running, meaning
+    /// the given options were **NOT** applied.
+    pub fn start_with_options(
+        &self,
+        options: &[(config::Parameter, config::Value)],
+    ) -> Result<State, ClusterError> {
         // Ensure that the cluster has been created.
         self.create()?;
         // Check if we're running already.
@@ -267,14 +278,26 @@ impl Cluster {
             // We didn't start this cluster; say so.
             return Ok(Unmodified);
         }
+        // Construct the options that `pg_ctl` will pass through to `postgres`.
+        // These have to be carefully escaped for the target shell – which is
+        // likely to be `sh`. Here's what they mean:
+        //  -h <arg> -- host name; empty arg means Unix socket only.
+        //  -k -- socket directory.
+        //  -c name=value -- set a configuration parameter.
+        let options = {
+            let mut arg = b"-h '' -k "[..].into();
+            escape_into(&self.datadir, &mut arg);
+            for (parameter, value) in options {
+                arg.extend(b" -c ");
+                escape_into(&format!("{parameter}={value}",), &mut arg);
+            }
+            OsString::from_vec(arg)
+        };
         // Next, invoke `pg_ctl` to start the cluster.
-        // pg_ctl options:
         //  -l <file> -- log file.
         //  -s -- no informational messages.
         //  -w -- wait until startup is complete.
-        // postgres options:
-        //  -h <arg> -- host name; empty arg means Unix socket only.
-        //  -k -- socket directory.
+        //  -o <string> -- options to pass through to `postgres`.
         self.ctl()?
             .arg("start")
             .arg("-l")
@@ -282,11 +305,7 @@ impl Cluster {
             .arg("-s")
             .arg("-w")
             .arg("-o")
-            .arg({
-                let mut arg = b"-h '' -k "[..].into();
-                escape_into(&self.datadir, &mut arg);
-                OsString::from_vec(arg)
-            })
+            .arg(options)
             .output()?;
         // We did actually start the cluster; say so.
         Ok(Modified)
@@ -296,12 +315,12 @@ impl Cluster {
     ///
     /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
     fn connect(&self, database: Option<&str>) -> Result<postgres::Client, ClusterError> {
-        let user = &env::var("USER").unwrap_or_else(|_| "USER-not-set".to_string());
+        let user = crate::util::current_user()?;
         let host = self.datadir.to_string_lossy(); // postgres crate API limitation.
         let client = postgres::Client::configure()
-            .user(user)
-            .dbname(database.unwrap_or(DATABASE_POSTGRES))
             .host(&host)
+            .dbname(database.unwrap_or(DATABASE_POSTGRES))
+            .user(&user)
             .connect(postgres::NoTls)?;
         Ok(client)
     }
@@ -312,24 +331,27 @@ impl Cluster {
     /// Tokio context to work, e.g.:
     ///
     /// ```rust,no_run
+    /// # use pgdo::cluster::ClusterError;
     /// # let runtime = pgdo::runtime::strategy::Strategy::default();
     /// # let cluster = pgdo::cluster::Cluster::new("some/where", runtime)?;
     /// let tokio = tokio::runtime::Runtime::new()?;
     /// let rows = tokio.block_on(async {
-    ///   let pool = cluster.pool(None);
-    ///   sqlx::query("SELECT 1").fetch_all(&pool).await
+    ///   let pool = cluster.pool(None)?;
+    ///   let rows = sqlx::query("SELECT 1").fetch_all(&pool).await?;
+    ///   Ok::<_, ClusterError>(rows)
     /// })?;
-    /// # Ok::<(), pgdo::cluster::ClusterError>(())
+    /// # Ok::<(), ClusterError>(())
     /// ```
     ///
     /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
-    pub fn pool(&self, database: Option<&str>) -> sqlx::PgPool {
-        sqlx::PgPool::connect_lazy_with(
+    pub fn pool(&self, database: Option<&str>) -> Result<sqlx::PgPool, ClusterError> {
+        Ok(sqlx::PgPool::connect_lazy_with(
             sqlx::postgres::PgConnectOptions::new()
                 .socket(&self.datadir)
                 .database(database.unwrap_or(DATABASE_POSTGRES))
+                .username(&crate::util::current_user()?)
                 .application_name("pgdo"),
-        )
+        ))
     }
 
     /// Run `psql` against this cluster, in the given database.
@@ -472,6 +494,75 @@ pub fn version<P: AsRef<Path>>(
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err)?,
     }
+}
+
+/// Determine the names of superuser roles in a cluster (that can log in).
+///
+/// It may not be possible to even connect to a running cluster when you don't
+/// know a role to use.
+///
+/// This gets around the problem by launching the cluster in single-user mode
+/// and matching the output of a single query of the `pg_roles` table. It's
+/// hacky and fragile but it may work for you.
+///
+/// If no superusers are found, this returns an error containing the output from
+/// the `postgres` process.
+///
+/// # Panics
+///
+/// This function panics if the regular expression used to match the output does
+/// not compile; that's a bug and should never occur in a release build.
+///
+/// It can also panic if the thread that writes to the single-user `postgres`
+/// process itself panics, but under normal circumstances that also should never
+/// happen.
+///
+pub fn determine_superuser_role_names(
+    cluster: &Cluster,
+) -> Result<std::collections::HashSet<String>, ClusterError> {
+    use regex::Regex;
+    use std::io::Write;
+    use std::panic::panic_any;
+    use std::process::Stdio;
+
+    static QUERY: &[u8] = b"select rolname from pg_roles where rolsuper and rolcanlogin\n";
+    lazy_static! {
+        static ref RE: Regex = Regex::new(r#"\brolname\s*=\s*"(.+)""#)
+            .expect("invalid regex (for matching single-user role names)");
+    }
+
+    let mut child = cluster
+        .runtime()?
+        .execute("postgres")
+        .arg("--single")
+        .arg("-D")
+        .arg(&cluster.datadir)
+        .arg("postgres")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let mut stdin = child.stdin.take().expect("could not take stdin");
+    let writer = std::thread::spawn(move || stdin.write_all(QUERY));
+    let output = child.wait_with_output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let superusers: std::collections::HashSet<_> = RE
+        .captures_iter(&stdout)
+        .filter_map(|capture| capture.get(1))
+        .map(|m| m.as_str().to_owned())
+        .collect();
+
+    match writer.join() {
+        Err(err) => panic_any(err),
+        Ok(result) => result?,
+    }
+
+    if superusers.is_empty() {
+        return Err(ClusterError::CommandError(output));
+    }
+
+    Ok(superusers)
 }
 
 /// [`Cluster`] can be coordinated.

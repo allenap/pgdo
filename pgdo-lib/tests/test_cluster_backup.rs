@@ -17,7 +17,9 @@ fn cluster_backup() -> TestResult {
     let backup_dir = tempfile::TempDir::new()?;
 
     let cluster = Cluster::new(data_dir, runtime)?;
-    let backup = backup::Backup::prepare(backup_dir.path()).unwrap();
+    let backup = rt
+        .block_on(backup::Backup::prepare(backup_dir.path()))
+        .unwrap();
     let lock = pgdo::lock::UnlockedFile::try_from(&temp_dir.path().join(".lock"))?;
     let resource = coordinate::resource::ResourceFree::new(lock, cluster);
 
@@ -28,7 +30,7 @@ fn cluster_backup() -> TestResult {
 
     // Run backup 3 times.
     for num in 1..=3 {
-        let archive_command = format!("cp %p {}/%f", &backup.destination_wal.display());
+        let archive_command = format!("cp %p {}/%f", &backup.backup_wal_dir.display());
         let restart_needed = rt
             .block_on(backup.do_configure_archiving(&resource, &archive_command))
             .unwrap();
@@ -41,11 +43,11 @@ fn cluster_backup() -> TestResult {
         }
 
         // Run backup.
-        backup.do_base_backup(&resource).unwrap();
+        rt.block_on(backup.do_base_backup(&resource)).unwrap();
 
         // WAL files have been archived.
         let files_wal = backup
-            .destination_wal
+            .backup_wal_dir
             .read_dir()?
             .filter_map(Result::ok)
             .filter(is_file)
@@ -55,7 +57,7 @@ fn cluster_backup() -> TestResult {
 
         // A base backup is in place alongside the WAL file directory.
         let dirs_observed = backup
-            .destination
+            .backup_dir
             .read_dir()?
             .filter_map(Result::ok)
             .filter(is_dir)

@@ -16,28 +16,39 @@ use pgdo::{
     coordinate::{cleanup::with_cleanup, finally::with_finally, State},
 };
 
-/// Clone an existing cluster and arrange to continuously archive WAL
-/// (Write-Ahead Log) files into that new cluster.
+/// Point-in-time backup for an existing cluster.
+///
+/// This configures continuous WAL (Write-Ahead Log) archiving into a `wal`
+/// subdirectory of the given `--into` directory. Logs will be archived whenever
+/// the cluster is running, as long as that `wal` directory exists. After
+/// configuring WAL archiving, a "base" backup of the whole cluster is performed
+/// into a separate subdirectory of the given `--into` directory.
+///
+/// Subsequent runs of this command will perform additional base backups –
+/// without overwriting previous backups. These can make recovery faster.
+///
+/// **Note** that both the WAL archives and the base backup are required to
+/// restore/recover a cluster. The `restore` command knows how to use these.
 #[derive(clap::Args)]
 #[clap(next_help_heading = Some("Options for backup"))]
 pub struct Backup {
     #[clap(flatten)]
     pub cluster: args::ClusterArgs,
 
-    /// The directory into which to clone the cluster.
-    #[clap(long = "destination", display_order = 100)]
-    pub destination: PathBuf,
+    /// The directory into which to write backups.
+    #[clap(long = "into", value_name = "BACKUP_DIR", display_order = 100)]
+    pub backup_dir: PathBuf,
 }
 
 impl Backup {
     pub fn invoke(self) -> ExitResult {
-        let Self { cluster, destination } = self;
+        let Self { cluster, backup_dir } = self;
 
         let (datadir, lock) = runner::lock_for(cluster.dir)?;
         let strategy = runner::determine_strategy(None)?;
         let cluster = cluster::Cluster::new(datadir, strategy)?;
         let resource = resource::ResourceFree::new(lock, cluster);
-        backup(resource, destination)?;
+        backup(resource, backup_dir)?;
 
         Ok(ExitCode::SUCCESS)
     }
@@ -90,11 +101,11 @@ pub(crate) enum BackupTool {
 
 // ----------------------------------------------------------------------------
 
-/// Perform a backup of the given `resource` to `destination`.
+/// Perform a backup of the given `resource` to `backup_dir`.
 ///
 /// This is a twofold process:
-/// - Configure archiving into the destination.
-/// - Perform a base backup into the destination.
+/// - Configure archiving into `backup_dir`.
+/// - Perform a base backup into `backup_dir`.
 ///
 /// TODO: Clean up old WAL files?
 ///
@@ -102,12 +113,15 @@ pub(crate) enum BackupTool {
 ///
 fn backup<D: AsRef<Path>>(
     resource: resource::ResourceFree,
-    destination: D,
+    backup_dir: D,
 ) -> color_eyre::Result<()> {
-    // `Backup::prepare` creates the destination directory and the WAL archive
-    // directory if these do not exist, and allocates a temporary location for
-    // the base backup.
-    let backup = backup::Backup::prepare(&destination)?;
+    // `Backup::prepare` creates `backup_dir` and the WAL archive directory if
+    // these do not exist, and allocates a temporary location for the base
+    // backup.
+    let backup = {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async { backup::Backup::prepare(&backup_dir).await })?
+    };
 
     log::info!("Starting cluster (if not already started)…");
     let (started, resource) = resource::startup_if_exists(resource)?;
@@ -149,7 +163,7 @@ fn backup<D: AsRef<Path>>(
     // <https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-ARCHIVING-WAL>.
     let archive_command = {
         let pgdo_exe_shell = std::env::current_exe().map(quote_sh)??;
-        let destination_wal_shell = quote_sh(&backup.destination_wal)?;
+        let destination_wal_shell = quote_sh(&backup.backup_wal_dir)?;
         format!("{pgdo_exe_shell} backup:tools wal:archive %p {destination_wal_shell}/%f")
     };
 
@@ -199,7 +213,10 @@ fn backup<D: AsRef<Path>>(
 
     log::info!("Performing base backup…");
     let destination_data = match resource.read().as_deref() {
-        Ok(resource) => with_finally(do_cleanup, || backup.do_base_backup(resource)),
+        Ok(resource) => with_finally(do_cleanup, || {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async { backup.do_base_backup(resource).await })
+        }),
         Err(err) => panic!("Could not acquire resource: {err}"),
     }?;
     log::info!("Base backup complete; find it at {destination_data:?}");

@@ -61,8 +61,9 @@ for runtime in runtime::strategy::Strategy::default().runtimes() {
   cluster.start()?;
   assert_eq!(cluster.databases()?, vec!["postgres", "template0", "template1"]);
   let rows = tokio.block_on(async {
-    let pool = cluster.pool(None);
-    query("SELECT 1234 -- …").fetch_all(&pool).await
+    let pool = cluster.pool(None)?;
+    let rows = query("SELECT 1234 -- …").fetch_all(&pool).await?;
+    Ok::<_, ClusterError>(rows)
   })?;
   let collations: Vec<i32> = rows.iter().map(|row| row.get(0)).collect();
   assert_eq!(collations, vec![1234]);

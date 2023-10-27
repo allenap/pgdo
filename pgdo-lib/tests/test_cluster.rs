@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use pgdo::cluster::{
-    exists,
+    self, exists,
     sqlx::{query, Row},
     version, Cluster, ClusterError,
 };
@@ -114,8 +114,8 @@ fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResu
     let cluster = Cluster::new(data_dir, runtime.clone())?;
     cluster.start()?;
     let result = block_on(async {
-        let pool = cluster.pool(None);
-        query("SHOW ALL").fetch_all(&pool).await
+        let pool = cluster.pool(None)?;
+        Ok::<_, ClusterError>(query("SHOW ALL").fetch_all(&pool).await?)
     })?;
     let params: std::collections::HashMap<String, String> = result
         .into_iter()
@@ -201,6 +201,25 @@ fn cluster_start_stop_starts_and_stops_cluster() -> TestResult {
     assert!(cluster.running()?);
     cluster.stop()?;
     assert!(!cluster.running()?);
+    Ok(())
+}
+
+/// Versions before 9.2 don't appear to support custom settings, i.e. those with
+/// a period in the middle, so it's hard to test this on older versions.
+#[for_all_runtimes(min = "9.2")]
+#[test]
+fn cluster_start_with_options() -> TestResult {
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
+    cluster.start_with_options(&[("example.setting".into(), "Hello, World!".into())])?;
+    let example_setting = block_on(async {
+        let pool = cluster.pool(None)?;
+        Ok::<_, ClusterError>(query("SHOW example.setting").fetch_one(&pool).await?)
+    })
+    .map(|row| row.get::<String, _>(0))?;
+    assert_eq!(example_setting, "Hello, World!");
+    cluster.stop()?;
     Ok(())
 }
 
@@ -311,5 +330,17 @@ fn cluster_databases_that_do_not_exist_can_be_dropped_without_error() -> TestRes
     assert!(matches!(cluster.dropdb("foo-bar")?, Modified));
     assert!(matches!(cluster.dropdb("foo-bar")?, Unmodified));
     cluster.stop()?;
+    Ok(())
+}
+
+#[for_all_runtimes]
+#[test]
+fn determine_superuser_role_names() -> TestResult {
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
+    cluster.create()?;
+    let superusers = cluster::determine_superuser_role_names(&cluster)?;
+    assert!(!superusers.is_empty());
     Ok(())
 }
