@@ -17,15 +17,24 @@ use pgdo::{
 
 /// Point-in-time restore/recovery from a backup made previously with the
 /// `backup` command.
+///
+/// At present, this command only supports restoring the latest backup. In the
+/// future it will be able to restoring to a specific point in time. Indeed,
+/// since the `backup` command already records all the information necessary to
+/// do this, it is possible to follow PostgreSQL's Point-in-Time Recovery
+/// instructions to restore/recover your cluster and its data manually from a
+/// backup created with the `backup` command.
 #[derive(clap::Args)]
 #[clap(next_help_heading = Some("Options for restore"))]
 pub struct Restore {
-    /// The directory from which to read backups.
-    #[clap(long = "from", value_name = "DIR", display_order = 100)]
+    /// The directory from which to read backups, previously created by the
+    /// `backup` command.
+    #[clap(long = "from", value_name = "BACKUP_DIR", display_order = 100)]
     pub backup_dir: PathBuf,
 
-    /// The directory into which to restore.
-    #[clap(long = "to", value_name = "DIR", display_order = 200)]
+    /// The directory into which to restore. Should not exist or be empty. After
+    /// the restore is complete this will be a usable cluster like any other.
+    #[clap(long = "to", value_name = "RESTORE_DIR", display_order = 200)]
     pub restore_dir: PathBuf,
 }
 

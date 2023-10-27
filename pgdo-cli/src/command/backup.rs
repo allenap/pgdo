@@ -18,11 +18,17 @@ use pgdo::{
 
 /// Point-in-time backup for an existing cluster.
 ///
-/// Configures continuous WAL (Write-Ahead Log) archiving into the given
-/// destination directory, then takes a base backup of the whole cluster.
+/// This configures continuous WAL (Write-Ahead Log) archiving into a `wal`
+/// subdirectory of the given `--into` directory. Logs will be archived whenever
+/// the cluster is running, as long as that `wal` directory exists. After
+/// configuring WAL archiving, a "base" backup of the whole cluster is performed
+/// into a separate subdirectory of the given `--into` directory.
 ///
-/// Subsequent runs will take an additional base backup – without overwriting
-/// previous backups – which can make recovery faster.
+/// Subsequent runs of this command will perform additional base backups –
+/// without overwriting previous backups. These can make recovery faster.
+///
+/// **Note** that both the WAL archives and the base backup are required to
+/// restore/recover a cluster. The `restore` command knows how to use these.
 #[derive(clap::Args)]
 #[clap(next_help_heading = Some("Options for backup"))]
 pub struct Backup {
@@ -30,7 +36,7 @@ pub struct Backup {
     pub cluster: args::ClusterArgs,
 
     /// The directory into which to write backups.
-    #[clap(long = "into", value_name = "DIR", display_order = 100)]
+    #[clap(long = "into", value_name = "BACKUP_DIR", display_order = 100)]
     pub backup_dir: PathBuf,
 }
 
