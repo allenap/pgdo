@@ -52,6 +52,38 @@ pub fn current_user() -> Result<String, CurrentUserError> {
     }
 }
 
+/// Calculate `numerator` divided by `denominator` as a percentage.
+///
+/// When `numerator` is very large we cannot multiply it by 100 without risking
+/// wrapping, so this is careful to use checked arithmetic to avoid wrapping or
+/// overflow. It scales down `numerator` and `denominator` by powers of two
+/// until a percentage can be calculated. If `denominator` is zero, returns
+/// `None`.
+///
+/// ```rust
+/// # use pgdo::util::percent;
+/// assert_eq!(percent(100, 1000), Some(10));
+/// assert_eq!(percent(u64::MAX, 1), None); // Overflow.
+/// assert_eq!(percent(0, u64::MAX), Some(0));
+/// assert_eq!(percent(1, u64::MAX), Some(1)); // <-- Rounds up.
+/// assert_eq!(percent(u64::MAX, u64::MAX), Some(100));
+/// assert_eq!(percent(u64::MAX / 100, u64::MAX), Some(1));
+/// assert_eq!(percent(u64::MAX >> 1, u64::MAX), Some(50));
+/// ```
+///
+pub fn percent(numerator: u64, denominator: u64) -> Option<u64> {
+    // The 7 is calculated as: 100u8.ilog2() + 1;
+    (0..=7).find_map(|shift| {
+        (numerator >> shift)
+            .checked_mul(100)
+            .and_then(|numerator| match denominator >> shift {
+                0 => None,
+                1 => Some(numerator),
+                d => Some(numerator.div_ceil(d)),
+            })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::env;

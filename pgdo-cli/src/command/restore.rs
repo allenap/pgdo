@@ -12,6 +12,7 @@ use super::ExitResult;
 use pgdo::{
     cluster::{self, backup},
     coordinate::State,
+    util::percent,
 };
 
 /// Point-in-time restore/recovery from a backup made previously with the
@@ -223,19 +224,4 @@ fn quote_sh<S: AsRef<std::ffi::OsStr>>(string: S) -> Result<String, String> {
         .to_str()
         .map(str::to_owned)
         .ok_or_else(|| format!("Cannot shell escape given string: {string:?}"))
-}
-
-/// Calculate `numerator` divided by `denominator` as a percentage.
-///
-/// When `numerator` is very large we cannot multiply it by 100 without risking
-/// wrapping, so this is careful to use checked arithmetic to avoid wrapping or
-/// overflow. It scales down `numerator` and `denominator` by powers of two
-/// until a percentage can be calculated. If `denominator` is zero, returns
-/// `None`.
-fn percent(numerator: u64, denominator: u64) -> Option<u64> {
-    (0..=100u8.ilog2()).find_map(|n| {
-        (numerator >> n)
-            .checked_mul(100)
-            .and_then(|numerator| numerator.checked_div(denominator >> n))
-    })
 }
