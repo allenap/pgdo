@@ -4,6 +4,10 @@ use postgres_protocol::escape::{escape_identifier, escape_literal};
 
 use super::sqlx;
 
+trait AsSql {
+    fn as_sql(&self) -> Cow<'_, str>;
+}
+
 /// Reload configuration using `pg_reload_conf`. Equivalent to `SIGHUP` or
 /// `pg_ctl reload`.
 pub async fn reload(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
@@ -21,21 +25,19 @@ impl<'a> AlterSystem<'a> {
     /// Alter the system. Changes made by `ALTER SYSTEM` may require a reload or
     /// even a full restart to take effect.
     pub async fn apply(&self, pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
-        let command = self.to_string();
-        sqlx::query(&command).execute(pool).await?;
+        sqlx::query(&self.as_sql()).execute(pool).await?;
         Ok(())
     }
 }
 
-impl<'a> fmt::Display for AlterSystem<'a> {
-    /// Render SQL that will apply this change.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl AsSql for AlterSystem<'_> {
+    /// Return the SQL to apply this change.
+    fn as_sql(&self) -> Cow<'_, str> {
+        use AlterSystem::*;
         match self {
-            AlterSystem::Set(p, v) => {
-                write!(f, "ALTER SYSTEM SET {} TO {}", p.as_sql(), v.as_sql())
-            }
-            AlterSystem::Reset(p) => write!(f, "ALTER SYSTEM RESET {}", p.as_sql()),
-            AlterSystem::ResetAll => write!(f, "ALTER SYSTEM RESET ALL"),
+            Set(p, v) => format!("ALTER SYSTEM SET {} TO {}", p.as_sql(), v.as_sql()).into(),
+            Reset(p) => format!("ALTER SYSTEM RESET {}", p.as_sql()).into(),
+            ResetAll => "ALTER SYSTEM RESET ALL".into(),
         }
     }
 }
@@ -145,11 +147,6 @@ impl Setting {
 pub struct Parameter<'a>(pub &'a str);
 
 impl<'a> Parameter<'a> {
-    /// Return this parameter name escaped as an SQL identifier.
-    pub fn as_sql(&self) -> Cow<'_, str> {
-        escape_identifier(self.0).into()
-    }
-
     /// Get the current [`Value`] for this parameter.
     ///
     /// If you want the full/raw [`Setting`], use [`Setting::get`] instead.
@@ -179,6 +176,13 @@ impl<'a> Parameter<'a> {
     pub async fn reset(&self, pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
         AlterSystem::Reset(self).apply(pool).await?;
         Ok(())
+    }
+}
+
+impl AsSql for Parameter<'_> {
+    /// Return this parameter name escaped as an SQL identifier.
+    fn as_sql(&self) -> Cow<'_, str> {
+        escape_identifier(self.0).into()
     }
 }
 
@@ -215,9 +219,9 @@ pub enum Value {
     Time(String, TimeUnit),
 }
 
-impl Value {
+impl AsSql for Value {
     /// Return this parameter value escaped as an SQL literal.
-    pub fn as_sql(&self) -> Cow<'_, str> {
+    fn as_sql(&self) -> Cow<'_, str> {
         match self {
             Value::Boolean(true) => "true".into(),
             Value::Boolean(false) => "false".into(),
@@ -432,6 +436,7 @@ mod tests {
     use paste::paste;
 
     use super::{
+        AsSql,
         MemoryUnit::{self, *},
         Parameter,
         TimeUnit::{self, *},
