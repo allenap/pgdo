@@ -1,18 +1,20 @@
 use std::{
     ffi::OsStr,
+    io,
     path::{Path, PathBuf},
+    process::ExitStatus,
 };
 
 use either::{Left, Right};
 use tempfile::TempDir;
+use thiserror::Error;
 use tokio::{fs, task::block_in_place};
 use tokio_stream::{wrappers::ReadDirStream, StreamExt};
 
 use super::{config, resource::StartupResource};
 use crate::lock;
 use crate::prelude::CoordinateError;
-
-pub use error::BackupError;
+use crate::{cluster, coordinate};
 
 // ----------------------------------------------------------------------------
 
@@ -206,79 +208,26 @@ static BACKUP_LOCK_NAME: &str = ".lock";
 
 // ----------------------------------------------------------------------------
 
-mod error {
-    use std::process::ExitStatus;
-    use std::{error, fmt, io};
+#[derive(Error, Debug)]
+pub enum BackupError {
+    #[error("input/output error: {0}")]
+    IoError(#[from] io::Error),
+    #[error("shell error: {0}")]
+    GeneralError(String),
+    #[error("configuration error: {0}")]
+    ConfigError(String),
+    #[error(transparent)]
+    CoordinateError(#[from] coordinate::CoordinateError<cluster::ClusterError>),
+    #[error(transparent)]
+    ClusterError(#[from] cluster::ClusterError),
+    #[error("external command failed: {0:?}")]
+    CommandError(ExitStatus),
+    #[error("database error: {0}")]
+    SqlxError(#[from] cluster::sqlx::Error),
+}
 
-    use crate::{cluster, coordinate};
-
-    #[derive(Debug)]
-    pub enum BackupError {
-        IoError(io::Error),
-        GeneralError(String),
-        ConfigError(String),
-        CoordinateError(coordinate::CoordinateError<cluster::ClusterError>),
-        ClusterError(cluster::ClusterError),
-        CommandError(ExitStatus),
-        SqlxError(cluster::sqlx::Error),
-    }
-
-    impl fmt::Display for BackupError {
-        fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-            use BackupError::*;
-            match *self {
-                IoError(ref e) => write!(fmt, "input/output error: {e}"),
-                GeneralError(ref e) => write!(fmt, "shell error: {e}"),
-                ConfigError(ref e) => write!(fmt, "configuration error: {e}"),
-                CoordinateError(ref e) => e.fmt(fmt),
-                ClusterError(ref e) => e.fmt(fmt),
-                CommandError(ref e) => write!(fmt, "external command failed: {e:?}"),
-                SqlxError(ref e) => write!(fmt, "database error: {e}"),
-            }
-        }
-    }
-
-    impl error::Error for BackupError {
-        fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-            match *self {
-                Self::IoError(ref error) => Some(error),
-                Self::GeneralError(_) => None,
-                Self::ConfigError(_) => None,
-                Self::CoordinateError(ref error) => Some(error),
-                Self::ClusterError(ref error) => Some(error),
-                Self::CommandError(_) => None,
-                Self::SqlxError(ref error) => Some(error),
-            }
-        }
-    }
-
-    impl From<io::Error> for BackupError {
-        fn from(error: io::Error) -> BackupError {
-            Self::IoError(error)
-        }
-    }
-
-    impl From<coordinate::CoordinateError<cluster::ClusterError>> for BackupError {
-        fn from(error: coordinate::CoordinateError<cluster::ClusterError>) -> BackupError {
-            Self::CoordinateError(error)
-        }
-    }
-
-    impl From<cluster::ClusterError> for BackupError {
-        fn from(error: cluster::ClusterError) -> BackupError {
-            Self::ClusterError(error)
-        }
-    }
-
-    impl From<ExitStatus> for BackupError {
-        fn from(error: ExitStatus) -> BackupError {
-            Self::CommandError(error)
-        }
-    }
-
-    impl From<cluster::sqlx::Error> for BackupError {
-        fn from(error: cluster::sqlx::Error) -> BackupError {
-            Self::SqlxError(error)
-        }
+impl From<ExitStatus> for BackupError {
+    fn from(error: ExitStatus) -> BackupError {
+        Self::CommandError(error)
     }
 }
