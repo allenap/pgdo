@@ -63,9 +63,11 @@ pub fn current_user() -> Result<String, CurrentUserError> {
 /// ```rust
 /// # use pgdo::util::percent;
 /// assert_eq!(percent(100, 1000), Some(10));
+/// assert_eq!(percent(104, 1000), Some(10));
+/// assert_eq!(percent(105, 1000), Some(11)); // <-- Rounds.
 /// assert_eq!(percent(u64::MAX, 1), None); // Overflow.
 /// assert_eq!(percent(0, u64::MAX), Some(0));
-/// assert_eq!(percent(1, u64::MAX), Some(1)); // <-- Rounds up.
+/// assert_eq!(percent(1, u64::MAX), Some(0));
 /// assert_eq!(percent(u64::MAX, u64::MAX), Some(100));
 /// assert_eq!(percent(u64::MAX / 100, u64::MAX), Some(1));
 /// assert_eq!(percent(u64::MAX >> 1, u64::MAX), Some(50));
@@ -79,7 +81,8 @@ pub fn percent(numerator: u64, denominator: u64) -> Option<u64> {
             .and_then(|numerator| match denominator >> shift {
                 0 => None,
                 1 => Some(numerator),
-                d => Some(numerator.div_ceil(d)),
+                d if (d >> 1) > numerator.rem_euclid(d) => Some(numerator.div_euclid(d)),
+                d => Some(numerator.div_euclid(d) + 1),
             })
     })
 }
