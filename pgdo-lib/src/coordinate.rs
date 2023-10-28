@@ -62,7 +62,7 @@ pub trait Subject {
 /// If there are other users of the subject – i.e. if an exclusive lock cannot
 /// be acquired during the shutdown phase – then the subject is left running.
 pub fn run_and_stop<S, F, T>(
-    control: &S,
+    subject: &S,
     lock: lock::UnlockedFile,
     action: F,
 ) -> Result<T, CoordinateError<S::Error>>
@@ -70,9 +70,9 @@ where
     S: std::panic::RefUnwindSafe + Subject,
     F: std::panic::UnwindSafe + FnOnce() -> T,
 {
-    let lock = startup(control, lock)?;
+    let lock = startup(subject, lock)?;
     with_finally(
-        || shutdown::<S, _, _>(lock, || control.stop()),
+        || shutdown::<S, _, _>(lock, || subject.stop()),
         || -> Result<T, CoordinateError<S::Error>> { Ok(action()) },
     )
 }
@@ -85,7 +85,7 @@ where
 /// subject – i.e. if an exclusive lock cannot be acquired during the shutdown
 /// phase – then the subject is left running.
 pub fn run_and_stop_if_exists<S, F, T>(
-    control: &S,
+    subject: &S,
     lock: lock::UnlockedFile,
     action: F,
 ) -> Result<T, CoordinateError<S::Error>>
@@ -93,9 +93,9 @@ where
     S: std::panic::RefUnwindSafe + Subject,
     F: std::panic::UnwindSafe + FnOnce() -> T,
 {
-    let lock = startup_if_exists(control, lock)?;
+    let lock = startup_if_exists(subject, lock)?;
     with_finally(
-        || shutdown::<S, _, _>(lock, || control.stop()),
+        || shutdown::<S, _, _>(lock, || subject.stop()),
         || -> Result<T, CoordinateError<S::Error>> { Ok(action()) },
     )
 }
@@ -108,7 +108,7 @@ where
 /// lock cannot be acquired during the shutdown phase – then the subject is left
 /// running and is **not** destroyed.
 pub fn run_and_destroy<S, F, T>(
-    control: &S,
+    subject: &S,
     lock: lock::UnlockedFile,
     action: F,
 ) -> Result<T, CoordinateError<S::Error>>
@@ -116,12 +116,14 @@ where
     S: std::panic::RefUnwindSafe + Subject,
     F: std::panic::UnwindSafe + FnOnce() -> T,
 {
-    let lock = startup(control, lock)?;
+    let lock = startup(subject, lock)?;
     with_finally(
-        || shutdown::<S, _, _>(lock, || control.destroy()),
+        || shutdown::<S, _, _>(lock, || subject.destroy()),
         || -> Result<T, CoordinateError<S::Error>> { Ok(action()) },
     )
 }
+
+// ----------------------------------------------------------------------------
 
 fn startup<S: Subject>(
     control: &S,
@@ -163,7 +165,7 @@ fn startup<S: Subject>(
 }
 
 fn startup_if_exists<S: Subject>(
-    control: &S,
+    subject: &S,
     mut lock: lock::UnlockedFile,
 ) -> Result<lock::LockedFileShared, CoordinateError<S::Error>> {
     loop {
@@ -176,7 +178,7 @@ fn startup_if_exists<S: Subject>(
                 // The subject may have been started while that exclusive lock
                 // was held, so we must check if the subject is running now –
                 // otherwise we loop back to the top again.
-                if control.running().map_err(CoordinateError::ControlError)? {
+                if subject.running().map_err(CoordinateError::ControlError)? {
                     return Ok(lock);
                 }
                 // Release all locks then sleep for a random time between 200ms
@@ -192,8 +194,8 @@ fn startup_if_exists<S: Subject>(
             }
             Ok(Right(lock)) => {
                 // We have an exclusive lock, so try to start the subject.
-                if control.exists().map_err(CoordinateError::ControlError)? {
-                    control.start().map_err(CoordinateError::ControlError)?;
+                if subject.exists().map_err(CoordinateError::ControlError)? {
+                    subject.start().map_err(CoordinateError::ControlError)?;
                 } else {
                     return Err(CoordinateError::DoesNotExist);
                 }
