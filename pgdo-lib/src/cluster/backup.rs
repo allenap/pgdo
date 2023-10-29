@@ -7,7 +7,6 @@ use std::{
 
 use either::{Left, Right};
 use tempfile::TempDir;
-use thiserror::Error;
 use tokio::{fs, task::block_in_place};
 use tokio_stream::{wrappers::ReadDirStream, StreamExt};
 
@@ -208,7 +207,7 @@ static BACKUP_LOCK_NAME: &str = ".lock";
 
 // ----------------------------------------------------------------------------
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, miette::Diagnostic, Debug)]
 pub enum BackupError {
     #[error("input/output error: {0}")]
     IoError(#[from] io::Error),

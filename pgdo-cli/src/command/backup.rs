@@ -4,9 +4,8 @@ use std::{
     sync::{PoisonError, RwLock},
 };
 
-use color_eyre::eyre::eyre;
-use color_eyre::{Help, SectionExt};
 use either::{Left, Right};
+use miette::{miette, IntoDiagnostic};
 
 use super::ExitResult;
 use crate::{args, runner};
@@ -111,16 +110,14 @@ pub(crate) enum BackupTool {
 ///
 /// TODO: Handle table-spaces?
 ///
-fn backup<D: AsRef<Path>>(
-    resource: resource::ResourceFree,
-    backup_dir: D,
-) -> color_eyre::Result<()> {
+fn backup<D: AsRef<Path>>(resource: resource::ResourceFree, backup_dir: D) -> miette::Result<()> {
     // `Backup::prepare` creates `backup_dir` and the WAL archive directory if
     // these do not exist, and allocates a temporary location for the base
     // backup.
     let backup = {
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(async { backup::Backup::prepare(&backup_dir).await })?
+        let rt = tokio::runtime::Runtime::new().into_diagnostic()?;
+        rt.block_on(async { backup::Backup::prepare(&backup_dir).await })
+            .into_diagnostic()?
     };
 
     log::info!("Starting cluster (if not already started)…");
@@ -162,7 +159,7 @@ fn backup<D: AsRef<Path>>(
     // The command we use to copy WAL files to `destination_wal`.
     // <https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-ARCHIVING-WAL>.
     let archive_command = {
-        let pgdo_exe_shell = std::env::current_exe().map(quote_sh)??;
+        let pgdo_exe_shell = std::env::current_exe().map(quote_sh).into_diagnostic()??;
         let destination_wal_shell = quote_sh(&backup.backup_wal_dir)?;
         format!("{pgdo_exe_shell} backup:tools wal:archive %p {destination_wal_shell}/%f")
     };
@@ -333,13 +330,10 @@ fn copy_wal_archive(source: PathBuf, target: PathBuf) -> ExitCode {
 
 // ----------------------------------------------------------------------------
 
-fn quote_sh<P: AsRef<Path>>(path: P) -> color_eyre::Result<String> {
+fn quote_sh<P: AsRef<Path>>(path: P) -> miette::Result<String> {
     let path = path.as_ref();
     shell_quote::sh::quote(path)
         .to_str()
         .map(str::to_owned)
-        .ok_or_else(|| {
-            eyre!("Cannot shell escape given path")
-                .with_section(|| format!("{path:?}").header("Path:"))
-        })
+        .ok_or_else(|| miette!("Cannot shell escape given path").context(format!("Path: {path:?}")))
 }

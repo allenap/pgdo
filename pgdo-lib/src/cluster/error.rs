@@ -1,10 +1,8 @@
 use std::{io, process::Output};
 
-use thiserror::Error;
-
 use crate::{cluster, runtime, util, version};
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, miette::Diagnostic, Debug)]
 pub enum ClusterError {
     #[error("input/output error: {0}")]
     IoError(#[from] io::Error),

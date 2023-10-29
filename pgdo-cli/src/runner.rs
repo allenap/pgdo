@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::process::ExitStatus;
 
-use color_eyre::eyre::{bail, eyre, Result, WrapErr};
-use color_eyre::{Help, SectionExt};
+use miette::{bail, miette, IntoDiagnostic, Result, WrapErr};
 
 use crate::{args, ExitResult};
 
@@ -35,9 +34,9 @@ pub(crate) fn determine_strategy(fallback: Option<Constraint>) -> Result<Strateg
     let fallback: Option<_> = match fallback {
         Some(constraint) => match strategy.select(&constraint) {
             Some(runtime) => Some(runtime),
-            None => Err(eyre!("no runtime matches constraint {constraint:?}"))
-                .with_context(|| "cannot select fallback runtime")
-                .with_suggestion(|| "use `runtimes` to see available runtimes")?,
+            None => Err(miette!("no runtime matches constraint {constraint:?}"))
+                .wrap_err_with(|| "cannot select fallback runtime")
+                .wrap_err_with(|| "use `runtimes` to see available runtimes")?,
         },
         None => None,
     };
@@ -54,8 +53,8 @@ pub(crate) fn determine_strategy(fallback: Option<Constraint>) -> Result<Strateg
 pub(crate) fn ensure_database(cluster: &cluster::Cluster, database_name: &str) -> Result<()> {
     cluster
         .createdb(database_name)
-        .wrap_err("Could not create database")
-        .with_section(|| database_name.to_owned().header("Database:"))?;
+        .wrap_err_with(|| "Could not create database")
+        .wrap_err_with(|| format!("Database: {database_name}"))?;
     Ok(())
 }
 
@@ -66,13 +65,15 @@ pub fn lock_for<P: AsRef<Path>>(path: P) -> Result<(PathBuf, lock::UnlockedFile)
     let path = path
         .as_ref()
         .canonicalize()
-        .wrap_err("Could not canonicalize cluster directory")
-        .with_section(|| format!("{}", path.as_ref().display()).header("Cluster directory:"))?;
+        .into_diagnostic()
+        .wrap_err_with(|| "Could not canonicalize cluster directory")
+        .wrap_err_with(|| format!("Cluster directory: {}", path.as_ref().display()))?;
     let name = path.as_os_str().as_bytes();
     let lock_uuid = uuid::Uuid::new_v5(&UUID_NS, name);
     let lock = lock::UnlockedFile::try_from(&lock_uuid)
-        .wrap_err("Could not create UUID-based lock file")
-        .with_section(|| lock_uuid.to_string().header("UUID for lock file:"))?;
+        .into_diagnostic()
+        .wrap_err_with(|| "Could not create UUID-based lock file")
+        .wrap_err_with(|| format!("UUID for lock file: {lock_uuid}"))?;
     Ok((path, lock))
 }
 
@@ -104,10 +105,9 @@ where
             match fs::create_dir(&cluster_dir) {
                 Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
                 err @ Err(_) => err
-                    .wrap_err("Could not create cluster directory")
-                    .with_section(|| {
-                        format!("{}", cluster_dir.display()).header("Cluster directory:")
-                    })?,
+                    .into_diagnostic()
+                    .wrap_err_with(|| "Could not create cluster directory")
+                    .wrap_err_with(|| format!("Cluster directory: {}", cluster_dir.display()))?,
                 _ => (),
             }
         }
@@ -129,14 +129,16 @@ where
 
     runner(&cluster, lock, || {
         if let Some(cluster_mode) = cluster_mode {
-            let rt = tokio::runtime::Runtime::new()?;
+            let rt = tokio::runtime::Runtime::new().into_diagnostic()?;
             rt.block_on(set_cluster_mode(cluster_mode, &cluster))?;
         }
 
         // Ignore SIGINT, TERM, and HUP (with ctrlc feature "termination"). The
         // child process will receive the signal, presumably terminate, then
         // we'll tidy up.
-        ctrlc::set_handler(|| ()).wrap_err("Could not set signal handler")?;
+        ctrlc::set_handler(|| ())
+            .into_diagnostic()
+            .context("Could not set signal handler")?;
 
         // Finally, run the given action.
         action(&cluster)

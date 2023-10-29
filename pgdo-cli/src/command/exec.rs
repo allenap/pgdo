@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 
-use color_eyre::eyre::WrapErr;
+use miette::WrapErr;
 
 use super::ExitResult;
 use crate::{

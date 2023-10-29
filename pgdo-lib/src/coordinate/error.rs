@@ -1,7 +1,8 @@
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum CoordinateError<C> {
+#[derive(thiserror::Error, miette::Diagnostic, Debug)]
+pub enum CoordinateError<C>
+where
+    C: std::error::Error,
+{
     #[error("input/output error: {0}")]
     IoError(#[from] std::io::Error),
     #[error("UNIX error: {0}")]

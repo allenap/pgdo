@@ -4,7 +4,7 @@ use std::{
     process::ExitCode,
 };
 
-use color_eyre::eyre::eyre;
+use miette::miette;
 
 use crate::runner;
 
@@ -54,7 +54,7 @@ impl From<Restore> for super::Command {
 
 // ----------------------------------------------------------------------------
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, miette::Diagnostic, Debug)]
 enum RestoreError {
     #[error("input/output error: {0}")]
     IoError(#[from] std::io::Error),
@@ -62,19 +62,25 @@ enum RestoreError {
     FileCopyError(#[from] fs_extra::error::Error),
     #[error("cluster error: {0}")]
     ClusterError(#[from] pgdo::cluster::ClusterError),
-    #[error(transparent)]
-    Other(#[from] color_eyre::Report),
+    #[error("{0}")]
+    Other(miette::Report),
 }
 
 impl From<&'static str> for RestoreError {
     fn from(s: &'static str) -> Self {
-        Self::Other(eyre!(s))
+        Self::Other(miette!(s))
     }
 }
 
 impl From<String> for RestoreError {
     fn from(s: String) -> Self {
-        Self::Other(eyre!(s))
+        Self::Other(miette!(s))
+    }
+}
+
+impl From<miette::Report> for RestoreError {
+    fn from(result: miette::Report) -> Self {
+        Self::Other(result)
     }
 }
 
