@@ -7,12 +7,11 @@ mod runner;
 use std::io::{stdout, IsTerminal};
 
 use clap::Parser;
+use miette::IntoDiagnostic;
 
-pub(crate) type ExitResult = color_eyre::Result<std::process::ExitCode>;
+pub(crate) type ExitResult = miette::Result<std::process::ExitCode>;
 
 fn main() -> ExitResult {
-    // Configure exception reporting.
-    color_eyre::install()?;
     // Configure logging. Not using local timestamps because `simple_logger`
     // panics when emitting log messages from within a Tokio runtime context:
     // https://github.com/borntyping/rust-simple_logger/issues/84
@@ -20,7 +19,8 @@ fn main() -> ExitResult {
         .with_level(log::LevelFilter::Warn)
         .with_colors(stdout().is_terminal())
         .env()
-        .init()?;
+        .init()
+        .into_diagnostic()?;
     // Parse command-line arguments.
     let Options { command, default } = Options::parse();
     // Use the default command when none has been specified.

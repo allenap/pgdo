@@ -29,6 +29,7 @@
         "initdb",
         "lockpath",
         "logfile",
+        "miette",
         "Nonblock",
         "pbcopy",
         "PGDATA",

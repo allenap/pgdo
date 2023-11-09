@@ -1,10 +1,9 @@
 use std::{
+    borrow::Cow,
     io::Write,
     path::{Path, PathBuf},
     process::ExitCode,
 };
-
-use color_eyre::eyre::eyre;
 
 use crate::runner;
 
@@ -54,27 +53,31 @@ impl From<Restore> for super::Command {
 
 // ----------------------------------------------------------------------------
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, miette::Diagnostic, Debug)]
 enum RestoreError {
-    #[error("input/output error: {0}")]
+    #[error("Input/output error")]
     IoError(#[from] std::io::Error),
-    #[error("file copy error: {0}")]
+    #[error("File copy error")]
     FileCopyError(#[from] fs_extra::error::Error),
-    #[error("cluster error: {0}")]
+    #[error("Cluster error")]
     ClusterError(#[from] pgdo::cluster::ClusterError),
     #[error(transparent)]
-    Other(#[from] color_eyre::Report),
+    StrategyError(#[from] runner::StrategyError),
+    #[error(transparent)]
+    LockForError(#[from] runner::LockForError),
+    #[error("{0}")]
+    Other(Cow<'static, str>),
 }
 
 impl From<&'static str> for RestoreError {
     fn from(s: &'static str) -> Self {
-        Self::Other(eyre!(s))
+        Self::Other(s.into())
     }
 }
 
 impl From<String> for RestoreError {
     fn from(s: String) -> Self {
-        Self::Other(eyre!(s))
+        Self::Other(s.into())
     }
 }
 
