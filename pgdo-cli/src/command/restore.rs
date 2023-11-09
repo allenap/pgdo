@@ -1,10 +1,9 @@
 use std::{
+    borrow::Cow,
     io::Write,
     path::{Path, PathBuf},
     process::ExitCode,
 };
-
-use miette::miette;
 
 use crate::runner;
 
@@ -56,31 +55,29 @@ impl From<Restore> for super::Command {
 
 #[derive(thiserror::Error, miette::Diagnostic, Debug)]
 enum RestoreError {
-    #[error("input/output error: {0}")]
+    #[error("Input/output error")]
     IoError(#[from] std::io::Error),
-    #[error("file copy error: {0}")]
+    #[error("File copy error")]
     FileCopyError(#[from] fs_extra::error::Error),
-    #[error("cluster error: {0}")]
+    #[error("Cluster error")]
     ClusterError(#[from] pgdo::cluster::ClusterError),
+    #[error(transparent)]
+    StrategyError(#[from] runner::StrategyError),
+    #[error(transparent)]
+    LockForError(#[from] runner::LockForError),
     #[error("{0}")]
-    Other(miette::Report),
+    Other(Cow<'static, str>),
 }
 
 impl From<&'static str> for RestoreError {
     fn from(s: &'static str) -> Self {
-        Self::Other(miette!(s))
+        Self::Other(s.into())
     }
 }
 
 impl From<String> for RestoreError {
     fn from(s: String) -> Self {
-        Self::Other(miette!(s))
-    }
-}
-
-impl From<miette::Report> for RestoreError {
-    fn from(result: miette::Report) -> Self {
-        Self::Other(result)
+        Self::Other(s.into())
     }
 }
 

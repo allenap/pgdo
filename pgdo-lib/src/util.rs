@@ -2,8 +2,6 @@ use std::env;
 use std::ffi::OsString;
 use std::path::Path;
 
-use thiserror::Error;
-
 type PrependedPath = Result<OsString, env::JoinPathsError>;
 
 /// Prepend the given `dir` to the given `path`.
@@ -21,13 +19,13 @@ pub(crate) fn prepend_to_path(dir: &Path, path: Option<OsString>) -> PrependedPa
     })
 }
 
-#[derive(Error, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum CurrentUserError {
-    #[error("user name in {0:?} environment variable cannot be decoded: {1:?}")]
+    #[error("User name in {0:?} environment variable cannot be decoded: {1:?}")]
     NotUnicode(&'static str, std::ffi::OsString),
-    #[error("system error: {0}")]
+    #[error("System error")]
     System(#[from] nix::Error),
-    #[error("user unknown")]
+    #[error("User unknown")]
     Unknown,
 }
 

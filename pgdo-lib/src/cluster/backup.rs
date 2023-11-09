@@ -209,19 +209,19 @@ static BACKUP_LOCK_NAME: &str = ".lock";
 
 #[derive(thiserror::Error, miette::Diagnostic, Debug)]
 pub enum BackupError {
-    #[error("input/output error: {0}")]
+    #[error("Input/output error")]
     IoError(#[from] io::Error),
-    #[error("shell error: {0}")]
+    #[error("Shell error: {0}")]
     GeneralError(String),
-    #[error("configuration error: {0}")]
+    #[error("Configuration error: {0}")]
     ConfigError(String),
     #[error(transparent)]
     CoordinateError(#[from] coordinate::CoordinateError<cluster::ClusterError>),
     #[error(transparent)]
     ClusterError(#[from] cluster::ClusterError),
-    #[error("external command failed: {0:?}")]
+    #[error("External command failed: {0:?}")]
     CommandError(ExitStatus),
-    #[error("database error: {0}")]
+    #[error("Database error")]
     SqlxError(#[from] cluster::sqlx::Error),
 }
 

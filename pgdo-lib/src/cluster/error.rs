@@ -4,26 +4,26 @@ use crate::{cluster, runtime, util, version};
 
 #[derive(thiserror::Error, miette::Diagnostic, Debug)]
 pub enum ClusterError {
-    #[error("input/output error: {0}")]
+    #[error("Input/output error")]
     IoError(#[from] io::Error),
     #[error("PostgreSQL version not supported: {0}")]
     UnsupportedVersion(version::Version),
-    #[error("PostgreSQL version not known: {0}")]
+    #[error("PostgreSQL version not known")]
     VersionError(#[from] version::VersionError),
     #[error("PostgreSQL runtime not found for version {0}")]
     RuntimeNotFound(version::PartialVersion),
     #[error("PostgreSQL runtime not found")]
     RuntimeDefaultNotFound,
-    #[error("runtime error: {0}")]
+    #[error("Runtime error")]
     RuntimeError(#[from] runtime::RuntimeError),
-    #[error("database error: {0}")]
+    #[error("Database error")]
     DatabaseError(#[from] cluster::postgres::Error),
-    #[error("database error: {0}")]
+    #[error("Database error")]
     SqlxError(#[from] cluster::sqlx::Error),
-    #[error("cluster in use; cannot lock exclusively")]
+    #[error("Cluster in use; cannot lock exclusively")]
     InUse,
-    #[error("external command failed: {0:?}")]
+    #[error("External command failed: {0:?}")]
     CommandError(Output),
-    #[error("current user error: {0}")]
+    #[error(transparent)]
     CurrentUserError(#[from] util::CurrentUserError),
 }
