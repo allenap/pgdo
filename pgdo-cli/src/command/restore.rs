@@ -182,6 +182,7 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     // let resource = cluster::resource::ResourceFree::new(lock, cluster);
 
     if cluster.start_with_options(&[
+        (ARCHIVE_MODE, "off".into()),
         (RESTORE_COMMAND, restore_command.into()),
         (RECOVERY_TARGET, "immediate".into()),
         (RECOVERY_TARGET_ACTION, "shutdown".into()),
@@ -213,6 +214,44 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     // Remove the `recovery.signal` file in the restore so that subsequent
     // starts do not initiate database recovery.
     std::fs::remove_file(restore_dir.join("recovery.signal"))?;
+
+    // Disable archiving.
+    {
+        writeln!(&term, "Disabling archiving…")?;
+        cluster.start_with_options(&[(ARCHIVE_MODE, "off".into())])?;
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let pool = cluster.pool(None)?;
+
+            write!(&term, "Resetting {ARCHIVE_MODE}…")?;
+            ARCHIVE_MODE.reset(&pool).await?;
+            writeln!(&term, " done.")?;
+
+            write!(&term, "Resetting {ARCHIVE_COMMAND}…")?;
+            ARCHIVE_COMMAND.reset(&pool).await?;
+            writeln!(&term, " done.")?;
+
+            write!(&term, "Resetting {ARCHIVE_LIBRARY}…")?;
+            match ARCHIVE_LIBRARY.reset(&pool).await {
+                Ok(_) => writeln!(&term, " done.")?,
+                Err(err) => {
+                    match err.as_database_error() {
+                        // 42704 means UNDEFINED_OBJECT, i.e. this parameter is
+                        // not supported in this version of PostgreSQL.
+                        Some(err) if err.code() == Some("42704".into()) => {
+                            writeln!(&term, " not supported.")?;
+                            Ok(())
+                        }
+                        _ => Err(err),
+                    }?;
+                }
+            };
+
+            Ok::<_, cluster::ClusterError>(())
+        })?;
+        cluster.stop()?;
+        writeln!(&term, "Archiving disabled in restored cluster.")?;
+    }
 
     // Determine superusers in the restored cluster. This can help us give the
     // user more specific advice about how to start the cluster.
@@ -262,6 +301,9 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     Ok(())
 }
 
+static ARCHIVE_MODE: cluster::config::Parameter = cluster::config::Parameter("archive_mode");
+static ARCHIVE_COMMAND: cluster::config::Parameter = cluster::config::Parameter("archive_command");
+static ARCHIVE_LIBRARY: cluster::config::Parameter = cluster::config::Parameter("archive_library");
 static RESTORE_COMMAND: cluster::config::Parameter = cluster::config::Parameter("restore_command");
 static RECOVERY_TARGET: cluster::config::Parameter = cluster::config::Parameter("recovery_target");
 static RECOVERY_TARGET_ACTION: cluster::config::Parameter =
