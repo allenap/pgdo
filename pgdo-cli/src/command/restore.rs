@@ -181,7 +181,7 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     // TODO: Startup via resource.
     // let resource = cluster::resource::ResourceFree::new(lock, cluster);
 
-    if cluster.start_with_options(&[
+    if cluster.start(&[
         (ARCHIVE_MODE, "off".into()),
         (RESTORE_COMMAND, restore_command.into()),
         (RECOVERY_TARGET, "immediate".into()),
@@ -218,7 +218,7 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     // Disable archiving.
     {
         writeln!(&term, "Disabling archiving…")?;
-        cluster.start_with_options(&[(ARCHIVE_MODE, "off".into())])?;
+        cluster.start(&[(ARCHIVE_MODE, "off".into())])?;
         let rt = tokio::runtime::Runtime::new()?;
         rt.block_on(async {
             let pool = cluster.pool(None)?;

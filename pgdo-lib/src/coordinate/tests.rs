@@ -10,7 +10,8 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 fn run_and_stop_still_stops_when_action_panics() -> TestResult {
     let subject = SubjectExample::default();
     let (_setup, lock) = Setup::run()?;
-    let panic = std::panic::catch_unwind(|| run_and_stop(&subject, lock, || panic!("test panic")));
+    let panic =
+        std::panic::catch_unwind(|| run_and_stop(&subject, (), lock, || panic!("test panic")));
     assert!(panic.is_err());
     let payload = *panic.unwrap_err().downcast::<&str>().unwrap();
     assert_eq!(payload, "test panic");
@@ -22,7 +23,8 @@ fn run_and_stop_still_panics_if_stop_fails() -> TestResult {
     // i.e. the error from `stop` is suppressed when the action has panicked.
     let subject = SubjectExample::already_exists().but_cannot_stop();
     let (_setup, lock) = Setup::run()?;
-    let panic = std::panic::catch_unwind(|| run_and_stop(&subject, lock, || panic!("test panic")));
+    let panic =
+        std::panic::catch_unwind(|| run_and_stop(&subject, (), lock, || panic!("test panic")));
     assert!(panic.is_err());
     let payload = *panic.unwrap_err().downcast::<&str>().unwrap();
     assert_eq!(payload, "test panic");
@@ -34,7 +36,7 @@ fn run_and_stop_if_exists_still_stops_when_action_panics() -> TestResult {
     let subject = SubjectExample::already_exists();
     let (_setup, lock) = Setup::run()?;
     let panic = std::panic::catch_unwind(|| {
-        run_and_stop_if_exists(&subject, lock, || panic!("test panic"))
+        run_and_stop_if_exists(&subject, (), lock, || panic!("test panic"))
     });
     assert!(panic.is_err());
     let payload = *panic.unwrap_err().downcast::<&str>().unwrap();
@@ -48,7 +50,7 @@ fn run_and_stop_if_exists_still_panics_if_stop_fails() -> TestResult {
     let subject = SubjectExample::already_exists().but_cannot_stop();
     let (_setup, lock) = Setup::run()?;
     let panic = std::panic::catch_unwind(|| {
-        run_and_stop_if_exists(&subject, lock, || panic!("test panic"))
+        run_and_stop_if_exists(&subject, (), lock, || panic!("test panic"))
     });
     assert!(panic.is_err());
     let payload = *panic.unwrap_err().downcast::<&str>().unwrap();
@@ -61,7 +63,7 @@ fn run_and_destroy_still_removes_when_action_panics() -> TestResult {
     let subject = SubjectExample::default();
     let (_setup, lock) = Setup::run()?;
     let panic =
-        std::panic::catch_unwind(|| run_and_destroy(&subject, lock, || panic!("test panic")));
+        std::panic::catch_unwind(|| run_and_destroy(&subject, (), lock, || panic!("test panic")));
     assert!(panic.is_err());
     let payload = *panic.unwrap_err().downcast::<&str>().unwrap();
     assert_eq!(payload, "test panic");
@@ -74,7 +76,7 @@ fn run_and_destroy_still_panics_if_stop_fails() -> TestResult {
     let subject = SubjectExample::default().but_cannot_destroy();
     let (_setup, lock) = Setup::run()?;
     let panic =
-        std::panic::catch_unwind(|| run_and_destroy(&subject, lock, || panic!("test panic")));
+        std::panic::catch_unwind(|| run_and_destroy(&subject, (), lock, || panic!("test panic")));
     assert!(panic.is_err());
     let payload = *panic.unwrap_err().downcast::<&str>().unwrap();
     assert_eq!(payload, "test panic");
@@ -142,8 +144,9 @@ impl SubjectExample {
 
 impl Subject for SubjectExample {
     type Error = Error;
+    type Options<'a> = ();
 
-    fn start(&self) -> Result<State, Self::Error> {
+    fn start(&self, _options: Self::Options<'_>) -> Result<State, Self::Error> {
         let mut status = self.status.write()?;
         match *status {
             (true, true) => Ok(State::Unmodified),

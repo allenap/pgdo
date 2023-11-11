@@ -12,7 +12,7 @@
 //! let cluster = Cluster::new(&data_dir, strategy)?;
 //! let lock_file = cluster_dir.path().join("lock");
 //! let lock = lock::UnlockedFile::try_from(lock_file.as_path())?;
-//! assert!(coordinate::run_and_stop(&cluster, lock, || cluster::exists(&cluster))?);
+//! assert!(coordinate::run_and_stop(&cluster, &[], lock, || cluster::exists(&cluster))?);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
@@ -47,7 +47,8 @@ pub enum State {
 /// The trait that these coordinate functions work with.
 pub trait Subject {
     type Error: std::error::Error + Send + Sync;
-    fn start(&self) -> Result<State, Self::Error>;
+    type Options<'a>;
+    fn start(&self, options: Self::Options<'_>) -> Result<State, Self::Error>;
     fn stop(&self) -> Result<State, Self::Error>;
     fn destroy(&self) -> Result<State, Self::Error>;
     fn exists(&self) -> Result<bool, Self::Error>;
@@ -63,6 +64,7 @@ pub trait Subject {
 /// be acquired during the shutdown phase – then the subject is left running.
 pub fn run_and_stop<S, F, T>(
     subject: &S,
+    options: S::Options<'_>,
     lock: lock::UnlockedFile,
     action: F,
 ) -> Result<T, CoordinateError<S::Error>>
@@ -70,7 +72,7 @@ where
     S: std::panic::RefUnwindSafe + Subject,
     F: std::panic::UnwindSafe + FnOnce() -> T,
 {
-    let lock = startup(subject, lock)?;
+    let lock = startup(lock, subject, options)?;
     with_finally(
         || shutdown::<S, _, _>(lock, || subject.stop()),
         || -> Result<T, CoordinateError<S::Error>> { Ok(action()) },
@@ -86,6 +88,7 @@ where
 /// phase – then the subject is left running.
 pub fn run_and_stop_if_exists<S, F, T>(
     subject: &S,
+    options: S::Options<'_>,
     lock: lock::UnlockedFile,
     action: F,
 ) -> Result<T, CoordinateError<S::Error>>
@@ -93,7 +96,7 @@ where
     S: std::panic::RefUnwindSafe + Subject,
     F: std::panic::UnwindSafe + FnOnce() -> T,
 {
-    let lock = startup_if_exists(subject, lock)?;
+    let lock = startup_if_exists(lock, subject, options)?;
     with_finally(
         || shutdown::<S, _, _>(lock, || subject.stop()),
         || -> Result<T, CoordinateError<S::Error>> { Ok(action()) },
@@ -109,6 +112,7 @@ where
 /// running and is **not** destroyed.
 pub fn run_and_destroy<S, F, T>(
     subject: &S,
+    options: S::Options<'_>,
     lock: lock::UnlockedFile,
     action: F,
 ) -> Result<T, CoordinateError<S::Error>>
@@ -116,7 +120,7 @@ where
     S: std::panic::RefUnwindSafe + Subject,
     F: std::panic::UnwindSafe + FnOnce() -> T,
 {
-    let lock = startup(subject, lock)?;
+    let lock = startup(lock, subject, options)?;
     with_finally(
         || shutdown::<S, _, _>(lock, || subject.destroy()),
         || -> Result<T, CoordinateError<S::Error>> { Ok(action()) },
@@ -126,8 +130,9 @@ where
 // ----------------------------------------------------------------------------
 
 fn startup<S: Subject>(
-    control: &S,
     mut lock: lock::UnlockedFile,
+    control: &S,
+    options: S::Options<'_>,
 ) -> Result<lock::LockedFileShared, CoordinateError<S::Error>> {
     loop {
         lock = match lock.try_lock_exclusive() {
@@ -155,7 +160,9 @@ fn startup<S: Subject>(
             }
             Ok(Right(lock)) => {
                 // We have an exclusive lock, so try to start the subject.
-                control.start().map_err(CoordinateError::ControlError)?;
+                control
+                    .start(options)
+                    .map_err(CoordinateError::ControlError)?;
                 // Once started, downgrade to a shared log.
                 return Ok(lock.lock_shared()?);
             }
@@ -165,8 +172,9 @@ fn startup<S: Subject>(
 }
 
 fn startup_if_exists<S: Subject>(
-    subject: &S,
     mut lock: lock::UnlockedFile,
+    subject: &S,
+    options: S::Options<'_>,
 ) -> Result<lock::LockedFileShared, CoordinateError<S::Error>> {
     loop {
         lock = match lock.try_lock_exclusive() {
@@ -195,7 +203,9 @@ fn startup_if_exists<S: Subject>(
             Ok(Right(lock)) => {
                 // We have an exclusive lock, so try to start the subject.
                 if subject.exists().map_err(CoordinateError::ControlError)? {
-                    subject.start().map_err(CoordinateError::ControlError)?;
+                    subject
+                        .start(options)
+                        .map_err(CoordinateError::ControlError)?;
                 } else {
                     return Err(CoordinateError::DoesNotExist);
                 }

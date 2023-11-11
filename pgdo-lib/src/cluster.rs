@@ -258,16 +258,11 @@ impl Cluster {
         }
     }
 
-    /// Start the cluster if it's not already running.
-    pub fn start(&self) -> Result<State, ClusterError> {
-        self.start_with_options(&[])
-    }
-
-    /// Start the cluster if it's not already running with the given options.
+    /// Start the cluster if it's not already running, with the given options.
     ///
     /// Returns [`State::Unmodified`] if the cluster is already running, meaning
     /// the given options were **NOT** applied.
-    pub fn start_with_options(
+    pub fn start(
         &self,
         options: &[(config::Parameter, config::Value)],
     ) -> Result<State, ClusterError> {
@@ -565,12 +560,15 @@ pub fn determine_superuser_role_names(
     Ok(superusers)
 }
 
+pub type Options<'a> = &'a [(config::Parameter<'a>, config::Value)];
+
 /// [`Cluster`] can be coordinated.
 impl coordinate::Subject for Cluster {
     type Error = ClusterError;
+    type Options<'a> = Options<'a>;
 
-    fn start(&self) -> Result<State, Self::Error> {
-        self.start()
+    fn start(&self, options: Self::Options<'_>) -> Result<State, Self::Error> {
+        self.start(options)
     }
 
     fn stop(&self) -> Result<State, Self::Error> {

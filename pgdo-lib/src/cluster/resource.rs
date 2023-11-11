@@ -19,7 +19,9 @@ pub type ResourceExclusive<'a> = resource::ResourceExclusive<'a, Cluster>;
 
 // ----------------------------------------------------------------------------
 
-impl From<ClusterError> for CoordinateError<ClusterError> {
+pub type Error = CoordinateError<ClusterError>;
+
+impl From<ClusterError> for Error {
     fn from(err: ClusterError) -> Self {
         Self::ControlError(err)
     }
@@ -110,8 +112,8 @@ pub struct ClusterExclusive<'a> {
 /// When you have exclusive control of a cluster, you can start, stop, destroy,
 /// reconfigure it – anything.
 impl<'a> ClusterExclusive<'a> {
-    pub fn start(&self) -> Result<State, ClusterError> {
-        self.cluster.start()
+    pub fn start(&self, options: super::Options<'_>) -> Result<State, ClusterError> {
+        self.cluster.start(options)
     }
 
     pub fn stop(&self) -> Result<State, ClusterError> {
@@ -163,9 +165,10 @@ pub type StartupResource<'a> = Either<ResourceShared<'a>, ResourceExclusive<'a>>
 /// or [`Right(ResourceExclusive)`] otherwise. Typically one would drop the
 /// exclusive hold down to shared as soon as possible, but the option is there
 /// to do maintenance, for example, that requires an exclusive hold.
-pub fn startup(
-    mut resource: ResourceFree,
-) -> Result<(State, StartupResource), CoordinateError<ClusterError>> {
+pub fn startup<'res>(
+    mut resource: ResourceFree<'res>,
+    options: super::Options<'_>,
+) -> Result<(State, StartupResource<'res>), Error> {
     loop {
         resource = match resource.try_exclusive() {
             Ok(Left(resource)) => {
@@ -192,7 +195,7 @@ pub fn startup(
             }
             Ok(Right(resource)) => {
                 // We have an exclusive lock, so try to start the resource.
-                let state = resource.facet().start()?;
+                let state = resource.facet().start(options)?;
                 return Ok((state, Right(resource)));
             }
             Err(err) => return Err(err),
@@ -202,9 +205,10 @@ pub fn startup(
 
 /// Similar to [`startup`] but does not create the cluster, and thus only
 /// succeeds if the cluster already exists.
-pub fn startup_if_exists(
-    mut resource: ResourceFree,
-) -> Result<(State, StartupResource), CoordinateError<ClusterError>> {
+pub fn startup_if_exists<'res>(
+    mut resource: ResourceFree<'res>,
+    options: super::Options<'_>,
+) -> Result<(State, StartupResource<'res>), Error> {
     loop {
         resource = match resource.try_exclusive() {
             Ok(Left(resource)) => {
@@ -233,7 +237,7 @@ pub fn startup_if_exists(
                 // We have an exclusive lock, so try to start the resource.
                 let facet = resource.facet();
                 let state = if facet.exists()? {
-                    facet.start()?
+                    facet.start(options)?
                 } else {
                     return Err(CoordinateError::DoesNotExist);
                 };
@@ -257,7 +261,7 @@ pub fn startup_if_exists(
 /// otherwise.
 pub fn shutdown(
     resource: ResourceShared,
-) -> Result<(State, Either<ResourceShared, ResourceExclusive>), CoordinateError<ClusterError>> {
+) -> Result<(State, Either<ResourceShared, ResourceExclusive>), Error> {
     match resource.try_exclusive() {
         Ok(Left(resource)) => {
             // The resource is in use by someone/something else. There's nothing
@@ -282,7 +286,7 @@ pub fn shutdown(
 /// remove it entirely from the filesystem.
 pub fn destroy(
     resource: ResourceShared,
-) -> Result<(State, Either<ResourceShared, ResourceExclusive>), CoordinateError<ClusterError>> {
+) -> Result<(State, Either<ResourceShared, ResourceExclusive>), Error> {
     match resource.try_exclusive() {
         Ok(Left(resource)) => {
             // The resource is in use by someone/something else. There's nothing

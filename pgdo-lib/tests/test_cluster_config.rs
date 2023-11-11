@@ -8,7 +8,7 @@ type TestResult = Result<(), ClusterError>;
 fn cluster_parameter_set() -> TestResult {
     let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
-    cluster.start()?;
+    cluster.start(&[])?;
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
@@ -46,7 +46,7 @@ fn cluster_parameter_set() -> TestResult {
 fn cluster_parameter_get() -> TestResult {
     let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
-    cluster.start()?;
+    cluster.start(&[])?;
 
     let rt = tokio::runtime::Runtime::new()?;
     let value = rt.block_on(async {
@@ -65,7 +65,7 @@ fn cluster_parameter_get() -> TestResult {
 fn cluster_setting_list() -> TestResult {
     let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
-    cluster.start()?;
+    cluster.start(&[])?;
 
     let rt = tokio::runtime::Runtime::new()?;
     let settings = rt.block_on(async {
@@ -90,7 +90,7 @@ fn cluster_setting_list() -> TestResult {
 fn cluster_setting_get() -> TestResult {
     let data_dir = tempfile::tempdir()?;
     let cluster = Cluster::new(&data_dir, runtime)?;
-    cluster.start()?;
+    cluster.start(&[])?;
 
     let rt = tokio::runtime::Runtime::new()?;
     let parameter = config::Parameter::from("application_name");

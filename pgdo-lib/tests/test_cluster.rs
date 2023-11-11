@@ -112,7 +112,7 @@ fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResu
     let temp_dir = tempfile::tempdir()?;
     let data_dir = temp_dir.path().join("data");
     let cluster = Cluster::new(data_dir, runtime.clone())?;
-    cluster.start()?;
+    cluster.start(&[])?;
     let result = block_on(async {
         let pool = cluster.pool(None)?;
         Ok::<_, ClusterError>(query("SHOW ALL").fetch_all(&pool).await?)
@@ -197,7 +197,7 @@ fn cluster_start_stop_starts_and_stops_cluster() -> TestResult {
     let cluster = Cluster::new(data_dir, runtime)?;
     cluster.create()?;
     assert!(!cluster.running()?);
-    cluster.start()?;
+    cluster.start(&[])?;
     assert!(cluster.running()?);
     cluster.stop()?;
     assert!(!cluster.running()?);
@@ -212,7 +212,7 @@ fn cluster_start_with_options() -> TestResult {
     let temp_dir = tempfile::tempdir()?;
     let data_dir = temp_dir.path().join("data");
     let cluster = Cluster::new(data_dir, runtime)?;
-    cluster.start_with_options(&[("example.setting".into(), "Hello, World!".into())])?;
+    cluster.start(&[("example.setting".into(), "Hello, World!".into())])?;
     let example_setting = block_on(async {
         let pool = cluster.pool(None)?;
         Ok::<_, ClusterError>(query("SHOW example.setting").fetch_one(&pool).await?)
@@ -230,7 +230,7 @@ fn cluster_destroy_stops_and_removes_cluster() -> TestResult {
     let data_dir = temp_dir.path().join("data");
     let cluster = Cluster::new(data_dir, runtime)?;
     cluster.create()?;
-    cluster.start()?;
+    cluster.start(&[])?;
     assert!(exists(&cluster));
     cluster.destroy()?;
     assert!(!exists(&cluster));
@@ -268,7 +268,7 @@ fn cluster_databases_returns_vec_of_database_names() -> TestResult {
     let temp_dir = tempfile::tempdir()?;
     let data_dir = temp_dir.path().join("data");
     let cluster = Cluster::new(data_dir, runtime)?;
-    cluster.start()?;
+    cluster.start(&[])?;
 
     let expected: HashSet<String> = ["postgres", "template0", "template1"]
         .iter()
@@ -289,7 +289,7 @@ fn cluster_databases_with_non_plain_names_can_be_created_and_dropped() -> TestRe
     let temp_dir = tempfile::tempdir()?;
     let data_dir = temp_dir.path().join("data");
     let cluster = Cluster::new(data_dir, runtime)?;
-    cluster.start()?;
+    cluster.start(&[])?;
     cluster.createdb("foo-bar")?;
     cluster.createdb("Foo-BAR")?;
 
@@ -312,7 +312,7 @@ fn cluster_databases_that_already_exist_can_be_created_without_error() -> TestRe
     let temp_dir = tempfile::tempdir()?;
     let data_dir = temp_dir.path().join("data");
     let cluster = Cluster::new(data_dir, runtime)?;
-    cluster.start()?;
+    cluster.start(&[])?;
     assert!(matches!(cluster.createdb("foo-bar")?, Modified));
     assert!(matches!(cluster.createdb("foo-bar")?, Unmodified));
     cluster.stop()?;
@@ -325,7 +325,7 @@ fn cluster_databases_that_do_not_exist_can_be_dropped_without_error() -> TestRes
     let temp_dir = tempfile::tempdir()?;
     let data_dir = temp_dir.path().join("data");
     let cluster = Cluster::new(data_dir, runtime)?;
-    cluster.start()?;
+    cluster.start(&[])?;
     cluster.createdb("foo-bar")?;
     assert!(matches!(cluster.dropdb("foo-bar")?, Modified));
     assert!(matches!(cluster.dropdb("foo-bar")?, Unmodified));
