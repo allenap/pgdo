@@ -85,6 +85,12 @@ where
         let lock = self.lock.lock_exclusive()?;
         Ok(ResourceExclusive { inner: self.inner, lock, phantom: PhantomData })
     }
+
+    /// Unwraps the resource, consuming it and dropping the lock. This can only
+    /// be done from an unlocked/free resource.
+    pub fn into_inner(self) -> R {
+        self.inner
+    }
 }
 
 // ----------------------------------------------------------------------------

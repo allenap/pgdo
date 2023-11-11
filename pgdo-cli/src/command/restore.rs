@@ -5,13 +5,15 @@ use std::{
     process::ExitCode,
 };
 
+use either::Either::Right;
+
 use crate::runner;
 
 use super::ExitResult;
 
 use pgdo::{
     cluster::{self, backup},
-    coordinate::State,
+    coordinate::{finally::with_finally, State},
 };
 
 /// Point-in-time restore/recovery from a backup made previously with the
@@ -65,6 +67,8 @@ enum RestoreError {
     StrategyError(#[from] runner::StrategyError),
     #[error(transparent)]
     LockForError(#[from] runner::LockForError),
+    #[error(transparent)]
+    ResourceError(#[from] cluster::resource::Error),
     #[error("{0}")]
     Other(Cow<'static, str>),
 }
@@ -174,24 +178,25 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     let backup_wal_dir_sh = quote_sh(backup_wal_dir)?;
     let restore_command = format!("cp {backup_wal_dir_sh}/%f %p");
 
-    let (datadir, _lock) = runner::lock_for(&restore_dir)?;
+    let (datadir, lock) = runner::lock_for(&restore_dir)?;
     let strategy = runner::determine_strategy(None)?;
     let cluster = cluster::Cluster::new(datadir, strategy)?;
+    let resource = cluster::resource::ResourceFree::new(lock, cluster);
 
-    // TODO: Startup via resource.
-    // let resource = cluster::resource::ResourceFree::new(lock, cluster);
-
-    if cluster.start(&[
-        (ARCHIVE_MODE, "off".into()),
-        (RESTORE_COMMAND, restore_command.into()),
-        (RECOVERY_TARGET, "immediate".into()),
-        (RECOVERY_TARGET_ACTION, "shutdown".into()),
-    ])? == State::Unmodified
-    {
+    let (State::Modified, Right(resource)) = cluster::resource::startup(
+        resource,
+        &[
+            (ARCHIVE_MODE, "off".into()),
+            (RESTORE_COMMAND, restore_command.into()),
+            (RECOVERY_TARGET, "immediate".into()),
+            (RECOVERY_TARGET_ACTION, "shutdown".into()),
+        ],
+    )?
+    else {
         Err(format!(
             "Restored cluster is already running in {restore_dir:?}!"
-        ))?;
-    }
+        ))?
+    };
 
     // Wait for recovery to complete.
     {
@@ -199,7 +204,7 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
         let interval = std::time::Duration::from_secs(1);
         let message = "Waiting for database recovery…";
         term.write_line(message)?;
-        while cluster.running()? {
+        while resource.facet().running()? {
             std::thread::sleep(interval);
             term.clear_last_lines(1)?;
             writeln!(
@@ -216,42 +221,49 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     std::fs::remove_file(restore_dir.join("recovery.signal"))?;
 
     // Disable archiving.
-    {
-        writeln!(&term, "Disabling archiving…")?;
-        cluster.start(&[(ARCHIVE_MODE, "off".into())])?;
-        let rt = tokio::runtime::Runtime::new()?;
-        rt.block_on(async {
-            let pool = cluster.pool(None)?;
+    writeln!(&term, "Disabling archiving…")?;
+    resource.facet().start(&[(ARCHIVE_MODE, "off".into())])?;
+    with_finally(
+        || resource.facet().stop(),
+        || {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                let pool = resource.facet().pool(None)?;
 
-            write!(&term, "Resetting {ARCHIVE_MODE}…")?;
-            ARCHIVE_MODE.reset(&pool).await?;
-            writeln!(&term, " done.")?;
+                write!(&term, "Resetting {ARCHIVE_MODE}…")?;
+                ARCHIVE_MODE.reset(&pool).await?;
+                writeln!(&term, " done.")?;
 
-            write!(&term, "Resetting {ARCHIVE_COMMAND}…")?;
-            ARCHIVE_COMMAND.reset(&pool).await?;
-            writeln!(&term, " done.")?;
+                write!(&term, "Resetting {ARCHIVE_COMMAND}…")?;
+                ARCHIVE_COMMAND.reset(&pool).await?;
+                writeln!(&term, " done.")?;
 
-            write!(&term, "Resetting {ARCHIVE_LIBRARY}…")?;
-            match ARCHIVE_LIBRARY.reset(&pool).await {
-                Ok(_) => writeln!(&term, " done.")?,
-                Err(err) => {
-                    match err.as_database_error() {
-                        // 42704 means UNDEFINED_OBJECT, i.e. this parameter is
-                        // not supported in this version of PostgreSQL.
-                        Some(err) if err.code() == Some("42704".into()) => {
-                            writeln!(&term, " not supported.")?;
-                            Ok(())
-                        }
-                        _ => Err(err),
-                    }?;
-                }
-            };
+                write!(&term, "Resetting {ARCHIVE_LIBRARY}…")?;
+                match ARCHIVE_LIBRARY.reset(&pool).await {
+                    Ok(_) => writeln!(&term, " done.")?,
+                    Err(err) => {
+                        match err.as_database_error() {
+                            // 42704 means UNDEFINED_OBJECT, i.e. this parameter is
+                            // not supported in this version of PostgreSQL.
+                            Some(err) if err.code() == Some("42704".into()) => {
+                                writeln!(&term, " not supported.")?;
+                                Ok(())
+                            }
+                            _ => Err(err),
+                        }?;
+                    }
+                };
 
-            Ok::<_, cluster::ClusterError>(())
-        })?;
-        cluster.stop()?;
-        writeln!(&term, "Archiving disabled in restored cluster.")?;
-    }
+                Ok::<_, cluster::ClusterError>(())
+            })?;
+
+            Ok::<_, RestoreError>(())
+        },
+    )?;
+    writeln!(&term, "Archiving disabled in restored cluster.")?;
+
+    // We're finished with the resource, but we still need the cluster.
+    let cluster = resource.release()?.into_inner();
 
     // Determine superusers in the restored cluster. This can help us give the
     // user more specific advice about how to start the cluster.
