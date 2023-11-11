@@ -158,7 +158,9 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     }
 
     // Remove WAL from restored backup.
+    write!(&term, "Removing WAL from restored cluster…")?;
     empty_out_dir(restore_dir.join("pg_wal"))?;
+    writeln!(&term, " done.")?;
 
     // Create the `recovery.signal` file in the restore.
     std::fs::write(restore_dir.join("recovery.signal"), "")?;
