@@ -61,7 +61,7 @@ enum RestoreError {
     IoError(#[from] std::io::Error),
     #[error("File copy error")]
     FileCopyError(#[from] fs_extra::error::Error),
-    #[error("Cluster error")]
+    #[error(transparent)]
     ClusterError(#[from] pgdo::cluster::ClusterError),
     #[error(transparent)]
     StrategyError(#[from] runner::StrategyError),
