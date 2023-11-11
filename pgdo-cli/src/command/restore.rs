@@ -263,7 +263,7 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     writeln!(&term, "Archiving disabled in restored cluster.")?;
 
     // We're finished with the resource, but we still need the cluster.
-    let cluster = resource.release()?.into_inner();
+    let (_lock, cluster) = resource.release()?.into_parts();
 
     // Determine superusers in the restored cluster. This can help us give the
     // user more specific advice about how to start the cluster.
@@ -312,6 +312,8 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
 
     Ok(())
 }
+
+// ----------------------------------------------------------------------------
 
 static ARCHIVE_MODE: cluster::config::Parameter = cluster::config::Parameter("archive_mode");
 static ARCHIVE_COMMAND: cluster::config::Parameter = cluster::config::Parameter("archive_command");

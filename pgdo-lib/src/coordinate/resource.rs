@@ -86,10 +86,10 @@ where
         Ok(ResourceExclusive { inner: self.inner, lock, phantom: PhantomData })
     }
 
-    /// Unwraps the resource, consuming it and dropping the lock. This can only
-    /// be done from an unlocked/free resource.
-    pub fn into_inner(self) -> R {
-        self.inner
+    /// Disassembles this resource into the lock and the inner, managed, value.
+    /// This can only be done from an unlocked/free resource.
+    pub fn into_parts(self) -> (lock::UnlockedFile, R) {
+        (self.lock, self.inner)
     }
 }
 
