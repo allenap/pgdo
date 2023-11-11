@@ -132,13 +132,7 @@ where
     let strategy = determine_strategy(fallback)?;
     let cluster = cluster::Cluster::new(datadir, strategy)?;
 
-    let runner = match runner {
-        Runner::RunAndStop => coordinate::run_and_stop,
-        Runner::RunAndStopIfExists => coordinate::run_and_stop_if_exists,
-        Runner::RunAndDestroy => coordinate::run_and_destroy,
-    };
-
-    runner(&cluster, lock, || {
+    let act = || {
         if let Some(cluster_mode) = cluster_mode {
             let rt = tokio::runtime::Runtime::new().into_diagnostic()?;
             rt.block_on(set_cluster_mode(cluster_mode, &cluster))?;
@@ -153,7 +147,14 @@ where
 
         // Finally, run the given action.
         action(&cluster)
-    })?
+    };
+
+    use coordinate::{run_and_destroy, run_and_stop, run_and_stop_if_exists};
+    match runner {
+        Runner::RunAndStop => run_and_stop(&cluster, &[], lock, act),
+        Runner::RunAndStopIfExists => run_and_stop_if_exists(&cluster, &[], lock, act),
+        Runner::RunAndDestroy => run_and_destroy(&cluster, &[], lock, act),
+    }?
 }
 
 /// Set the cluster's "mode", i.e. configure appropriate PostgreSQL settings,

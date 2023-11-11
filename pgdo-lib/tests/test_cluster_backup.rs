@@ -24,7 +24,7 @@ fn cluster_backup() -> TestResult {
     let resource = coordinate::resource::ResourceFree::new(lock, cluster);
 
     // Start the cluster and obtain `resource`.
-    let (state, resource) = resource::startup(resource).unwrap();
+    let (state, resource) = resource::startup(resource, &[]).unwrap();
     assert_eq!(state, coordinate::State::Modified); // Cluster was started.
     assert!(matches!(&resource, either::Right(_))); // Exclusive lock.
 
@@ -39,7 +39,7 @@ fn cluster_backup() -> TestResult {
         // Restart cluster via the `resource`.
         if let either::Right(ref resource) = resource {
             resource.facet().stop()?;
-            resource.facet().start()?;
+            resource.facet().start(&[])?;
         }
 
         // Run backup.

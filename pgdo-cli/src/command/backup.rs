@@ -121,7 +121,7 @@ fn backup<D: AsRef<Path>>(resource: resource::ResourceFree, backup_dir: D) -> mi
     };
 
     log::info!("Starting cluster (if not already started)…");
-    let (started, resource) = resource::startup_if_exists(resource)?;
+    let (started, resource) = resource::startup_if_exists(resource, &[])?;
     // Wrap `resource` in an `RwLock` so that we can pass it around AND so that
     // `do_cleanup` can reference it in its closure.
     let resource = RwLock::new(resource);
@@ -200,7 +200,7 @@ fn backup<D: AsRef<Path>>(resource: resource::ResourceFree, backup_dir: D) -> mi
                     log::info!("Restarting cluster; stopping…");
                     facet.stop().and_then(|_| {
                         log::info!("Restarting cluster; starting up again…");
-                        facet.start()
+                        facet.start(&[])
                     })
                 })?;
             }

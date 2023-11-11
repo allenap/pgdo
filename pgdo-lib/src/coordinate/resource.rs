@@ -85,6 +85,12 @@ where
         let lock = self.lock.lock_exclusive()?;
         Ok(ResourceExclusive { inner: self.inner, lock, phantom: PhantomData })
     }
+
+    /// Disassembles this resource into the lock and the inner, managed, value.
+    /// This can only be done from an unlocked/free resource.
+    pub fn into_parts(self) -> (lock::UnlockedFile, R) {
+        (self.lock, self.inner)
+    }
 }
 
 // ----------------------------------------------------------------------------

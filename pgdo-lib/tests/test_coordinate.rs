@@ -8,7 +8,7 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 #[test]
 fn run_and_stop_leaves_the_cluster_in_place() -> TestResult {
     let (setup, lock) = Setup::run(runtime)?;
-    let databases = run_and_stop(&setup.cluster, lock, || setup.cluster.databases())??;
+    let databases = run_and_stop(&setup.cluster, &[], lock, || setup.cluster.databases())??;
     assert!(!databases.is_empty());
     assert!(!setup.cluster.running()?);
     assert!(setup.datadir.exists());
@@ -20,7 +20,7 @@ fn run_and_stop_leaves_the_cluster_in_place() -> TestResult {
 fn run_and_stop_if_exists_leaves_the_cluster_in_place() -> TestResult {
     let (setup, lock) = Setup::run(runtime)?;
     setup.cluster.create()?;
-    let databases = run_and_stop(&setup.cluster, lock, || setup.cluster.databases())??;
+    let databases = run_and_stop(&setup.cluster, &[], lock, || setup.cluster.databases())??;
     assert!(!databases.is_empty());
     assert!(!setup.cluster.running()?);
     assert!(setup.datadir.exists());
@@ -32,7 +32,7 @@ fn run_and_stop_if_exists_leaves_the_cluster_in_place() -> TestResult {
 fn run_and_stop_if_exists_returns_error_if_cluster_does_not_exist() -> TestResult {
     let (setup, lock) = Setup::run(runtime)?;
     assert!(matches!(
-        run_and_stop_if_exists(&setup.cluster, lock, || setup.cluster.databases()),
+        run_and_stop_if_exists(&setup.cluster, &[], lock, || setup.cluster.databases()),
         Err(CoordinateError::DoesNotExist)
     ));
     Ok(())
@@ -42,7 +42,7 @@ fn run_and_stop_if_exists_returns_error_if_cluster_does_not_exist() -> TestResul
 #[test]
 fn run_and_destroy_removes_the_cluster() -> TestResult {
     let (setup, lock) = Setup::run(runtime)?;
-    let databases = run_and_destroy(&setup.cluster, lock, || setup.cluster.databases())??;
+    let databases = run_and_destroy(&setup.cluster, &[], lock, || setup.cluster.databases())??;
     assert!(!databases.is_empty());
     assert!(!setup.cluster.running()?);
     assert!(!setup.datadir.exists());

@@ -5,13 +5,15 @@ use std::{
     process::ExitCode,
 };
 
+use either::Either::Right;
+
 use crate::runner;
 
 use super::ExitResult;
 
 use pgdo::{
     cluster::{self, backup},
-    coordinate::State,
+    coordinate::{finally::with_finally, State},
 };
 
 /// Point-in-time restore/recovery from a backup made previously with the
@@ -59,12 +61,14 @@ enum RestoreError {
     IoError(#[from] std::io::Error),
     #[error("File copy error")]
     FileCopyError(#[from] fs_extra::error::Error),
-    #[error("Cluster error")]
+    #[error(transparent)]
     ClusterError(#[from] pgdo::cluster::ClusterError),
     #[error(transparent)]
     StrategyError(#[from] runner::StrategyError),
     #[error(transparent)]
     LockForError(#[from] runner::LockForError),
+    #[error(transparent)]
+    ResourceError(#[from] cluster::resource::Error),
     #[error("{0}")]
     Other(Cow<'static, str>),
 }
@@ -154,16 +158,9 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     }
 
     // Remove WAL from restored backup.
-    let restore_wal_dir = restore_dir.join("pg_wal");
-    restore_wal_dir.read_dir()?.try_for_each(|entry| {
-        let entry = entry?;
-        if entry.file_type()?.is_dir() {
-            std::fs::remove_dir_all(entry.path())?;
-        } else {
-            std::fs::remove_file(entry.path())?;
-        }
-        Ok::<_, std::io::Error>(())
-    })?;
+    write!(&term, "Removing WAL from restored cluster…")?;
+    empty_out_dir(restore_dir.join("pg_wal"))?;
+    writeln!(&term, " done.")?;
 
     // Create the `recovery.signal` file in the restore.
     std::fs::write(restore_dir.join("recovery.signal"), "")?;
@@ -174,23 +171,25 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     let backup_wal_dir_sh = quote_sh(backup_wal_dir)?;
     let restore_command = format!("cp {backup_wal_dir_sh}/%f %p");
 
-    let (datadir, _lock) = runner::lock_for(&restore_dir)?;
+    let (datadir, lock) = runner::lock_for(&restore_dir)?;
     let strategy = runner::determine_strategy(None)?;
     let cluster = cluster::Cluster::new(datadir, strategy)?;
+    let resource = cluster::resource::ResourceFree::new(lock, cluster);
 
-    // TODO: Startup via resource.
-    // let resource = cluster::resource::ResourceFree::new(lock, cluster);
-
-    if cluster.start_with_options(&[
-        (RESTORE_COMMAND, restore_command.into()),
-        (RECOVERY_TARGET, "immediate".into()),
-        (RECOVERY_TARGET_ACTION, "shutdown".into()),
-    ])? == State::Unmodified
-    {
+    let (State::Modified, Right(resource)) = cluster::resource::startup(
+        resource,
+        &[
+            (ARCHIVE_MODE, "off".into()),
+            (RESTORE_COMMAND, restore_command.into()),
+            (RECOVERY_TARGET, "immediate".into()),
+            (RECOVERY_TARGET_ACTION, "shutdown".into()),
+        ],
+    )?
+    else {
         Err(format!(
             "Restored cluster is already running in {restore_dir:?}!"
-        ))?;
-    }
+        ))?
+    };
 
     // Wait for recovery to complete.
     {
@@ -198,7 +197,7 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
         let interval = std::time::Duration::from_secs(1);
         let message = "Waiting for database recovery…";
         term.write_line(message)?;
-        while cluster.running()? {
+        while resource.facet().running()? {
             std::thread::sleep(interval);
             term.clear_last_lines(1)?;
             writeln!(
@@ -213,6 +212,51 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     // Remove the `recovery.signal` file in the restore so that subsequent
     // starts do not initiate database recovery.
     std::fs::remove_file(restore_dir.join("recovery.signal"))?;
+
+    // Disable archiving.
+    writeln!(&term, "Disabling archiving…")?;
+    resource.facet().start(&[(ARCHIVE_MODE, "off".into())])?;
+    with_finally(
+        || resource.facet().stop(),
+        || {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                let pool = resource.facet().pool(None)?;
+
+                write!(&term, "Resetting {ARCHIVE_MODE}…")?;
+                ARCHIVE_MODE.reset(&pool).await?;
+                writeln!(&term, " done.")?;
+
+                write!(&term, "Resetting {ARCHIVE_COMMAND}…")?;
+                ARCHIVE_COMMAND.reset(&pool).await?;
+                writeln!(&term, " done.")?;
+
+                write!(&term, "Resetting {ARCHIVE_LIBRARY}…")?;
+                match ARCHIVE_LIBRARY.reset(&pool).await {
+                    Ok(_) => writeln!(&term, " done.")?,
+                    Err(err) => {
+                        match err.as_database_error() {
+                            // 42704 means UNDEFINED_OBJECT, i.e. this parameter is
+                            // not supported in this version of PostgreSQL.
+                            Some(err) if err.code() == Some("42704".into()) => {
+                                writeln!(&term, " not supported.")?;
+                                Ok(())
+                            }
+                            _ => Err(err),
+                        }?;
+                    }
+                };
+
+                Ok::<_, cluster::ClusterError>(())
+            })?;
+
+            Ok::<_, RestoreError>(())
+        },
+    )?;
+    writeln!(&term, "Archiving disabled in restored cluster.")?;
+
+    // We're finished with the resource, but we still need the cluster.
+    let (_lock, cluster) = resource.release()?.into_parts();
 
     // Determine superusers in the restored cluster. This can help us give the
     // user more specific advice about how to start the cluster.
@@ -262,6 +306,11 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     Ok(())
 }
 
+// ----------------------------------------------------------------------------
+
+static ARCHIVE_MODE: cluster::config::Parameter = cluster::config::Parameter("archive_mode");
+static ARCHIVE_COMMAND: cluster::config::Parameter = cluster::config::Parameter("archive_command");
+static ARCHIVE_LIBRARY: cluster::config::Parameter = cluster::config::Parameter("archive_library");
 static RESTORE_COMMAND: cluster::config::Parameter = cluster::config::Parameter("restore_command");
 static RECOVERY_TARGET: cluster::config::Parameter = cluster::config::Parameter("recovery_target");
 static RECOVERY_TARGET_ACTION: cluster::config::Parameter =
@@ -275,4 +324,17 @@ fn quote_sh<S: AsRef<std::ffi::OsStr>>(string: S) -> Result<String, String> {
         .to_str()
         .map(str::to_owned)
         .ok_or_else(|| format!("Cannot shell escape given string: {string:?}"))
+}
+
+/// Remove the contents of the given directory, but leave the directory itself.
+fn empty_out_dir<P: AsRef<Path>>(dir: P) -> Result<(), std::io::Error> {
+    dir.as_ref().read_dir()?.try_for_each(|entry| {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            std::fs::remove_dir_all(entry.path())?;
+        } else {
+            std::fs::remove_file(entry.path())?;
+        }
+        Ok::<_, std::io::Error>(())
+    })
 }

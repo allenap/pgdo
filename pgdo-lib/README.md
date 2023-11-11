@@ -58,7 +58,7 @@ let tokio = tokio::runtime::Runtime::new()?;
 for runtime in runtime::strategy::Strategy::default().runtimes() {
   let data_dir = tempfile::tempdir()?;
   let cluster = Cluster::new(&data_dir, runtime)?;
-  cluster.start()?;
+  cluster.start(&[])?;
   assert_eq!(cluster.databases()?, vec!["postgres", "template0", "template1"]);
   let rows = tokio.block_on(async {
     let pool = cluster.pool(None)?;
