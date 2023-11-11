@@ -158,16 +158,7 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     }
 
     // Remove WAL from restored backup.
-    let restore_wal_dir = restore_dir.join("pg_wal");
-    restore_wal_dir.read_dir()?.try_for_each(|entry| {
-        let entry = entry?;
-        if entry.file_type()?.is_dir() {
-            std::fs::remove_dir_all(entry.path())?;
-        } else {
-            std::fs::remove_file(entry.path())?;
-        }
-        Ok::<_, std::io::Error>(())
-    })?;
+    empty_out_dir(restore_dir.join("pg_wal"))?;
 
     // Create the `recovery.signal` file in the restore.
     std::fs::write(restore_dir.join("recovery.signal"), "")?;
@@ -331,4 +322,17 @@ fn quote_sh<S: AsRef<std::ffi::OsStr>>(string: S) -> Result<String, String> {
         .to_str()
         .map(str::to_owned)
         .ok_or_else(|| format!("Cannot shell escape given string: {string:?}"))
+}
+
+/// Remove the contents of the given directory, but leave the directory itself.
+fn empty_out_dir<P: AsRef<Path>>(dir: P) -> Result<(), std::io::Error> {
+    dir.as_ref().read_dir()?.try_for_each(|entry| {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            std::fs::remove_dir_all(entry.path())?;
+        } else {
+            std::fs::remove_file(entry.path())?;
+        }
+        Ok::<_, std::io::Error>(())
+    })
 }
