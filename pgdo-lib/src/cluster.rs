@@ -7,6 +7,7 @@ pub mod resource;
 mod error;
 
 use std::ffi::{OsStr, OsString};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::prelude::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
@@ -586,4 +587,28 @@ impl coordinate::Subject for Cluster {
     fn running(&self) -> Result<bool, Self::Error> {
         self.running()
     }
+}
+
+#[allow(clippy::unreadable_literal)]
+const UUID_NS: uuid::Uuid = uuid::Uuid::from_u128(93875103436633470414348750305797058811);
+
+/// Create and start a cluster at the given path, with the given options.
+///
+/// Uses the default runtime strategy. Returns a guard which will stop the
+/// cluster when it's dropped.
+pub fn run<P: AsRef<Path>>(
+    path: P,
+    options: Options<'_>,
+) -> Result<coordinate::guard::Guard<Cluster>, coordinate::CoordinateError<ClusterError>> {
+    let path = path.as_ref();
+    let path = path.canonicalize()?;
+
+    let strategy = crate::runtime::strategy::Strategy::default();
+    let cluster = crate::cluster::Cluster::new(&path, strategy)?;
+
+    let lock_name = path.as_os_str().as_bytes();
+    let lock_uuid = uuid::Uuid::new_v5(&UUID_NS, lock_name);
+    let lock = crate::lock::UnlockedFile::try_from(&lock_uuid)?;
+
+    coordinate::guard::Guard::startup(lock, cluster, options)
 }

@@ -19,6 +19,7 @@
 pub mod cleanup;
 mod error;
 pub mod finally;
+pub mod guard;
 pub mod resource;
 
 #[cfg(test)]
@@ -47,7 +48,7 @@ pub enum State {
 /// The trait that these coordinate functions work with.
 pub trait Subject {
     type Error: std::error::Error + Send + Sync;
-    type Options<'a>;
+    type Options<'a>: Default;
     fn start(&self, options: Self::Options<'_>) -> Result<State, Self::Error>;
     fn stop(&self) -> Result<State, Self::Error>;
     fn destroy(&self) -> Result<State, Self::Error>;
