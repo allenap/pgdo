@@ -369,20 +369,8 @@ impl Cluster {
     ///
     /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
     pub fn shell(&self, database: Option<&str>) -> Result<ExitStatus, ClusterError> {
-        let database = database.unwrap_or(DATABASE_POSTGRES);
         let mut command = self.runtime()?.execute("psql");
-        command.arg("--quiet");
-        command.env("PGDATA", &self.datadir);
-        command.env("PGHOST", &self.datadir);
-        command.env("PGDATABASE", database);
-
-        // Set `DATABASE_URL` if `self.datadir` is valid UTF-8, otherwise ensure
-        // that `DATABASE_URL` is erased from the command's environment.
-        match self.url(database)? {
-            Some(url) => command.env("DATABASE_URL", url.as_str()),
-            None => command.env_remove("DATABASE_URL"),
-        };
-
+        self.set_env(command.arg("--quiet"), database)?;
         Ok(command.spawn()?.wait()?)
     }
 
@@ -398,9 +386,16 @@ impl Cluster {
         command: T,
         args: &[T],
     ) -> Result<ExitStatus, ClusterError> {
-        let database = database.unwrap_or(DATABASE_POSTGRES);
         let mut command = self.runtime()?.command(command);
-        command.args(args);
+        self.set_env(command.args(args), database)?;
+        Ok(command.spawn()?.wait()?)
+    }
+
+    /// Set the environment variables for this cluster.
+    fn set_env(&self, command: &mut Command, database: Option<&str>) -> Result<(), ClusterError> {
+        let database = database.unwrap_or(DATABASE_POSTGRES);
+
+        // Set a few standard PostgreSQL environment variables.
         command.env("PGDATA", &self.datadir);
         command.env("PGHOST", &self.datadir);
         command.env("PGDATABASE", database);
@@ -412,7 +407,7 @@ impl Cluster {
             None => command.env_remove("DATABASE_URL"),
         };
 
-        Ok(command.spawn()?.wait()?)
+        Ok(())
     }
 
     /// The names of databases in this cluster.
