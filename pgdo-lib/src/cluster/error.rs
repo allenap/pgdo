@@ -26,4 +26,6 @@ pub enum ClusterError {
     CommandError(Output),
     #[error(transparent)]
     CurrentUserError(#[from] util::CurrentUserError),
+    #[error("URL error")]
+    UrlError(#[from] url::ParseError),
 }

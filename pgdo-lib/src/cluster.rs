@@ -350,15 +350,39 @@ impl Cluster {
         ))
     }
 
+    /// Return a URL for this cluster, if possible.
+    ///
+    /// It is not possible to return a URL for a cluster when `self.datadir` is
+    /// not valid UTF-8, in which case `Ok(None)` is returned.
+    fn url(&self, database: &str) -> Result<Option<url::Url>, url::ParseError> {
+        match self.datadir.to_str() {
+            Some(datadir) => url::Url::parse_with_params(
+                "postgresql://",
+                [("host", datadir), ("dbname", database)],
+            )
+            .map(Some),
+            None => Ok(None),
+        }
+    }
+
     /// Run `psql` against this cluster, in the given database.
     ///
     /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
     pub fn shell(&self, database: Option<&str>) -> Result<ExitStatus, ClusterError> {
+        let database = database.unwrap_or(DATABASE_POSTGRES);
         let mut command = self.runtime()?.execute("psql");
         command.arg("--quiet");
         command.env("PGDATA", &self.datadir);
         command.env("PGHOST", &self.datadir);
-        command.env("PGDATABASE", database.unwrap_or(DATABASE_POSTGRES));
+        command.env("PGDATABASE", database);
+
+        // Set `DATABASE_URL` if `self.datadir` is valid UTF-8, otherwise ensure
+        // that `DATABASE_URL` is erased from the command's environment.
+        match self.url(database)? {
+            Some(url) => command.env("DATABASE_URL", url.as_str()),
+            None => command.env_remove("DATABASE_URL"),
+        };
+
         Ok(command.spawn()?.wait()?)
     }
 
@@ -374,11 +398,20 @@ impl Cluster {
         command: T,
         args: &[T],
     ) -> Result<ExitStatus, ClusterError> {
+        let database = database.unwrap_or(DATABASE_POSTGRES);
         let mut command = self.runtime()?.command(command);
         command.args(args);
         command.env("PGDATA", &self.datadir);
         command.env("PGHOST", &self.datadir);
-        command.env("PGDATABASE", database.unwrap_or(DATABASE_POSTGRES));
+        command.env("PGDATABASE", database);
+
+        // Set `DATABASE_URL` if `self.datadir` is valid UTF-8, otherwise ensure
+        // that `DATABASE_URL` is erased from the command's environment.
+        match self.url(database)? {
+            Some(url) => command.env("DATABASE_URL", url.as_str()),
+            None => command.env_remove("DATABASE_URL"),
+        };
+
         Ok(command.spawn()?.wait()?)
     }
 
