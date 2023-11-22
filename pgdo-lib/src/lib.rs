@@ -13,7 +13,6 @@ extern crate lazy_static;
 pub mod cluster;
 pub mod coordinate;
 pub mod lock;
-pub mod prelude;
 pub mod runtime;
 pub mod util;
 pub mod version;
