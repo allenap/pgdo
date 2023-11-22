@@ -592,6 +592,8 @@ impl coordinate::Subject for Cluster {
 #[allow(clippy::unreadable_literal)]
 const UUID_NS: uuid::Uuid = uuid::Uuid::from_u128(93875103436633470414348750305797058811);
 
+pub type ClusterGuard = coordinate::guard::Guard<Cluster>;
+
 /// Create and start a cluster at the given path, with the given options.
 ///
 /// Uses the default runtime strategy. Returns a guard which will stop the
@@ -599,7 +601,7 @@ const UUID_NS: uuid::Uuid = uuid::Uuid::from_u128(938751034366334704143487503057
 pub fn run<P: AsRef<Path>>(
     path: P,
     options: Options<'_>,
-) -> Result<coordinate::guard::Guard<Cluster>, coordinate::CoordinateError<ClusterError>> {
+) -> Result<ClusterGuard, coordinate::CoordinateError<ClusterError>> {
     let path = path.as_ref();
     let path = path.canonicalize()?;
 
