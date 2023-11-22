@@ -1,5 +1,7 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::fs::File;
+use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -219,6 +221,38 @@ fn cluster_start_with_options() -> TestResult {
     })
     .map(|row| row.get::<String, _>(0))?;
     assert_eq!(example_setting, "Hello, World!");
+    cluster.stop()?;
+    Ok(())
+}
+
+#[for_all_runtimes]
+#[test]
+fn cluster_exec_sets_environment() -> TestResult {
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = Cluster::new(data_dir, runtime)?;
+    cluster.create()?;
+    cluster.start(&[])?;
+    let env_file = temp_dir.path().join("env");
+    let mut env_command: Vec<u8> = "env -0 > ".into();
+    shell_quote::sh::escape_into(&env_file, &mut env_command);
+    let env_args: [OsString; 2] = ["-c".into(), OsString::from_vec(env_command)];
+    cluster.exec(None, "sh".into(), &env_args)?;
+    let env = std::fs::read_to_string(env_file)?;
+    let env = env
+        .split('\u{0}')
+        .filter_map(|line| line.split_once('='))
+        .collect::<HashMap<_, _>>();
+    assert_eq!(
+        env.get("PGDATA").map(PathBuf::from).as_ref(),
+        Some(&cluster.datadir)
+    );
+    assert_eq!(
+        env.get("PGHOST").map(PathBuf::from).as_ref(),
+        Some(&cluster.datadir)
+    );
+    assert_eq!(env.get("PGDATABASE"), Some("postgres").as_ref());
+    assert!(matches!(env.get("DATABASE_URL"), Some(url) if url.starts_with("postgresql://")));
     cluster.stop()?;
     Ok(())
 }
