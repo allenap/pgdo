@@ -34,7 +34,7 @@ tokio-stream = "^0.1.14"
 uuid = { version = "^1.5.0", features = ["v5"] }
 
 [dependencies.sqlx]
-version = "^0.7.2"
+version = "^0.7.3"
 features = ["macros", "postgres", "runtime-tokio"]
 
 [dev-dependencies]
