@@ -5,6 +5,8 @@ use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use shell_quote::{QuoteExt, Sh};
+
 use pgdo::cluster::{
     self, exists,
     sqlx::{query, Row},
@@ -235,7 +237,7 @@ fn cluster_exec_sets_environment() -> TestResult {
     cluster.start(&[])?;
     let env_file = temp_dir.path().join("env");
     let mut env_command: Vec<u8> = "env -0 > ".into();
-    shell_quote::sh::escape_into(&env_file, &mut env_command);
+    env_command.push_quoted(Sh, &env_file);
     let env_args: [OsString; 2] = ["-c".into(), OsString::from_vec(env_command)];
     cluster.exec(None, "sh".into(), &env_args)?;
     let env = std::fs::read_to_string(env_file)?;

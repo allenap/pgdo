@@ -14,7 +14,7 @@ use std::process::{Command, ExitStatus};
 use std::{fs, io};
 
 use postgres;
-use shell_quote::sh::escape_into;
+use shell_quote::{QuoteExt, Sh};
 pub use sqlx;
 
 use crate::runtime::{
@@ -281,11 +281,11 @@ impl Cluster {
         //  -k -- socket directory.
         //  -c name=value -- set a configuration parameter.
         let options = {
-            let mut arg = b"-h '' -k "[..].into();
-            escape_into(&self.datadir, &mut arg);
+            let mut arg: Vec<u8> = b"-h '' -k ".into();
+            arg.push_quoted(Sh, &self.datadir);
             for (parameter, value) in options {
                 arg.extend(b" -c ");
-                escape_into(&format!("{parameter}={value}",), &mut arg);
+                arg.push_quoted(Sh, &format!("{parameter}={value}",));
             }
             OsString::from_vec(arg)
         };

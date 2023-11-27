@@ -6,6 +6,7 @@ use std::{
 };
 
 use either::Either::Right;
+use shell_quote::{QuoteRefExt, Sh};
 
 use crate::runner;
 
@@ -168,7 +169,7 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     // Start up the cluster with `restore_command = some/command` and
     // `recovery_target_action = "shutdown"` (or "pause" if we want to
     // interactively inspect the cluster).
-    let backup_wal_dir_sh = quote_sh(backup_wal_dir)?;
+    let backup_wal_dir_sh: String = backup_wal_dir.quoted(Sh);
     let restore_command = format!("cp {backup_wal_dir_sh}/%f %p");
 
     let (datadir, lock) = runner::lock_for(&restore_dir)?;
@@ -263,7 +264,7 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     let superusers = cluster::determine_superuser_role_names(&cluster)?;
 
     // Restore/recovery is done; give the user a hint about what next.
-    let restore_dir_sh = quote_sh(&restore_dir)?;
+    let restore_dir_sh: String = restore_dir.quoted(Sh);
     let title = console::style("Restore/recovery complete!")
         .bold()
         .bright()
@@ -280,7 +281,7 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
         }
         Ok(_) | Err(_) => match superusers.iter().min() {
             Some(user) => {
-                let user_sh = quote_sh(user)?;
+                let user_sh: String = user.quoted(Sh);
                 writeln!(&term, "{title}")?;
                 writeln!(&term, "{warning}: Current user does not match any superuser role in the restored cluster.")?;
                 writeln!(
@@ -317,14 +318,6 @@ static RECOVERY_TARGET_ACTION: cluster::config::Parameter =
     cluster::config::Parameter("recovery_target_action");
 
 // ----------------------------------------------------------------------------
-
-fn quote_sh<S: AsRef<std::ffi::OsStr>>(string: S) -> Result<String, String> {
-    let string = string.as_ref();
-    shell_quote::sh::quote(string)
-        .to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| format!("Cannot shell escape given string: {string:?}"))
-}
 
 /// Remove the contents of the given directory, but leave the directory itself.
 fn empty_out_dir<P: AsRef<Path>>(dir: P) -> Result<(), std::io::Error> {

@@ -5,7 +5,8 @@ use std::{
 };
 
 use either::{Left, Right};
-use miette::{miette, IntoDiagnostic};
+use miette::IntoDiagnostic;
+use shell_quote::{QuoteRefExt, Sh};
 
 use super::ExitResult;
 use crate::{args, runner};
@@ -159,8 +160,8 @@ fn backup<D: AsRef<Path>>(resource: resource::ResourceFree, backup_dir: D) -> mi
     // The command we use to copy WAL files to `destination_wal`.
     // <https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-ARCHIVING-WAL>.
     let archive_command = {
-        let pgdo_exe_shell = std::env::current_exe().map(quote_sh).into_diagnostic()??;
-        let destination_wal_shell = quote_sh(&backup.backup_wal_dir)?;
+        let pgdo_exe_shell: String = std::env::current_exe().into_diagnostic()?.quoted(Sh);
+        let destination_wal_shell: String = backup.backup_wal_dir.quoted(Sh);
         format!("{pgdo_exe_shell} backup:tools wal:archive %p {destination_wal_shell}/%f")
     };
 
@@ -326,14 +327,4 @@ fn copy_wal_archive(source: PathBuf, target: PathBuf) -> ExitCode {
             ExitCode::FAILURE
         }
     }
-}
-
-// ----------------------------------------------------------------------------
-
-fn quote_sh<P: AsRef<Path>>(path: P) -> miette::Result<String> {
-    let path = path.as_ref();
-    shell_quote::sh::quote(path)
-        .to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| miette!("Cannot shell escape given path").context(format!("Path: {path:?}")))
 }
