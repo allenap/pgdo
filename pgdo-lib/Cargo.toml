@@ -17,7 +17,7 @@ path = "src/lib.rs"
 [dependencies]
 either = "^1.9.0"
 glob = "^0.3.1"
-globset = "^0.4.13"
+globset = "^0.4.14"
 lazy_static = "^1.4.0"
 log = "^0.4.20"
 miette = "^5.10.0"
