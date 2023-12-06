@@ -631,6 +631,11 @@ pub fn run<P: AsRef<Path>>(
     options: Options<'_>,
 ) -> Result<ClusterGuard, coordinate::CoordinateError<ClusterError>> {
     let path = path.as_ref();
+    // We have to create the data directory so that we can canonicalize its
+    // location. This is because we use the data directory's path as the basis
+    // for the lock file's name. This is duplicative – `Cluster::create` also
+    // creates the data directory – but necessary.
+    fs::create_dir_all(path)?;
     let path = path.canonicalize()?;
 
     let strategy = crate::runtime::strategy::Strategy::default();
@@ -640,5 +645,5 @@ pub fn run<P: AsRef<Path>>(
     let lock_uuid = uuid::Uuid::new_v5(&UUID_NS, lock_name);
     let lock = crate::lock::UnlockedFile::try_from(&lock_uuid)?;
 
-    coordinate::guard::Guard::startup(lock, cluster, options)
+    ClusterGuard::startup(lock, cluster, options)
 }

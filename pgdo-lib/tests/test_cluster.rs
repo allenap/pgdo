@@ -380,3 +380,13 @@ fn determine_superuser_role_names() -> TestResult {
     assert!(!superusers.is_empty());
     Ok(())
 }
+
+#[for_all_runtimes]
+#[test]
+fn run_starts_cluster_and_returns_guard() -> TestResult {
+    let temp_dir = tempfile::tempdir()?;
+    let data_dir = temp_dir.path().join("data");
+    let cluster = cluster::run(data_dir, Default::default()).unwrap();
+    assert!(cluster.running()?);
+    Ok(())
+}
