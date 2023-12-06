@@ -50,6 +50,9 @@ Usage: pgdo [OPTIONS] [COMMAND]
 Commands:
   shell     Start a psql shell, creating and starting the cluster as necessary (DEFAULT)
   exec      Execute an arbitrary command, creating and starting the cluster as necessary
+  clone     Perform a one-off clone/backup of an existing cluster
+  backup    Point-in-time backup for an existing cluster
+  restore   Point-in-time restore/recovery from a backup made previously with the `backup` command
   runtimes  List discovered PostgreSQL runtimes
   help      Print this message or the help of the given subcommand(s)
 
@@ -58,7 +61,7 @@ Options:
   -V, --version  Print version
 
 Options for shell:
-  -D, --datadir <PGDATA>              The directory in which to place, or find, the cluster [env: PGDATA=] [default: cluster]
+  -D, --datadir <PGDATA>              The directory in which the cluster lives [env: PGDATA=] [default: cluster]
   -d, --database <PGDATABASE>         The database to connect to [env: PGDATABASE=] [default: postgres]
       --mode <MODE>                   Run the cluster in a "safer" or "faster" mode [possible values: slower-but-safer, faster-but-less-safe]
       --runtime-default <CONSTRAINT>  Select the default runtime, used when creating new clusters
