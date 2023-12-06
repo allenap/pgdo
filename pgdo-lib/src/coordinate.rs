@@ -1,4 +1,4 @@
-//! Safely coordinate use of things that can be [`Control`]led.
+//! Safely coordinate use of things that can be controlled.
 //!
 //! For example, if many concurrent processes want to make use of the same
 //! cluster, e.g. as part of a test suite, you can use [`run_and_stop`] to
