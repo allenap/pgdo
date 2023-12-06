@@ -11,9 +11,7 @@ use tokio::{fs, task::block_in_place};
 use tokio_stream::{wrappers::ReadDirStream, StreamExt};
 
 use super::{config, resource::StartupResource};
-use crate::lock;
-use crate::prelude::CoordinateError;
-use crate::{cluster, coordinate};
+use crate::{cluster, coordinate, lock};
 
 // ----------------------------------------------------------------------------
 
@@ -161,7 +159,7 @@ impl Backup {
         let backup_lock = block_in_place(|| {
             lock::UnlockedFile::try_from(&self.backup_dir.join(BACKUP_LOCK_NAME))?
                 .lock_exclusive()
-                .map_err(CoordinateError::UnixError)
+                .map_err(coordinate::CoordinateError::UnixError)
         })?;
 
         // Where we're going to move the new backup to. This is always a

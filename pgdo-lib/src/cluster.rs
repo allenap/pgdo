@@ -7,13 +7,14 @@ pub mod resource;
 mod error;
 
 use std::ffi::{OsStr, OsString};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::prelude::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::{fs, io};
 
 use postgres;
-use shell_quote::sh::escape_into;
+use shell_quote::{QuoteExt, Sh};
 pub use sqlx;
 
 use crate::runtime::{
@@ -280,11 +281,11 @@ impl Cluster {
         //  -k -- socket directory.
         //  -c name=value -- set a configuration parameter.
         let options = {
-            let mut arg = b"-h '' -k "[..].into();
-            escape_into(&self.datadir, &mut arg);
+            let mut arg: Vec<u8> = b"-h '' -k ".into();
+            arg.push_quoted(Sh, &self.datadir);
             for (parameter, value) in options {
                 arg.extend(b" -c ");
-                escape_into(&format!("{parameter}={value}",), &mut arg);
+                arg.push_quoted(Sh, &format!("{parameter}={value}",));
             }
             OsString::from_vec(arg)
         };
@@ -349,15 +350,27 @@ impl Cluster {
         ))
     }
 
+    /// Return a URL for this cluster, if possible.
+    ///
+    /// It is not possible to return a URL for a cluster when `self.datadir` is
+    /// not valid UTF-8, in which case `Ok(None)` is returned.
+    fn url(&self, database: &str) -> Result<Option<url::Url>, url::ParseError> {
+        match self.datadir.to_str() {
+            Some(datadir) => url::Url::parse_with_params(
+                "postgresql://",
+                [("host", datadir), ("dbname", database)],
+            )
+            .map(Some),
+            None => Ok(None),
+        }
+    }
+
     /// Run `psql` against this cluster, in the given database.
     ///
     /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
     pub fn shell(&self, database: Option<&str>) -> Result<ExitStatus, ClusterError> {
         let mut command = self.runtime()?.execute("psql");
-        command.arg("--quiet");
-        command.env("PGDATA", &self.datadir);
-        command.env("PGHOST", &self.datadir);
-        command.env("PGDATABASE", database.unwrap_or(DATABASE_POSTGRES));
+        self.set_env(command.arg("--quiet"), database)?;
         Ok(command.spawn()?.wait()?)
     }
 
@@ -374,11 +387,27 @@ impl Cluster {
         args: &[T],
     ) -> Result<ExitStatus, ClusterError> {
         let mut command = self.runtime()?.command(command);
-        command.args(args);
+        self.set_env(command.args(args), database)?;
+        Ok(command.spawn()?.wait()?)
+    }
+
+    /// Set the environment variables for this cluster.
+    fn set_env(&self, command: &mut Command, database: Option<&str>) -> Result<(), ClusterError> {
+        let database = database.unwrap_or(DATABASE_POSTGRES);
+
+        // Set a few standard PostgreSQL environment variables.
         command.env("PGDATA", &self.datadir);
         command.env("PGHOST", &self.datadir);
-        command.env("PGDATABASE", database.unwrap_or(DATABASE_POSTGRES));
-        Ok(command.spawn()?.wait()?)
+        command.env("PGDATABASE", database);
+
+        // Set `DATABASE_URL` if `self.datadir` is valid UTF-8, otherwise ensure
+        // that `DATABASE_URL` is erased from the command's environment.
+        match self.url(database)? {
+            Some(url) => command.env("DATABASE_URL", url.as_str()),
+            None => command.env_remove("DATABASE_URL"),
+        };
+
+        Ok(())
     }
 
     /// The names of databases in this cluster.
@@ -586,4 +615,30 @@ impl coordinate::Subject for Cluster {
     fn running(&self) -> Result<bool, Self::Error> {
         self.running()
     }
+}
+
+#[allow(clippy::unreadable_literal)]
+const UUID_NS: uuid::Uuid = uuid::Uuid::from_u128(93875103436633470414348750305797058811);
+
+pub type ClusterGuard = coordinate::guard::Guard<Cluster>;
+
+/// Create and start a cluster at the given path, with the given options.
+///
+/// Uses the default runtime strategy. Returns a guard which will stop the
+/// cluster when it's dropped.
+pub fn run<P: AsRef<Path>>(
+    path: P,
+    options: Options<'_>,
+) -> Result<ClusterGuard, coordinate::CoordinateError<ClusterError>> {
+    let path = path.as_ref();
+    let path = path.canonicalize()?;
+
+    let strategy = crate::runtime::strategy::Strategy::default();
+    let cluster = crate::cluster::Cluster::new(&path, strategy)?;
+
+    let lock_name = path.as_os_str().as_bytes();
+    let lock_uuid = uuid::Uuid::new_v5(&UUID_NS, lock_name);
+    let lock = crate::lock::UnlockedFile::try_from(&lock_uuid)?;
+
+    coordinate::guard::Guard::startup(lock, cluster, options)
 }

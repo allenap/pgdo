@@ -1,7 +1,7 @@
 use std::panic::{catch_unwind, resume_unwind};
 
-/// Perform `task`; on failure or panic, perform `cleanup` and return the
-/// original error or continue to panic.
+/// Perform `task`. On error or panic, perform `cleanup` and return the original
+/// error, or continue to panic.
 ///
 /// This is resilient to errors and panics in `cleanup` too: they will be
 /// logged, but ultimately the errors and panics from `task` will be propagated.

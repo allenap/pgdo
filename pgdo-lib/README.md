@@ -52,8 +52,16 @@ PostgreSQL clusters of any officially supported version (and a few older
 versions that are not supported upstream).
 
 ```rust
-use pgdo::prelude::*;
-use pgdo::cluster::sqlx::{query, Row};
+use pgdo::{
+  cluster::{
+    Cluster, ClusterError,
+    sqlx::{query, Row}
+  },
+  runtime::{
+    self,
+    strategy::StrategyLike,
+  },
+};
 let tokio = tokio::runtime::Runtime::new()?;
 for runtime in runtime::strategy::Strategy::default().runtimes() {
   let data_dir = tempfile::tempdir()?;

@@ -1,18 +1,18 @@
 use std::panic::{catch_unwind, resume_unwind};
 
-/// Perform `task`; on success or failure or panic, perform `cleanup` and return
-/// the original success or error or continue to panic.
+/// Perform `task`. On success, error, or panic, perform `finally` and return
+/// the original success or error, or continue to panic.
 ///
-/// This is resilient to errors and panics in `cleanup` too. If `task` finishes
+/// This is resilient to errors and panics in `finally` too. If `task` finishes
 /// successfully, errors and panics from `finally` are propagated. However,
 /// errors and panics from `task` will be propagated in preference to those
-/// coming out of `cleanup` – but they will be logged.
-pub fn with_finally<TASK, T, E, FINALLY, CT, CE>(finally: FINALLY, task: TASK) -> Result<T, E>
+/// coming out of `finally` – but they will be logged.
+pub fn with_finally<TASK, T, E, FINALLY, FT, FE>(finally: FINALLY, task: TASK) -> Result<T, E>
 where
     TASK: std::panic::UnwindSafe + FnOnce() -> Result<T, E>,
-    FINALLY: std::panic::UnwindSafe + FnOnce() -> Result<CT, CE>,
+    FINALLY: std::panic::UnwindSafe + FnOnce() -> Result<FT, FE>,
     E: std::fmt::Display,
-    CE: std::fmt::Display + Into<E>,
+    FE: std::fmt::Display + Into<E>,
 {
     match catch_unwind(task) {
         Ok(Ok(t)) => match catch_unwind(finally) {

@@ -5,11 +5,11 @@
 //! safely start and use the cluster, then stop it when it's no longer needed:
 //!
 //! ```rust
-//! use pgdo::prelude::*;
+//! # use pgdo::{runtime, coordinate, cluster, lock};
 //! let cluster_dir = tempfile::tempdir()?;
 //! let data_dir = cluster_dir.path().join("data");
 //! let strategy = runtime::strategy::Strategy::default();
-//! let cluster = Cluster::new(&data_dir, strategy)?;
+//! let cluster = cluster::Cluster::new(&data_dir, strategy)?;
 //! let lock_file = cluster_dir.path().join("lock");
 //! let lock = lock::UnlockedFile::try_from(lock_file.as_path())?;
 //! assert!(coordinate::run_and_stop(&cluster, &[], lock, || cluster::exists(&cluster))?);
@@ -19,6 +19,7 @@
 pub mod cleanup;
 mod error;
 pub mod finally;
+pub mod guard;
 pub mod resource;
 
 #[cfg(test)]
@@ -47,7 +48,7 @@ pub enum State {
 /// The trait that these coordinate functions work with.
 pub trait Subject {
     type Error: std::error::Error + Send + Sync;
-    type Options<'a>;
+    type Options<'a>: Default;
     fn start(&self, options: Self::Options<'_>) -> Result<State, Self::Error>;
     fn stop(&self) -> Result<State, Self::Error>;
     fn destroy(&self) -> Result<State, Self::Error>;

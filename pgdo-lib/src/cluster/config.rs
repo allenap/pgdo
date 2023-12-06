@@ -53,7 +53,7 @@ impl AsSql for AlterSystem<'_> {
 ///
 /// See the [documentation for
 /// `pg_settings`](https://www.postgresql.org/docs/current/view-pg-settings.html).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Setting {
     pub name: String,
     pub setting: String,
@@ -76,19 +76,18 @@ pub struct Setting {
 
 impl Setting {
     pub async fn list(pool: &sqlx::PgPool) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as!(
-            Setting,
-            r#"
+        sqlx::query_as(
+            r"
             SELECT
-                name "name!",
-                setting "setting!",
+                name,
+                setting,
                 unit,
-                category "category!",
-                short_desc "short_desc!",
+                category,
+                short_desc,
                 extra_desc,
-                context "context!",
-                vartype "vartype!",
-                source "source!",
+                context,
+                vartype,
+                source,
                 min_val,
                 max_val,
                 enumvals,
@@ -96,33 +95,31 @@ impl Setting {
                 reset_val,
                 sourcefile,
                 sourceline,
-                pending_restart "pending_restart!"
+                pending_restart
             FROM
                 pg_catalog.pg_settings
-            "#
+            ",
         )
         .fetch_all(pool)
         .await
     }
 
-    #[allow(clippy::missing_panics_doc)]
     pub async fn get<N: AsRef<str>>(
         name: N,
         pool: &sqlx::PgPool,
     ) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as!(
-            Setting,
-            r#"
+        sqlx::query_as(
+            r"
             SELECT
-                name "name!",
-                setting "setting!",
+                name,
+                setting,
                 unit,
-                category "category!",
-                short_desc "short_desc!",
+                category,
+                short_desc,
                 extra_desc,
-                context "context!",
-                vartype "vartype!",
-                source "source!",
+                context,
+                vartype,
+                source,
                 min_val,
                 max_val,
                 enumvals,
@@ -130,14 +127,14 @@ impl Setting {
                 reset_val,
                 sourcefile,
                 sourceline,
-                pending_restart "pending_restart!"
+                pending_restart
             FROM
                 pg_catalog.pg_settings
             WHERE
                 name = $1
-            "#,
-            name.as_ref(),
+            ",
         )
+        .bind(name.as_ref())
         .fetch_optional(pool)
         .await
     }

@@ -1,5 +1,7 @@
+use pgdo::cluster::Cluster;
+use pgdo::coordinate::CoordinateError;
 use pgdo::coordinate::{run_and_destroy, run_and_stop, run_and_stop_if_exists};
-use pgdo::prelude::*;
+use pgdo::{lock, runtime};
 use pgdo_test::for_all_runtimes;
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
