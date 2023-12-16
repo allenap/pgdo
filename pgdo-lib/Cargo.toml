@@ -17,7 +17,7 @@ path = "src/lib.rs"
 [dependencies]
 either = "^1.9.0"
 glob = "^0.3.1"
-globset = "^0.4.13"
+globset = "^0.4.14"
 lazy_static = "^1.4.0"
 log = "^0.4.20"
 miette = "^5.10.0"
@@ -27,15 +27,15 @@ postgres-protocol = "^0.6.6"
 rand = "^0.8.5"
 regex = "^1.10.2"
 shell-quote = "^0.5.0"
-tempfile = "^3.8.0"
-thiserror = "^1.0.50"
-tokio = { version = "^1.33.0", features = ["full"] }
+tempfile = "^3.8.1"
+thiserror = "^1.0.51"
+tokio = { version = "^1.35.0", features = ["full"] }
 tokio-stream = "^0.1.14"
-url = "^2.4.1"
-uuid = { version = "^1.5.0", features = ["v5"] }
+url = "^2.5.0"
+uuid = { version = "^1.6.1", features = ["v5"] }
 
 [dependencies.sqlx]
-version = "^0.7.2"
+version = "^0.7.3"
 features = ["postgres", "runtime-tokio"]
 
 [dev-dependencies]
