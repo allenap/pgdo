@@ -27,7 +27,7 @@ postgres-protocol = "^0.6.6"
 rand = "^0.8.5"
 regex = "^1.10.2"
 shell-quote = "^0.5.0"
-tempfile = "^3.8.1"
+tempfile = "^3.10.0"
 thiserror = "^1.0.51"
 tokio = { version = "^1.35.0", features = ["full"] }
 tokio-stream = "^0.1.14"
