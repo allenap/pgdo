@@ -152,22 +152,30 @@ fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResu
     if runtime.version >= Version::from_str("16.0")? {
         assert_eq!(params.get("lc_collate"), None);
         assert_eq!(params.get("lc_ctype"), None);
-        // 🚨 Also in PostgreSQL 16, lc_messages is now the empty string
+        // 🚨 Also in PostgreSQL 16, lc_messages is _sometimes_ the empty string
         // when specified as "C" via any mechanism:
         //
-        // - Explicitly given to `initdb`, e.g. `initdb --locale=C`,
-        //   `initdb --lc-messages=C`.
+        // - Explicitly given to `initdb`, e.g. `initdb --locale=C`, `initdb
+        //   --lc-messages=C`.
         //
-        // - Inherited from the environment (LC_ALL, LC_MESSAGES) at any
-        //   point (`initdb`, `pg_ctl start`, or from the client).
+        // - Inherited from the environment (LC_ALL, LC_MESSAGES) at any point
+        //   (`initdb`, `pg_ctl start`, or from the client).
         //
-        // When a different locale is used with `initdb --locale` or
-        // `initdb --lc-messages`, e.g. POSIX, es_ES, the locale IS
-        // used; lc_messages reflects the choice.
+        // When a different locale is used with `initdb --locale` or `initdb
+        // --lc-messages`, e.g. POSIX, es_ES, the locale IS used; lc_messages
+        // reflects the choice.
         //
-        // It's not yet clear if this is a bug or intentional.
+        // It's not yet clear if this is a bug or intentional. There has been no
+        // response to the bug report (link below), but the behaviour here has
+        // changed by 16.2 (possibly earlier; I did not check).
+        //
+        // Bug report:
         // https://www.postgresql.org/message-id/18136-4914128da6cfc502%40postgresql.org
-        assert_eq!(params.get("lc_messages"), Some(&String::new()));
+        if runtime.version >= Version::from_str("16.2")? {
+            assert_eq!(params.get("lc_messages"), Some(&"C".into()));
+        } else {
+            assert_eq!(params.get("lc_messages"), Some(&String::new()));
+        }
     } else {
         assert_eq!(params.get("lc_collate"), Some(&"C".into()));
         assert_eq!(params.get("lc_ctype"), Some(&"C".into()));
