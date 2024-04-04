@@ -11,7 +11,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::prelude::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
-use std::{fs, io};
+use std::{fmt, fs, io};
 
 use postgres;
 use shell_quote::{QuoteExt, Sh};
@@ -72,6 +72,23 @@ pub static DATABASE_TEMPLATE1: &str = "template0";
 /// possible.
 pub static DATABASE_POSTGRES: &str = "postgres";
 
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum ClusterStatus {
+    Running,
+    Stopped,
+    Missing,
+}
+
+impl fmt::Display for ClusterStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ClusterStatus::Running => write!(f, "running"),
+            ClusterStatus::Stopped => write!(f, "stopped"),
+            ClusterStatus::Missing => write!(f, "missing"),
+        }
+    }
+}
+
 /// Representation of a PostgreSQL cluster.
 ///
 /// The cluster may not yet exist on disk. It may exist but be stopped, or it
@@ -126,15 +143,24 @@ impl Cluster {
 
     /// Check if this cluster is running.
     ///
-    /// Tries to distinguish carefully between "definitely running", "definitely
-    /// not running", and "don't know". The latter results in [`ClusterError`].
+    /// Convenient call-through to [`status`][`Self::status`]; only returns
+    /// `true` when the cluster is definitely running.
     pub fn running(&self) -> Result<bool, ClusterError> {
+        self.status().map(|status| status == ClusterStatus::Running)
+    }
+
+    /// Check the status of this cluster.
+    ///
+    /// Tries to distinguish carefully between "definitely running", "definitely
+    /// not running", "missing", and "don't know". The latter results in
+    /// [`ClusterError`].
+    pub fn status(&self) -> Result<ClusterStatus, ClusterError> {
         let output = self.ctl()?.arg("status").output()?;
         let code = match output.status.code() {
             // Killed by signal; return early.
             None => return Err(ClusterError::CommandError(output)),
             // Success; return early (the server is running).
-            Some(0) => return Ok(true),
+            Some(0) => return Ok(ClusterStatus::Running),
             // More work required to decode what this means.
             Some(code) => code,
         };
@@ -143,7 +169,7 @@ impl Cluster {
         // later versions, so here we check for specific codes to avoid
         // masking errors from insufficient permissions or missing
         // executables, for example.
-        let running = match runtime.version {
+        let status = match runtime.version {
             // PostgreSQL 10.x and later.
             version::Version::Post10(_major, _minor) => {
                 // PostgreSQL 10
@@ -151,13 +177,13 @@ impl Cluster {
                 match code {
                     // 3 means that the data directory is present and
                     // accessible but that the server is not running.
-                    3 => Some(false),
+                    3 => Some(ClusterStatus::Stopped),
                     // 4 means that the data directory is not present or is
                     // not accessible. If it's missing, then the server is
                     // not running. If it is present but not accessible
                     // then crash because we can't know if the server is
                     // running or not.
-                    4 if !exists(self) => Some(false),
+                    4 if !exists(self) => Some(ClusterStatus::Missing),
                     // For anything else we don't know.
                     _ => None,
                 }
@@ -172,13 +198,13 @@ impl Cluster {
                     match code {
                         // 3 means that the data directory is present and
                         // accessible but that the server is not running.
-                        3 => Some(false),
+                        3 => Some(ClusterStatus::Stopped),
                         // 4 means that the data directory is not present or is
                         // not accessible. If it's missing, then the server is
                         // not running. If it is present but not accessible
                         // then crash because we can't know if the server is
                         // running or not.
-                        4 if !exists(self) => Some(false),
+                        4 if !exists(self) => Some(ClusterStatus::Missing),
                         // For anything else we don't know.
                         _ => None,
                     }
@@ -191,7 +217,8 @@ impl Cluster {
                         // 3 means that the data directory is present and
                         // accessible but that the server is not running OR
                         // that the data directory is not present.
-                        3 => Some(false),
+                        3 if !exists(self) => Some(ClusterStatus::Missing),
+                        3 => Some(ClusterStatus::Stopped),
                         // For anything else we don't know.
                         _ => None,
                     }
@@ -204,7 +231,8 @@ impl Cluster {
                         // 1 means that the server is not running OR the data
                         // directory is not present OR that the data directory
                         // is not accessible.
-                        1 => Some(false),
+                        1 if !exists(self) => Some(ClusterStatus::Missing),
+                        1 => Some(ClusterStatus::Stopped),
                         // For anything else we don't know.
                         _ => None,
                     }
@@ -214,7 +242,7 @@ impl Cluster {
             version::Version::Pre10(_major, _point, _minor) => None,
         };
 
-        match running {
+        match status {
             Some(running) => Ok(running),
             // TODO: Perhaps include the exit code from `pg_ctl status` in the
             // error message, and whatever it printed out.
