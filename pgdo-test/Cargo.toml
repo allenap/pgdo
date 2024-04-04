@@ -22,5 +22,5 @@ async-std = "^1.12.0"
 pgdo-test-macros = { path = "../pgdo-test-macros" }
 
 [dependencies.sqlx]
-version = "^0.7.3"
+version = "^0.7.4"
 features = ["macros", "postgres", "runtime-tokio"]
