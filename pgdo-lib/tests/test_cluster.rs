@@ -10,7 +10,7 @@ use shell_quote::{QuoteExt, Sh};
 use pgdo::cluster::{
     self, exists,
     sqlx::{query, Row},
-    version, Cluster, ClusterError,
+    version, Cluster, ClusterError, ClusterStatus,
 };
 use pgdo::coordinate::State::*;
 use pgdo::version::{PartialVersion, Version};
@@ -27,7 +27,7 @@ fn block_on<F: std::future::Future>(future: F) -> F::Output {
 fn cluster_new() -> TestResult {
     let cluster = Cluster::new("some/path", runtime)?;
     assert_eq!(Path::new("some/path"), cluster.datadir);
-    assert!(!cluster.running()?);
+    assert_eq!(cluster.status()?, ClusterStatus::Missing);
     Ok(())
 }
 
@@ -199,12 +199,13 @@ fn cluster_start_stop_starts_and_stops_cluster() -> TestResult {
     let temp_dir = tempfile::tempdir()?;
     let data_dir = temp_dir.path().join("data");
     let cluster = Cluster::new(data_dir, runtime)?;
+    assert_eq!(cluster.status()?, ClusterStatus::Missing);
     cluster.create()?;
-    assert!(!cluster.running()?);
+    assert_eq!(cluster.status()?, ClusterStatus::Stopped);
     cluster.start(&[])?;
-    assert!(cluster.running()?);
+    assert_eq!(cluster.status()?, ClusterStatus::Running);
     cluster.stop()?;
-    assert!(!cluster.running()?);
+    assert_eq!(cluster.status()?, ClusterStatus::Stopped);
     Ok(())
 }
 
@@ -387,6 +388,6 @@ fn run_starts_cluster_and_returns_guard() -> TestResult {
     let temp_dir = tempfile::tempdir()?;
     let data_dir = temp_dir.path().join("data");
     let cluster = cluster::run(data_dir, Default::default()).unwrap();
-    assert!(cluster.running()?);
+    assert_eq!(cluster.status()?, ClusterStatus::Running);
     Ok(())
 }
