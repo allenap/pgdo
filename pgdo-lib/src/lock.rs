@@ -16,6 +16,13 @@
 //! too, by virtue of dropping the [`File`] they each wrap, so there's no need
 //! to call `unlock` unless you prefer to be explicit.
 
+// Ignore deprecation warnings, for now, regarding `nix::fcntl::flock`, since
+// the suggested replacement, `nix::fcntl::Flock`, does not provide the same
+// functionality. This change was made in the `nix` crate on 2023-12-03; see
+// https://github.com/nix-rust/nix/pull/2170. Some limitations of the new API
+// reported 2024-04-07; see https://github.com/nix-rust/nix/issues/2356.
+#![allow(deprecated)]
+
 use std::fs::File;
 use std::os::unix::io::AsRawFd;
 
