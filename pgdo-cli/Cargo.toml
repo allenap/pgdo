@@ -24,7 +24,7 @@ fs_extra = "=1.3.0"
 indicatif = "=0.17.8"
 log = "=0.4.21"
 miette = { version = "=7.2.0", features = ["fancy"] }
-pgdo-lib = { version = "=0.4.1", path = "../pgdo-lib" }
+pgdo-lib = { version = "=0.4.2", path = "../pgdo-lib" }
 shell-quote = "=0.5.0"
 simple_logger = "=4.3.3"
 tempfile = "=3.10.1"
