@@ -15,7 +15,7 @@ name = "pgdo"
 path = "src/lib.rs"
 
 [dependencies]
-either = "1.10.0"
+either = "1.11.0"
 glob = "0.3.1"
 globset = "0.4.14"
 lazy_static = "1.4.0"
@@ -28,7 +28,7 @@ rand = "0.8.5"
 regex = "1.10.4"
 shell-quote = "0.5.0"
 tempfile = "3.10.1"
-thiserror = "1.0.58"
+thiserror = "1.0.59"
 tokio = { version = "1.37.0", features = ["full"] }
 tokio-stream = "0.1.15"
 url = "2.5.0"
