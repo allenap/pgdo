@@ -24,3 +24,4 @@ pgdo-test-macros = { path = "../pgdo-test-macros" }
 [dependencies.sqlx]
 version = "0.7.4"
 features = ["macros", "postgres", "runtime-tokio"]
+default-features = false
