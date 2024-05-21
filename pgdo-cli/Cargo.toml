@@ -29,5 +29,9 @@ shell-quote = "=0.5.0"
 simple_logger = "=5.0.0"
 tempfile = "=3.10.1"
 thiserror = "=1.0.61"
-tokio = { version = "=1.37.0", features = ["full"] }
 uuid = { version = "=1.8.0", features = ["v5"] }
+
+[dependencies.tokio]
+version = "=1.37.0"
+features = ["parking_lot", "rt-multi-thread"]
+default-features = false
