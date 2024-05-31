@@ -32,6 +32,6 @@ thiserror = "=1.0.61"
 uuid = { version = "=1.8.0", features = ["v5"] }
 
 [dependencies.tokio]
-version = "=1.37.0"
+version = "=1.38.0"
 features = ["parking_lot", "rt-multi-thread"]
 default-features = false
