@@ -25,7 +25,7 @@ nix = { version = "0.28.0", features = ["fs", "user"] }
 postgres = "0.19.7"
 postgres-protocol = "0.6.6"
 rand = "0.8.5"
-regex = "1.10.4"
+regex = "1.10.5"
 shell-quote = "0.5.0"
 tempfile = "3.10.1"
 thiserror = "1.0.61"
