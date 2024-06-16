@@ -1,1 +1,1 @@
-doc-valid-idents = ["macOS", "PostgreSQL", "SemVer", "SQLx"]
+doc-valid-idents = ["macOS", "PostgreSQL", "SemVer", "SQLite", "SQLx"]
