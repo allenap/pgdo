@@ -489,6 +489,7 @@ mod tests {
             $(
                 paste! {
                     #[test]
+                    #[allow(clippy::cast_precision_loss, clippy::cast_lossless)]
                     fn [< test_value_number_from_ $from_type >]() {
                         assert_eq!(Value::from(42 as $from_type), Value::Number("42".into()));
                     }

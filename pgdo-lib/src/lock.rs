@@ -12,9 +12,11 @@
 //! # Ok::<(), std::io::Error>(())
 //! ```
 //!
-//! Dropping a [`LockedFileShared`] or [`LockedFileExclusive`] drops their locks
-//! too, by virtue of dropping the [`File`] they each wrap, so there's no need
-//! to call `unlock` unless you prefer to be explicit.
+//! Dropping a [`LockedFileShared`] or [`LockedFileExclusive`] will ordinarily
+//! drop the underlying `flock`-based lock by virtue of dropping the [`File`]
+//! they each wrap. However, if the file descriptor was duplicated prior to
+//! creating the initial [`UnlockedFile`], the lock will persist as long as that
+//! descriptor remains valid.
 
 // Ignore deprecation warnings, for now, regarding `nix::fcntl::flock`, since
 // the suggested replacement, `nix::fcntl::Flock`, does not provide the same
