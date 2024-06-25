@@ -31,7 +31,7 @@ tempfile = "3.10.1"
 thiserror = "1.0.61"
 tokio-stream = "0.1.15"
 url = "2.5.1"
-uuid = { version = "1.8.0", features = ["v5"] }
+uuid = { version = "1.9.1", features = ["v5"] }
 
 [dependencies.sqlx]
 version = "0.7.4"
