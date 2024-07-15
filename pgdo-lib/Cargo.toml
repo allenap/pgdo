@@ -28,10 +28,10 @@ rand = "0.8.5"
 regex = "1.10.5"
 shell-quote = "0.6.1"
 tempfile = "3.10.1"
-thiserror = "1.0.61"
+thiserror = "1.0.62"
 tokio-stream = "0.1.15"
 url = "2.5.2"
-uuid = { version = "1.9.1", features = ["v5"] }
+uuid = { version = "1.10.0", features = ["v5"] }
 
 [dependencies.sqlx]
 version = "0.7.4"
