@@ -160,8 +160,10 @@ fn backup<D: AsRef<Path>>(resource: resource::ResourceFree, backup_dir: D) -> mi
     // The command we use to copy WAL files to `destination_wal`.
     // <https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-ARCHIVING-WAL>.
     let archive_command = {
-        let pgdo_exe_shell: String = std::env::current_exe().into_diagnostic()?.quoted(Sh);
-        let destination_wal_shell: String = backup.backup_wal_dir.quoted(Sh);
+        let pgdo_exe = std::env::current_exe().into_diagnostic()?;
+        let pgdo_exe_shell = String::from_utf8(pgdo_exe.quoted(Sh)).into_diagnostic()?;
+        let destination_wal_shell =
+            String::from_utf8(backup.backup_wal_dir.quoted(Sh)).into_diagnostic()?;
         format!("{pgdo_exe_shell} backup:tools wal:archive %p {destination_wal_shell}/%f")
     };
 

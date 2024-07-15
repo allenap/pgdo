@@ -1245,7 +1245,7 @@ dependencies = [
  "log",
  "miette",
  "pgdo-lib",
- "shell-quote 0.7.1",
+ "shell-quote",
  "simple_logger",
  "tempfile",
  "thiserror",
@@ -1271,7 +1271,7 @@ dependencies = [
  "postgres-protocol",
  "rand",
  "regex",
- "shell-quote 0.6.1",
+ "shell-quote",
  "sqlx",
  "tempfile",
  "thiserror",
@@ -1618,15 +1618,6 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
-]
-
-[[package]]
-name = "shell-quote"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "039268ccdc01b3f7485c363e90435c4debad646113baf90d6cb019ee5653bc9a"
-dependencies = [
- "bstr",
 ]
 
 [[package]]
