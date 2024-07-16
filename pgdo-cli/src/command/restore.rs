@@ -62,6 +62,8 @@ enum RestoreError {
     IoError(#[from] std::io::Error),
     #[error("File copy error")]
     FileCopyError(#[from] fs_extra::error::Error),
+    #[error("Shell error")]
+    ShellError(#[from] std::string::FromUtf8Error),
     #[error(transparent)]
     ClusterError(#[from] pgdo::cluster::ClusterError),
     #[error(transparent)]
@@ -169,7 +171,7 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     // Start up the cluster with `restore_command = some/command` and
     // `recovery_target_action = "shutdown"` (or "pause" if we want to
     // interactively inspect the cluster).
-    let backup_wal_dir_sh: String = backup_wal_dir.quoted(Sh);
+    let backup_wal_dir_sh = String::from_utf8(backup_wal_dir.quoted(Sh))?;
     let restore_command = format!("cp {backup_wal_dir_sh}/%f %p");
 
     let (datadir, lock) = runner::lock_for(&restore_dir)?;
@@ -264,7 +266,7 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
     let superusers = cluster::determine_superuser_role_names(&cluster)?;
 
     // Restore/recovery is done; give the user a hint about what next.
-    let restore_dir_sh: String = restore_dir.quoted(Sh);
+    let restore_dir_sh: String = String::from_utf8(restore_dir.quoted(Sh))?;
     let title = console::style("Restore/recovery complete!")
         .bold()
         .bright()
@@ -281,7 +283,7 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
         }
         Ok(_) | Err(_) => match superusers.iter().min() {
             Some(user) => {
-                let user_sh: String = user.quoted(Sh);
+                let user_sh: String = String::from_utf8(user.quoted(Sh))?;
                 writeln!(&term, "{title}")?;
                 writeln!(&term, "{warning}: Current user does not match any superuser role in the restored cluster.")?;
                 writeln!(
