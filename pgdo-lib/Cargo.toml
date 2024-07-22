@@ -23,7 +23,7 @@ log = "0.4.22"
 miette = "7.2.0"
 nix = { version = "0.29.0", features = ["fs", "user"] }
 postgres = "0.19.7"
-postgres-protocol = "0.6.6"
+postgres-protocol = "0.6.7"
 rand = "0.8.5"
 regex = "1.10.5"
 shell-quote = "0.7.1"
