@@ -28,10 +28,10 @@ pgdo-lib = { version = "=0.4.2", path = "../pgdo-lib" }
 shell-quote = "=0.7.1"
 simple_logger = "=5.0.0"
 tempfile = "=3.10.1"
-thiserror = "=1.0.62"
+thiserror = "=1.0.63"
 uuid = { version = "=1.10.0", features = ["v5"] }
 
 [dependencies.tokio]
-version = "=1.38.0"
+version = "=1.38.1"
 features = ["parking_lot", "rt-multi-thread"]
 default-features = false
