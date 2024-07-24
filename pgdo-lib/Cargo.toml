@@ -39,7 +39,7 @@ features = ["macros", "postgres", "runtime-tokio"]
 default-features = false
 
 [dependencies.tokio]
-version = "1.38.1"
+version = "1.39.1"
 features = ["parking_lot", "rt-multi-thread"]
 default-features = false
 
