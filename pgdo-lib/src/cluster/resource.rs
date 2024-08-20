@@ -13,9 +13,9 @@ use super::{
 
 // ----------------------------------------------------------------------------
 
-pub type ResourceFree<'a> = resource::ResourceFree<'a, Cluster>;
-pub type ResourceShared<'a> = resource::ResourceShared<'a, Cluster>;
-pub type ResourceExclusive<'a> = resource::ResourceExclusive<'a, Cluster>;
+pub type ResourceFree = resource::ResourceFree<Cluster>;
+pub type ResourceShared = resource::ResourceShared<Cluster>;
+pub type ResourceExclusive = resource::ResourceExclusive<Cluster>;
 
 // ----------------------------------------------------------------------------
 
@@ -29,26 +29,26 @@ impl From<ClusterError> for Error {
 
 // ----------------------------------------------------------------------------
 
-impl<'a> resource::FacetFree<'a> for Cluster {
-    type FacetFree = ClusterFree<'a>;
+impl resource::FacetFree for Cluster {
+    type FacetFree<'a> = ClusterFree<'a>;
 
-    fn facet_free(&'a self) -> Self::FacetFree {
+    fn facet_free(&self) -> Self::FacetFree<'_> {
         ClusterFree { cluster: self }
     }
 }
 
-impl<'a> resource::FacetShared<'a> for Cluster {
-    type FacetShared = ClusterShared<'a>;
+impl resource::FacetShared for Cluster {
+    type FacetShared<'a> = ClusterShared<'a>;
 
-    fn facet_shared(&'a self) -> Self::FacetShared {
+    fn facet_shared(&self) -> Self::FacetShared<'_> {
         ClusterShared { cluster: self }
     }
 }
 
-impl<'a> resource::FacetExclusive<'a> for Cluster {
-    type FacetExclusive = ClusterExclusive<'a>;
+impl resource::FacetExclusive for Cluster {
+    type FacetExclusive<'a> = ClusterExclusive<'a>;
 
-    fn facet_exclusive(&'a self) -> Self::FacetExclusive {
+    fn facet_exclusive(&self) -> Self::FacetExclusive<'_> {
         ClusterExclusive { cluster: self }
     }
 }
@@ -156,7 +156,8 @@ impl<'a> ClusterExclusive<'a> {
 
 // ----------------------------------------------------------------------------
 
-pub type StartupResource<'a> = Either<ResourceShared<'a>, ResourceExclusive<'a>>;
+/// A [`ResourceShared`] or a [`ResourceExclusive`].
+pub type HeldResource = Either<ResourceShared, ResourceExclusive>;
 
 /// Creates the cluster, if it doesn't already exist, and starts it in a
 /// cooperative manner.
@@ -171,10 +172,10 @@ pub type StartupResource<'a> = Either<ResourceShared<'a>, ResourceExclusive<'a>>
 /// or [`Right(ResourceExclusive)`] otherwise. Typically one would drop the
 /// exclusive hold down to shared as soon as possible, but the option is there
 /// to do maintenance, for example, that requires an exclusive hold.
-pub fn startup<'res>(
-    mut resource: ResourceFree<'res>,
+pub fn startup(
+    mut resource: ResourceFree,
     options: super::Options<'_>,
-) -> Result<(State, StartupResource<'res>), Error> {
+) -> Result<(State, HeldResource), Error> {
     loop {
         resource = match resource.try_exclusive() {
             Ok(Left(resource)) => {
@@ -211,10 +212,10 @@ pub fn startup<'res>(
 
 /// Similar to [`startup`] but does not create the cluster, and thus only
 /// succeeds if the cluster already exists.
-pub fn startup_if_exists<'res>(
-    mut resource: ResourceFree<'res>,
+pub fn startup_if_exists(
+    mut resource: ResourceFree,
     options: super::Options<'_>,
-) -> Result<(State, StartupResource<'res>), Error> {
+) -> Result<(State, HeldResource), Error> {
     loop {
         resource = match resource.try_exclusive() {
             Ok(Left(resource)) => {
@@ -265,9 +266,7 @@ pub fn startup_if_exists<'res>(
 /// The resource is [`Left(ResourceShared)`] if the cluster is already in use –
 /// i.e. the resource passed in is returned – else [`Right(ResourceExclusive)`]
 /// otherwise.
-pub fn shutdown(
-    resource: ResourceShared,
-) -> Result<(State, Either<ResourceShared, ResourceExclusive>), Error> {
+pub fn shutdown(resource: ResourceShared) -> Result<(State, HeldResource), Error> {
     match resource.try_exclusive() {
         Ok(Left(resource)) => {
             // The resource is in use by someone/something else. There's nothing
@@ -290,9 +289,7 @@ pub fn shutdown(
 
 /// Similar to [`shutdown`] but also attempts to destroy the cluster, i.e.
 /// remove it entirely from the filesystem.
-pub fn destroy(
-    resource: ResourceShared,
-) -> Result<(State, Either<ResourceShared, ResourceExclusive>), Error> {
+pub fn destroy(resource: ResourceShared) -> Result<(State, HeldResource), Error> {
     match resource.try_exclusive() {
         Ok(Left(resource)) => {
             // The resource is in use by someone/something else. There's nothing
