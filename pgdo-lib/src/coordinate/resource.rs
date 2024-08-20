@@ -1,7 +1,6 @@
 //! Manage a resource that can be started, stopped, and destroyed – i.e. a
-//! [`Subject`] – and which has different [facets][`Faceted`] depending on
-//! whether it is locked exclusively, shared between multiple users, or
-//! unlocked/free.
+//! [`Subject`] – and which has different facets depending on whether it is
+//! locked exclusively, shared between multiple users, or unlocked/free.
 //!
 //! For example, a resource representing a PostgreSQL cluster would allow start,
 //! stop, and destroy actions only when it is exclusively locked. The _type_ of
@@ -18,38 +17,33 @@ use std::marker::PhantomData;
 
 // ----------------------------------------------------------------------------
 
-/// A resource is faceted into three types: free, shared, and exclusive. This
-/// trait allows us to obtain the three facets of a resource.
-pub trait Faceted<'a> {
+pub trait FacetFree<'a> {
     type FacetFree;
-    type FacetShared;
-    type FacetExclusive;
-
     fn facet_free(&'a self) -> Self::FacetFree;
+}
+
+pub trait FacetShared<'a> {
+    type FacetShared;
     fn facet_shared(&'a self) -> Self::FacetShared;
+}
+
+pub trait FacetExclusive<'a> {
+    type FacetExclusive;
     fn facet_exclusive(&'a self) -> Self::FacetExclusive;
 }
 
 // ----------------------------------------------------------------------------
 
 /// An unlocked/free resource.
-pub struct ResourceFree<'a, R: Subject + Faceted<'a>> {
+pub struct ResourceFree<'a, R: Subject> {
     lock: lock::UnlockedFile,
     inner: R,
     phantom: PhantomData<&'a R>,
 }
 
-impl<'a, R> ResourceFree<'a, R>
-where
-    R: Subject + Faceted<'a>,
-{
+impl<'a, R: Subject> ResourceFree<'a, R> {
     pub fn new(lock: lock::UnlockedFile, inner: R) -> Self {
         Self { lock, inner, phantom: PhantomData }
-    }
-
-    /// Return the [`Faceted::FacetFree`] of the wrapped resource.
-    pub fn facet(&'a self) -> R::FacetFree {
-        self.inner.facet_free()
     }
 
     /// Attempt to obtain a shared lock on the resource.
@@ -93,26 +87,25 @@ where
     }
 }
 
+impl<'a, R: Subject + FacetFree<'a>> ResourceFree<'a, R> {
+    /// Return the [`FacetFree::FacetFree`] of the wrapped resource.
+    pub fn facet(&'a self) -> R::FacetFree {
+        self.inner.facet_free()
+    }
+}
+
 // ----------------------------------------------------------------------------
 
 /// A shared resource.
-pub struct ResourceShared<'a, R: Subject + Faceted<'a>> {
+pub struct ResourceShared<'a, R: Subject> {
     lock: lock::LockedFileShared,
     inner: R,
     phantom: PhantomData<&'a R>,
 }
 
-impl<'a, R> ResourceShared<'a, R>
-where
-    R: Subject + Faceted<'a>,
-{
+impl<'a, R: Subject> ResourceShared<'a, R> {
     pub fn new(lock: lock::LockedFileShared, inner: R) -> Self {
         Self { lock, inner, phantom: PhantomData }
-    }
-
-    /// Return the [`Faceted::FacetShared`] of the wrapped resource.
-    pub fn facet(&'a self) -> R::FacetShared {
-        self.inner.facet_shared()
     }
 
     /// Attempt to obtain an exclusive lock on the resource.
@@ -150,26 +143,25 @@ where
     }
 }
 
+impl<'a, R: Subject + FacetShared<'a>> ResourceShared<'a, R> {
+    /// Return the [`FacetShared::FacetShared`] of the wrapped resource.
+    pub fn facet(&'a self) -> R::FacetShared {
+        self.inner.facet_shared()
+    }
+}
+
 // ----------------------------------------------------------------------------
 
 /// A resource held exclusively.
-pub struct ResourceExclusive<'a, R: Subject + Faceted<'a>> {
+pub struct ResourceExclusive<'a, R: Subject> {
     lock: lock::LockedFileExclusive,
     inner: R,
     phantom: PhantomData<&'a R>,
 }
 
-impl<'a, R> ResourceExclusive<'a, R>
-where
-    R: Subject + Faceted<'a>,
-{
+impl<'a, R: Subject> ResourceExclusive<'a, R> {
     pub fn new(lock: lock::LockedFileExclusive, inner: R) -> Self {
         Self { lock, inner, phantom: PhantomData }
-    }
-
-    /// Return the [`Faceted::FacetExclusive`] of the wrapped resource.
-    pub fn facet(&'a self) -> R::FacetExclusive {
-        self.inner.facet_exclusive()
     }
 
     /// Attempt to obtain a shared lock on the resource.
@@ -202,5 +194,12 @@ where
     pub fn release(self) -> Result<ResourceFree<'a, R>, CoordinateError<R::Error>> {
         let lock = self.lock.unlock()?;
         Ok(ResourceFree { inner: self.inner, lock, phantom: PhantomData })
+    }
+}
+
+impl<'a, R: Subject + FacetExclusive<'a>> ResourceExclusive<'a, R> {
+    /// Return the [`FacetExclusive::FacetExclusive`] of the wrapped resource.
+    pub fn facet(&'a self) -> R::FacetExclusive {
+        self.inner.facet_exclusive()
     }
 }

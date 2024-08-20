@@ -29,18 +29,24 @@ impl From<ClusterError> for Error {
 
 // ----------------------------------------------------------------------------
 
-impl<'a> resource::Faceted<'a> for Cluster {
+impl<'a> resource::FacetFree<'a> for Cluster {
     type FacetFree = ClusterFree<'a>;
-    type FacetShared = ClusterShared<'a>;
-    type FacetExclusive = ClusterExclusive<'a>;
 
     fn facet_free(&'a self) -> Self::FacetFree {
         ClusterFree { cluster: self }
     }
+}
+
+impl<'a> resource::FacetShared<'a> for Cluster {
+    type FacetShared = ClusterShared<'a>;
 
     fn facet_shared(&'a self) -> Self::FacetShared {
         ClusterShared { cluster: self }
     }
+}
+
+impl<'a> resource::FacetExclusive<'a> for Cluster {
+    type FacetExclusive = ClusterExclusive<'a>;
 
     fn facet_exclusive(&'a self) -> Self::FacetExclusive {
         ClusterExclusive { cluster: self }
