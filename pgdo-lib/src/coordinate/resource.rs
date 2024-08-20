@@ -35,171 +35,179 @@ pub trait FacetExclusive<'a> {
 // ----------------------------------------------------------------------------
 
 /// An unlocked/free resource.
-pub struct ResourceFree<'a, R: Subject> {
+pub struct ResourceFree<'a, S: Subject> {
     lock: lock::UnlockedFile,
-    inner: R,
-    phantom: PhantomData<&'a R>,
+    subject: S,
+    phantom: PhantomData<&'a S>,
 }
 
-impl<'a, R: Subject> ResourceFree<'a, R> {
-    pub fn new(lock: lock::UnlockedFile, inner: R) -> Self {
-        Self { lock, inner, phantom: PhantomData }
+impl<'a, S: Subject> ResourceFree<'a, S> {
+    pub fn new(lock: lock::UnlockedFile, inner: S) -> Self {
+        Self { lock, subject: inner, phantom: PhantomData }
     }
 
     /// Attempt to obtain a shared lock on the resource.
     pub fn try_shared(
         self,
-    ) -> Result<Either<Self, ResourceShared<'a, R>>, CoordinateError<R::Error>> {
+    ) -> Result<Either<Self, ResourceShared<'a, S>>, CoordinateError<S::Error>> {
         Ok(match self.lock.try_lock_shared()? {
-            Left(lock) => Left(Self { inner: self.inner, lock, phantom: PhantomData }),
-            Right(lock) => Right(ResourceShared { inner: self.inner, lock, phantom: PhantomData }),
+            Left(lock) => Left(Self { subject: self.subject, lock, phantom: PhantomData }),
+            Right(lock) => {
+                Right(ResourceShared { subject: self.subject, lock, phantom: PhantomData })
+            }
         })
     }
 
     /// Obtain a shared lock on the resource. Can block indefinitely.
-    pub fn shared(self) -> Result<ResourceShared<'a, R>, CoordinateError<R::Error>> {
+    pub fn shared(self) -> Result<ResourceShared<'a, S>, CoordinateError<S::Error>> {
         let lock = self.lock.lock_shared()?;
-        Ok(ResourceShared { inner: self.inner, lock, phantom: PhantomData })
+        Ok(ResourceShared { subject: self.subject, lock, phantom: PhantomData })
     }
 
     /// Attempt to obtain an exclusive lock on the resource.
     pub fn try_exclusive(
         self,
-    ) -> Result<Either<Self, ResourceExclusive<'a, R>>, CoordinateError<R::Error>> {
+    ) -> Result<Either<Self, ResourceExclusive<'a, S>>, CoordinateError<S::Error>> {
         Ok(match self.lock.try_lock_exclusive()? {
-            Left(lock) => Left(Self { inner: self.inner, lock, phantom: PhantomData }),
+            Left(lock) => Left(Self { subject: self.subject, lock, phantom: PhantomData }),
             Right(lock) => {
-                Right(ResourceExclusive { inner: self.inner, lock, phantom: PhantomData })
+                Right(ResourceExclusive { subject: self.subject, lock, phantom: PhantomData })
             }
         })
     }
 
     /// Obtain an exclusive lock on the resource. Can block indefinitely.
-    pub fn exclusive(self) -> Result<ResourceExclusive<'a, R>, CoordinateError<R::Error>> {
+    pub fn exclusive(self) -> Result<ResourceExclusive<'a, S>, CoordinateError<S::Error>> {
         let lock = self.lock.lock_exclusive()?;
-        Ok(ResourceExclusive { inner: self.inner, lock, phantom: PhantomData })
+        Ok(ResourceExclusive { subject: self.subject, lock, phantom: PhantomData })
     }
 
     /// Disassembles this resource into the lock and the inner, managed, value.
     /// This can only be done from an unlocked/free resource.
-    pub fn into_parts(self) -> (lock::UnlockedFile, R) {
-        (self.lock, self.inner)
+    pub fn into_parts(self) -> (lock::UnlockedFile, S) {
+        (self.lock, self.subject)
     }
 }
 
-impl<'a, R: Subject + FacetFree<'a>> ResourceFree<'a, R> {
+impl<'a, S: Subject + FacetFree<'a>> ResourceFree<'a, S> {
     /// Return the [`FacetFree::FacetFree`] of the wrapped resource.
-    pub fn facet(&'a self) -> R::FacetFree {
-        self.inner.facet_free()
+    pub fn facet(&'a self) -> S::FacetFree {
+        self.subject.facet_free()
     }
 }
 
 // ----------------------------------------------------------------------------
 
 /// A shared resource.
-pub struct ResourceShared<'a, R: Subject> {
+pub struct ResourceShared<'a, S: Subject> {
     lock: lock::LockedFileShared,
-    inner: R,
-    phantom: PhantomData<&'a R>,
+    subject: S,
+    phantom: PhantomData<&'a S>,
 }
 
-impl<'a, R: Subject> ResourceShared<'a, R> {
-    pub fn new(lock: lock::LockedFileShared, inner: R) -> Self {
-        Self { lock, inner, phantom: PhantomData }
+impl<'a, S: Subject> ResourceShared<'a, S> {
+    pub fn new(lock: lock::LockedFileShared, inner: S) -> Self {
+        Self { lock, subject: inner, phantom: PhantomData }
     }
 
     /// Attempt to obtain an exclusive lock on the resource.
     pub fn try_exclusive(
         self,
-    ) -> Result<Either<Self, ResourceExclusive<'a, R>>, CoordinateError<R::Error>> {
+    ) -> Result<Either<Self, ResourceExclusive<'a, S>>, CoordinateError<S::Error>> {
         Ok(match self.lock.try_lock_exclusive()? {
-            Left(lock) => Left(Self { inner: self.inner, lock, phantom: PhantomData }),
+            Left(lock) => Left(Self { subject: self.subject, lock, phantom: PhantomData }),
             Right(lock) => {
-                Right(ResourceExclusive { inner: self.inner, lock, phantom: PhantomData })
+                Right(ResourceExclusive { subject: self.subject, lock, phantom: PhantomData })
             }
         })
     }
 
     /// Obtain an exclusive lock on the resource. Can block indefinitely.
-    pub fn exclusive(self) -> Result<ResourceExclusive<'a, R>, CoordinateError<R::Error>> {
+    pub fn exclusive(self) -> Result<ResourceExclusive<'a, S>, CoordinateError<S::Error>> {
         let lock = self.lock.lock_exclusive()?;
-        Ok(ResourceExclusive { inner: self.inner, lock, phantom: PhantomData })
+        Ok(ResourceExclusive { subject: self.subject, lock, phantom: PhantomData })
     }
 
     /// Attempt to release this resource.
     pub fn try_release(
         self,
-    ) -> Result<Either<Self, ResourceFree<'a, R>>, CoordinateError<R::Error>> {
+    ) -> Result<Either<Self, ResourceFree<'a, S>>, CoordinateError<S::Error>> {
         Ok(match self.lock.try_unlock()? {
-            Left(lock) => Left(Self { inner: self.inner, lock, phantom: PhantomData }),
-            Right(lock) => Right(ResourceFree { inner: self.inner, lock, phantom: PhantomData }),
+            Left(lock) => Left(Self { subject: self.subject, lock, phantom: PhantomData }),
+            Right(lock) => {
+                Right(ResourceFree { subject: self.subject, lock, phantom: PhantomData })
+            }
         })
     }
 
     /// Release this resource. Can block indefinitely.
-    pub fn release(self) -> Result<ResourceFree<'a, R>, CoordinateError<R::Error>> {
+    pub fn release(self) -> Result<ResourceFree<'a, S>, CoordinateError<S::Error>> {
         let lock = self.lock.unlock()?;
-        Ok(ResourceFree { inner: self.inner, lock, phantom: PhantomData })
+        Ok(ResourceFree { subject: self.subject, lock, phantom: PhantomData })
     }
 }
 
-impl<'a, R: Subject + FacetShared<'a>> ResourceShared<'a, R> {
+impl<'a, S: Subject + FacetShared<'a>> ResourceShared<'a, S> {
     /// Return the [`FacetShared::FacetShared`] of the wrapped resource.
-    pub fn facet(&'a self) -> R::FacetShared {
-        self.inner.facet_shared()
+    pub fn facet(&'a self) -> S::FacetShared {
+        self.subject.facet_shared()
     }
 }
 
 // ----------------------------------------------------------------------------
 
 /// A resource held exclusively.
-pub struct ResourceExclusive<'a, R: Subject> {
+pub struct ResourceExclusive<'a, S: Subject> {
     lock: lock::LockedFileExclusive,
-    inner: R,
-    phantom: PhantomData<&'a R>,
+    subject: S,
+    phantom: PhantomData<&'a S>,
 }
 
-impl<'a, R: Subject> ResourceExclusive<'a, R> {
-    pub fn new(lock: lock::LockedFileExclusive, inner: R) -> Self {
-        Self { lock, inner, phantom: PhantomData }
+impl<'a, S: Subject> ResourceExclusive<'a, S> {
+    pub fn new(lock: lock::LockedFileExclusive, inner: S) -> Self {
+        Self { lock, subject: inner, phantom: PhantomData }
     }
 
     /// Attempt to obtain a shared lock on the resource.
     pub fn try_shared(
         self,
-    ) -> Result<Either<Self, ResourceShared<'a, R>>, CoordinateError<R::Error>> {
+    ) -> Result<Either<Self, ResourceShared<'a, S>>, CoordinateError<S::Error>> {
         Ok(match self.lock.try_lock_shared()? {
-            Left(lock) => Left(Self { inner: self.inner, lock, phantom: PhantomData }),
-            Right(lock) => Right(ResourceShared { inner: self.inner, lock, phantom: PhantomData }),
+            Left(lock) => Left(Self { subject: self.subject, lock, phantom: PhantomData }),
+            Right(lock) => {
+                Right(ResourceShared { subject: self.subject, lock, phantom: PhantomData })
+            }
         })
     }
 
     /// Obtain a shared lock on the resource. Can block indefinitely.
-    pub fn shared(self) -> Result<ResourceShared<'a, R>, CoordinateError<R::Error>> {
+    pub fn shared(self) -> Result<ResourceShared<'a, S>, CoordinateError<S::Error>> {
         let lock = self.lock.lock_shared()?;
-        Ok(ResourceShared { inner: self.inner, lock, phantom: PhantomData })
+        Ok(ResourceShared { subject: self.subject, lock, phantom: PhantomData })
     }
 
     /// Attempt to release this resource.
     pub fn try_release(
         self,
-    ) -> Result<Either<Self, ResourceFree<'a, R>>, CoordinateError<R::Error>> {
+    ) -> Result<Either<Self, ResourceFree<'a, S>>, CoordinateError<S::Error>> {
         Ok(match self.lock.try_unlock()? {
-            Left(lock) => Left(Self { inner: self.inner, lock, phantom: PhantomData }),
-            Right(lock) => Right(ResourceFree { inner: self.inner, lock, phantom: PhantomData }),
+            Left(lock) => Left(Self { subject: self.subject, lock, phantom: PhantomData }),
+            Right(lock) => {
+                Right(ResourceFree { subject: self.subject, lock, phantom: PhantomData })
+            }
         })
     }
 
     /// Release this resource. Can block indefinitely.
-    pub fn release(self) -> Result<ResourceFree<'a, R>, CoordinateError<R::Error>> {
+    pub fn release(self) -> Result<ResourceFree<'a, S>, CoordinateError<S::Error>> {
         let lock = self.lock.unlock()?;
-        Ok(ResourceFree { inner: self.inner, lock, phantom: PhantomData })
+        Ok(ResourceFree { subject: self.subject, lock, phantom: PhantomData })
     }
 }
 
-impl<'a, R: Subject + FacetExclusive<'a>> ResourceExclusive<'a, R> {
+impl<'a, S: Subject + FacetExclusive<'a>> ResourceExclusive<'a, S> {
     /// Return the [`FacetExclusive::FacetExclusive`] of the wrapped resource.
-    pub fn facet(&'a self) -> R::FacetExclusive {
-        self.inner.facet_exclusive()
+    pub fn facet(&'a self) -> S::FacetExclusive {
+        self.subject.facet_exclusive()
     }
 }
