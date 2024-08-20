@@ -19,8 +19,8 @@ name = "pgdo_test_macros"
 path = "src/lib.rs"
 
 [dependencies]
-quote = "1.0.36"
-syn = "2.0.72"
+quote = "1.0.37"
+syn = "2.0.76"
 pgdo-lib = { path = "../pgdo-lib" }
 
 [build-dependencies]
