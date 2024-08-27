@@ -138,13 +138,15 @@ fn startup<S: Subject>(
     loop {
         lock = match lock.try_lock_exclusive() {
             Ok(Left(lock)) => {
-                // The subject is locked exclusively by someone/something else.
-                // Switch to a shared lock optimistically. This blocks until we
-                // get the shared lock.
+                // The subject is locked elsewhere, shared or exclusively. We
+                // optimistically take a shared lock. If the other lock is also
+                // shared, this will not block. If the other lock is exclusive,
+                // this will block until that lock is released (or changed to a
+                // shared lock).
                 let lock = lock.lock_shared()?;
-                // The subject may have been started while that exclusive lock
-                // was held, so we must check if the subject is running now –
-                // otherwise we loop back to the top again.
+                // If obtaining the lock blocked, i.e. the lock elsewhere was
+                // exclusive, then the subject may have been started by the
+                // process that held that exclusive lock. We should check.
                 if control.running().map_err(CoordinateError::ControlError)? {
                     return Ok(lock);
                 }
@@ -180,13 +182,15 @@ fn startup_if_exists<S: Subject>(
     loop {
         lock = match lock.try_lock_exclusive() {
             Ok(Left(lock)) => {
-                // The subject is locked exclusively by someone/something else.
-                // Switch to a shared lock optimistically. This blocks until we
-                // get the shared lock.
+                // The subject is locked elsewhere, shared or exclusively. We
+                // optimistically take a shared lock. If the other lock is also
+                // shared, this will not block. If the other lock is exclusive,
+                // this will block until that lock is released (or changed to a
+                // shared lock).
                 let lock = lock.lock_shared()?;
-                // The subject may have been started while that exclusive lock
-                // was held, so we must check if the subject is running now –
-                // otherwise we loop back to the top again.
+                // If obtaining the lock blocked, i.e. the lock elsewhere was
+                // exclusive, then the subject may have been started by the
+                // process that held that exclusive lock. We should check.
                 if subject.running().map_err(CoordinateError::ControlError)? {
                     return Ok(lock);
                 }
@@ -228,8 +232,8 @@ where
 {
     match lock.try_lock_exclusive() {
         Ok(Left(lock)) => {
-            // The subject is in use by someone/something else. There's nothing
-            // more we can do here.
+            // The subject is in use elsewhere. There's nothing more we can do
+            // here.
             lock.unlock()?;
             Ok(None)
         }

@@ -10,7 +10,7 @@ use tempfile::TempDir;
 use tokio::{fs, task::block_in_place};
 use tokio_stream::{wrappers::ReadDirStream, StreamExt};
 
-use super::{config, resource::StartupResource};
+use super::{config, resource::HeldResource};
 use crate::{cluster, coordinate, lock};
 
 // ----------------------------------------------------------------------------
@@ -39,7 +39,7 @@ impl Backup {
     /// does nothing (and returns `false`).
     pub async fn do_configure_archiving<'a>(
         &self,
-        resource: &'a StartupResource<'a>,
+        resource: &'a HeldResource,
         archive_command: &str,
     ) -> Result<bool, BackupError> {
         let pool = match resource {
@@ -134,7 +134,7 @@ impl Backup {
     /// [`Backup::do_configure_archiving`]).
     pub async fn do_base_backup<'a>(
         &self,
-        resource: &'a StartupResource<'a>,
+        resource: &'a HeldResource,
     ) -> Result<PathBuf, BackupError> {
         // Temporary location into which we'll make the base backup.
         let backup_tmp_dir =
