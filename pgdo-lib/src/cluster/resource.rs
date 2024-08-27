@@ -163,7 +163,7 @@ pub type HeldResource = Either<ResourceShared, ResourceExclusive>;
 /// cooperative manner.
 ///
 /// The return value has two parts: the state, [`State`], and the resource,
-/// [`StartupResource`].
+/// [`HeldResource`].
 ///
 /// The state is [`State::Unmodified`] if the cluster was already running, else
 /// [`State::Modified`] if the cluster was created or started by this function.
