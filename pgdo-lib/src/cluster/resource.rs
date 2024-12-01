@@ -64,7 +64,7 @@ pub struct ClusterFree<'a> {
 /// this for more than informational purposes.
 ///
 /// [TOCTOU]: https://en.wikipedia.org/wiki/Time-of-check_to_time-of-use
-impl<'a> ClusterFree<'a> {
+impl ClusterFree<'_> {
     pub fn exists(&self) -> Result<bool, ClusterError> {
         Ok(exists(self.cluster))
     }
@@ -84,7 +84,7 @@ pub struct ClusterShared<'a> {
 /// processes. It is possible to abuse this and shutdown the cluster, for
 /// example, but that's on you; there's only so much that this library can do to
 /// prevent misuse.
-impl<'a> ClusterShared<'a> {
+impl ClusterShared<'_> {
     pub fn exists(&self) -> Result<bool, ClusterError> {
         Ok(exists(self.cluster))
     }
@@ -117,7 +117,7 @@ pub struct ClusterExclusive<'a> {
 
 /// When you have exclusive control of a cluster, you can start, stop, destroy,
 /// reconfigure it – anything.
-impl<'a> ClusterExclusive<'a> {
+impl ClusterExclusive<'_> {
     pub fn start(&self, options: super::Options<'_>) -> Result<State, ClusterError> {
         self.cluster.start(options)
     }

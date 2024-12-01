@@ -183,13 +183,13 @@ impl AsSql for Parameter<'_> {
     }
 }
 
-impl<'a> fmt::Display for Parameter<'a> {
+impl fmt::Display for Parameter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl<'a> AsRef<str> for Parameter<'a> {
+impl AsRef<str> for Parameter<'_> {
     fn as_ref(&self) -> &str {
         self.0
     }
