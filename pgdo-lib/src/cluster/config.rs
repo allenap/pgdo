@@ -21,7 +21,7 @@ pub enum AlterSystem<'a> {
     ResetAll,
 }
 
-impl<'a> AlterSystem<'a> {
+impl AlterSystem<'_> {
     /// Alter the system. Changes made by `ALTER SYSTEM` may require a reload or
     /// even a full restart to take effect.
     pub async fn apply(&self, pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
@@ -143,7 +143,7 @@ impl Setting {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Parameter<'a>(pub &'a str);
 
-impl<'a> Parameter<'a> {
+impl Parameter<'_> {
     /// Get the current [`Value`] for this parameter.
     ///
     /// If you want the full/raw [`Setting`], use [`Setting::get`] instead.
