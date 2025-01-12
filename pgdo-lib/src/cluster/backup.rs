@@ -37,9 +37,9 @@ impl Backup {
     /// Returns a flag indicating if the cluster must be restarted for changes
     /// to take effect. If the cluster is already configured appropriately, this
     /// does nothing (and returns `false`).
-    pub async fn do_configure_archiving<'a>(
+    pub async fn do_configure_archiving(
         &self,
-        resource: &'a HeldResource,
+        resource: &'_ HeldResource,
         archive_command: &str,
     ) -> Result<bool, BackupError> {
         let pool = match resource {
@@ -132,10 +132,7 @@ impl Backup {
     ///
     /// This must be performed _after_ configuring continuous archiving (see
     /// [`Backup::do_configure_archiving`]).
-    pub async fn do_base_backup<'a>(
-        &self,
-        resource: &'a HeldResource,
-    ) -> Result<PathBuf, BackupError> {
+    pub async fn do_base_backup(&self, resource: &'_ HeldResource) -> Result<PathBuf, BackupError> {
         // Temporary location into which we'll make the base backup.
         let backup_tmp_dir =
             block_in_place(|| TempDir::with_prefix_in(BACKUP_DATA_PREFIX_TMP, &self.backup_dir))?;
