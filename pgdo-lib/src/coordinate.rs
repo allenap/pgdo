@@ -155,7 +155,7 @@ fn startup<S: Subject>(
                 // many competing processes one of them rapidly acquires an
                 // exclusive lock and is able to create and start the subject.
                 let lock = lock.unlock()?;
-                let delay = rand::thread_rng().next_u32();
+                let delay = rand::rng().next_u32();
                 let delay = 200 + (delay % 800);
                 let delay = Duration::from_millis(u64::from(delay));
                 std::thread::sleep(delay);
@@ -199,7 +199,7 @@ fn startup_if_exists<S: Subject>(
                 // many competing processes one of them rapidly acquires an
                 // exclusive lock and is able to create and start the subject.
                 let lock = lock.unlock()?;
-                let delay = rand::thread_rng().next_u32();
+                let delay = rand::rng().next_u32();
                 let delay = 200 + (delay % 800);
                 let delay = Duration::from_millis(u64::from(delay));
                 std::thread::sleep(delay);

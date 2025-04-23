@@ -194,7 +194,7 @@ pub fn startup(
                 // many competing processes one of them rapidly acquires an
                 // exclusive lock and is able to create and start the resource.
                 let resource = resource.release()?;
-                let delay = rand::thread_rng().next_u32();
+                let delay = rand::rng().next_u32();
                 let delay = 200 + (delay % 800);
                 let delay = Duration::from_millis(u64::from(delay));
                 std::thread::sleep(delay);
@@ -234,7 +234,7 @@ pub fn startup_if_exists(
                 // many competing processes one of them rapidly acquires an
                 // exclusive lock and is able to create and start the resource.
                 let resource = resource.release()?;
-                let delay = rand::thread_rng().next_u32();
+                let delay = rand::rng().next_u32();
                 let delay = 200 + (delay % 800);
                 let delay = Duration::from_millis(u64::from(delay));
                 std::thread::sleep(delay);

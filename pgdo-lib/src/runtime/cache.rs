@@ -7,7 +7,7 @@ use std::hash::Hasher;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::RwLock;
+use std::sync::{LazyLock, RwLock};
 
 use super::RuntimeError;
 use crate::version::{Version, VersionError};
@@ -19,9 +19,7 @@ struct Entry {
     version: Version,
 }
 
-lazy_static! {
-    static ref CACHE: RwLock<HashMap<PathBuf, Entry>> = HashMap::new().into();
-}
+static CACHE: LazyLock<RwLock<HashMap<PathBuf, Entry>>> = LazyLock::new(|| HashMap::new().into());
 
 /// Get a cached version of PostgreSQL from a given PostgreSQL binary.
 ///

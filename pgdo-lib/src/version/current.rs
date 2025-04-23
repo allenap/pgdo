@@ -17,6 +17,7 @@
 
 use std::fmt;
 use std::str::FromStr;
+use std::sync::LazyLock;
 
 use regex::Regex;
 
@@ -52,10 +53,10 @@ impl FromStr for Version {
     type Err = VersionError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        lazy_static! {
-            static ref RE: Regex = Regex::new(r"(?x) \b (\d+) [.] (\d+) (?: [.] (\d+) )? \b")
-                .expect("invalid regex (for matching PostgreSQL versions)");
-        }
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"(?x) \b (\d+) [.] (\d+) (?: [.] (\d+) )? \b")
+                .expect("invalid regex (for matching PostgreSQL versions)")
+        });
         let badly_formed = |_| VersionError::BadlyFormed { text: Some(s.into()) };
         match RE.captures(s) {
             Some(caps) => {

@@ -1271,7 +1271,6 @@ dependencies = [
  "either",
  "glob",
  "globset",
- "lazy_static",
  "log",
  "miette",
  "nix",
