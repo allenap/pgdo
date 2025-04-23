@@ -7,9 +7,6 @@
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::must_use_candidate)]
 
-#[macro_use]
-extern crate lazy_static;
-
 pub mod cluster;
 pub mod coordinate;
 pub mod lock;

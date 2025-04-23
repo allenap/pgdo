@@ -576,12 +576,13 @@ pub fn determine_superuser_role_names(
     use std::io::Write;
     use std::panic::panic_any;
     use std::process::Stdio;
+    use std::sync::LazyLock;
 
     static QUERY: &[u8] = b"select rolname from pg_roles where rolsuper and rolcanlogin\n";
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r#"\brolname\s*=\s*"(.+)""#)
-            .expect("invalid regex (for matching single-user role names)");
-    }
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"\brolname\s*=\s*"(.+)""#)
+            .expect("invalid regex (for matching single-user role names)")
+    });
 
     let mut child = cluster
         .runtime()?

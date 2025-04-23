@@ -1,6 +1,6 @@
-use std::cmp::Ordering;
 use std::fmt;
 use std::str::FromStr;
+use std::{cmp::Ordering, sync::LazyLock};
 
 use regex::Regex;
 
@@ -204,11 +204,10 @@ impl FromStr for PartialVersion {
     type Err = VersionError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        lazy_static! {
-            static ref RE: Regex =
-                Regex::new(r"(?x) \b (\d+) (?: [.] (\d+) (?: [.] (\d+) )? )? \b")
-                    .expect("invalid regex (for matching partial PostgreSQL versions)");
-        }
+        static RE: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"(?x) \b (\d+) (?: [.] (\d+) (?: [.] (\d+) )? )? \b")
+                .expect("invalid regex (for matching partial PostgreSQL versions)")
+        });
         match RE.captures(s) {
             Some(caps) => match (
                 caps.get(1).and_then(|n| n.as_str().parse::<u32>().ok()),
@@ -231,8 +230,8 @@ mod tests {
     use super::super::{Version, VersionError::*};
     use super::{PartialVersion, PartialVersion::*};
 
+    use rand::rng;
     use rand::seq::SliceRandom;
-    use rand::thread_rng;
 
     #[test]
     fn parses_version_below_10() {
@@ -375,7 +374,7 @@ mod tests {
             Post10mm(10, 11),
             Post10m(11),
         ];
-        let mut rng = thread_rng();
+        let mut rng = rng();
         for _ in 0..1000 {
             versions.shuffle(&mut rng);
             versions.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -407,7 +406,7 @@ mod tests {
             Post10mm(10, 11),
             Post10m(11),
         ];
-        let mut rng = thread_rng();
+        let mut rng = rng();
         for _ in 0..1000 {
             versions.shuffle(&mut rng);
             versions.sort_by_key(PartialVersion::sort_key);
