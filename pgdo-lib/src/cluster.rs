@@ -53,7 +53,7 @@ pub static DATABASE_TEMPLATE0: &str = "template0";
 ///
 /// [Template Databases]:
 ///     https://www.postgresql.org/docs/current/manage-ag-templatedbs.html
-pub static DATABASE_TEMPLATE1: &str = "template0";
+pub static DATABASE_TEMPLATE1: &str = "template1";
 
 /// `postgres` is always created by `initdb` when building a PostgreSQL cluster.
 ///
