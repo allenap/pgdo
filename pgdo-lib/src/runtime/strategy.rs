@@ -21,7 +21,7 @@ pub type Runtimes<'a> = Box<dyn Iterator<Item = Runtime> + 'a>;
 /// [`Strategy`]. It might do what you need.
 pub trait StrategyLike: std::fmt::Debug + std::panic::RefUnwindSafe + 'static {
     /// Find all runtimes that this strategy knows about.
-    fn runtimes(&self) -> Runtimes;
+    fn runtimes(&self) -> Runtimes<'_>;
 
     /// Determine the most appropriate runtime known to this strategy for the
     /// given constraint.
@@ -53,7 +53,7 @@ pub trait StrategyLike: std::fmt::Debug + std::panic::RefUnwindSafe + 'static {
 pub struct RuntimesOnPath(PathBuf);
 
 impl StrategyLike for RuntimesOnPath {
-    fn runtimes(&self) -> Runtimes {
+    fn runtimes(&self) -> Runtimes<'_> {
         Box::new(
             env::split_paths(&self.0)
                 .filter(|bindir| bindir.join("pg_ctl").exists())
@@ -68,7 +68,7 @@ impl StrategyLike for RuntimesOnPath {
 pub struct RuntimesOnPathEnv;
 
 impl StrategyLike for RuntimesOnPathEnv {
-    fn runtimes(&self) -> Runtimes {
+    fn runtimes(&self) -> Runtimes<'_> {
         Box::new(
             env::var_os("PATH")
                 .map(|path| {
@@ -151,7 +151,7 @@ impl RuntimesOnPlatform {
 }
 
 impl StrategyLike for RuntimesOnPlatform {
-    fn runtimes(&self) -> Runtimes {
+    fn runtimes(&self) -> Runtimes<'_> {
         Box::new(
             Self::find()
                 .into_iter()
@@ -231,7 +231,7 @@ impl StrategyLike for Strategy {
     /// number, i.e. if a runtime with the same version number is yielded by
     /// multiple strategies, or is yielded multiple times by a single strategy,
     /// it will only be returned the first time it is seen.
-    fn runtimes(&self) -> Runtimes {
+    fn runtimes(&self) -> Runtimes<'_> {
         match self {
             Self::Chain(chain) => {
                 let mut seen = std::collections::HashSet::new();
