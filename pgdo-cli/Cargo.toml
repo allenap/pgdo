@@ -16,22 +16,22 @@ name = "pgdo"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "=4.5.37", features = ["derive", "env"] }
-console = "=0.15.11"
-ctrlc = { version = "=3.4.6", features = ["termination"] }
+clap = { version = "=4.5.43", features = ["derive", "env"] }
+console = "=0.16.0"
+ctrlc = { version = "=3.4.7", features = ["termination"] }
 either = "=1.15.0"
 fs_extra = "=1.3.0"
-indicatif = "=0.17.11"
+indicatif = "=0.18.0"
 log = "=0.4.27"
-miette = { version = "=7.5.0", features = ["fancy"] }
+miette = { version = "=7.6.0", features = ["fancy"] }
 pgdo-lib = { version = "=0.5.2", path = "../pgdo-lib" }
 shell-quote = "=0.7.2"
 simple_logger = "=5.0.0"
-tempfile = "=3.19.1"
+tempfile = "=3.20.0"
 thiserror = "=2.0.12"
-uuid = { version = "=1.16.0", features = ["v5"] }
+uuid = { version = "=1.17.0", features = ["v5"] }
 
 [dependencies.tokio]
-version = "=1.44.2"
+version = "=1.47.1"
 features = ["parking_lot", "rt-multi-thread"]
 default-features = false

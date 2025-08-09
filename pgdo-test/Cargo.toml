@@ -22,6 +22,6 @@ async-std = "1.13.1"
 pgdo-test-macros = { path = "../pgdo-test-macros" }
 
 [dependencies.sqlx]
-version = "0.8.5"
+version = "0.8.6"
 features = ["macros", "postgres", "runtime-tokio"]
 default-features = false
