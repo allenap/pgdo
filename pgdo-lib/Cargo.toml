@@ -16,7 +16,7 @@ path = "src/lib.rs"
 
 [dependencies]
 either = "1.15.0"
-glob = "0.3.2"
+glob = "0.3.3"
 globset = "0.4.16"
 log = "0.4.27"
 miette = "7.6.0"
