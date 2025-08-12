@@ -29,7 +29,7 @@ shell-quote = "=0.7.2"
 simple_logger = "=5.0.0"
 tempfile = "=3.20.0"
 thiserror = "=2.0.12"
-uuid = { version = "=1.17.0", features = ["v5"] }
+uuid = { version = "=1.18.0", features = ["v5"] }
 
 [dependencies.tokio]
 version = "=1.47.1"
