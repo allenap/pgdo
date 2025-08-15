@@ -18,7 +18,7 @@ name = "pgdo_test"
 path = "src/lib.rs"
 
 [dependencies]
-async-std = "1.13.1"
+async-std = "1.13.2"
 pgdo-test-macros = { path = "../pgdo-test-macros" }
 
 [dependencies.sqlx]
