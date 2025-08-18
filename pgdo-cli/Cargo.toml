@@ -28,7 +28,7 @@ pgdo-lib = { version = "=0.5.2", path = "../pgdo-lib" }
 shell-quote = "=0.7.2"
 simple_logger = "=5.0.0"
 tempfile = "=3.20.0"
-thiserror = "=2.0.14"
+thiserror = "=2.0.15"
 uuid = { version = "=1.18.0", features = ["v5"] }
 
 [dependencies.tokio]
