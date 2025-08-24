@@ -11,7 +11,8 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::prelude::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
-use std::{fmt, fs, io, sync, time};
+use std::time::Duration;
+use std::{fmt, fs, io, sync};
 
 use postgres;
 use regex::bytes::Regex;
@@ -286,24 +287,21 @@ impl Cluster {
             //
             // Initial bug report:
             // https://www.postgresql.org/message-id/CALL7chmzY3eXHA7zHnODUVGZLSvK3wYCSP0RmcDFHJY8f28Q3g@mail.gmail.com
-            const ATTEMPTS: u64 = 5;
-            static RE1: sync::LazyLock<Regex> = sync::LazyLock::new(|| {
+            static SEMGET_BUG_LOG: sync::Once = sync::Once::new();
+            static SEMGET_BUG_RE1: sync::LazyLock<Regex> = sync::LazyLock::new(|| {
                 Regex::new(r"\bFATAL:\s+could not create semaphores: Invalid argument\b")
                     .expect("invalid regex (for matching semaphore errors #1)")
             });
-            static RE2: sync::LazyLock<Regex> = sync::LazyLock::new(|| {
+            static SEMGET_BUG_RE2: sync::LazyLock<Regex> = sync::LazyLock::new(|| {
                 Regex::new(r"\bDETAIL:\s+Failed system call was semget\b")
                     .expect("invalid regex (for matching semaphore errors #2)")
             });
             let is_retryable = |output: &std::process::Output| {
-                RE1.is_match(&output.stderr) && RE2.is_match(&output.stderr)
+                SEMGET_BUG_RE1.is_match(&output.stderr) && SEMGET_BUG_RE2.is_match(&output.stderr)
             };
 
             // Create the cluster and report back that we did so.
             fs::create_dir_all(&self.datadir)?;
-
-            // Capture the version for reporting.
-            let version = self.runtime()?.version;
 
             // Construct the `pg_ctl init` command.
             let mut command = self.ctl()?;
@@ -319,38 +317,50 @@ impl Cluster {
                 .arg("-E utf8 --locale C -A trust")
                 .env("TZ", "UTC");
 
-            // First attempt to create the new cluster.
-            let mut output = command.output()?;
-
-            for attempt in 1..=ATTEMPTS {
-                if output.status.success() {
-                    return Ok(Modified);
-                } else if is_retryable(&output) {
-                    if attempt == 1 {
-                        log::info!(concat!(
-                            "In PostgreSQL 17 (for now, until a fix for this bug is released and back-ported), ",
-                            "`pg_ctl init` can fail due to a semget(2) failure. `pgdo` tries to work around this ",
-                            "by retrying the command a few times with a short delay between each attempt. See ",
-                            "https://www.postgresql.org/message-id/CALL7chmzY3eXHA7zHnODUVGZLSvK3wYCSP0RmcDFHJY8f28Q3g@mail.gmail.com ",
-                            "for the original bug report. Preparing now to retry with version {version}…",
-                        ), version=version);
-                    }
-                    let delay = time::Duration::from_millis(100 * attempt);
-                    log::warn!(
-                        "`pg_ctl init` (version {version}) failed (attempt {attempt} of {ATTEMPTS}); retrying in {delay:?}…",
-                    );
-                    std::thread::sleep(delay);
-                    output = command.output()?;
-                } else {
-                    return Err(ClusterError::CommandError(output));
+            // Function that attempts to run `pg_ctl init`.
+            let init = || {
+                use backoff::Error;
+                use ClusterError::{CommandError as CmdError, IoError};
+                match command.output() {
+                    Ok(output) if output.status.success() => Ok(Modified),
+                    Ok(output) if is_retryable(&output) => Err(Error::transient(CmdError(output))),
+                    Ok(output) => Err(Error::permanent(CmdError(output))),
+                    Err(err) => Err(Error::permanent(IoError(err))),
                 }
-            }
+            };
 
-            if output.status.success() {
-                Ok(Modified) // All good.
-            } else {
-                Err(ClusterError::CommandError(output))
-            }
+            // Function that notifies when `init` fails transiently.
+            let version = self.runtime()?.version;
+            let notify = move |_, delay: Duration| {
+                SEMGET_BUG_LOG.call_once(|| {
+                    log::info!(concat!(
+                        "In all presently released versions of PostgreSQL, `pg_ctl init` can fail ",
+                        "on some platforms (macOS, some BSDs) due to a semget(2) failure. This is ",
+                        "a particular problem in PostgreSQL 17.x (the linked bug report has more ",
+                        "information). As an imperfect workaround, `pgdo` retries the command a ",
+                        "few times when it detects this specific error. Original bug report: ",
+                        "https://www.postgresql.org/message-id/CALL7chmzY3eXHA7zHnODUVGZLSvK3wYCSP0RmcDFHJY8f28Q3g@mail.gmail.com.",
+                    ));
+                });
+                log::warn!("`pg_ctl init` (version {version}) failed; retrying in {delay:?}…",);
+            };
+
+            // Retry with exponential backoff + jitter.
+            let state = backoff::retry_notify(
+                backoff::ExponentialBackoffBuilder::new()
+                    .with_initial_interval(Duration::from_millis(200))
+                    .with_max_elapsed_time(Some(Duration::from_secs(60)))
+                    .with_max_interval(Duration::from_millis(10000))
+                    .build(),
+                init,
+                notify,
+            )
+            .map_err(|err| match err {
+                backoff::Error::Permanent(err) => err,
+                backoff::Error::Transient { err, .. } => err,
+            })?;
+
+            Ok(state)
         }
     }
 
