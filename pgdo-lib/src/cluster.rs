@@ -11,9 +11,11 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::prelude::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
-use std::{fmt, fs, io};
+use std::time::Duration;
+use std::{fmt, fs, io, sync};
 
 use postgres;
+use regex::bytes::Regex;
 use shell_quote::{QuoteExt, Sh};
 pub use sqlx;
 
@@ -270,20 +272,95 @@ impl Cluster {
             // Nothing more to do; the cluster is already in place.
             Ok(Unmodified)
         } else {
+            // In all presently released versions of PostgreSQL, `pg_ctl init`
+            // can fail on some platforms (macOS, some BSDs) due to a semget(2)
+            // failure. This is a particular problem in PostgreSQL 17.x (see the
+            // linked bug report below to understand why). We try to work around
+            // this by retrying the command a few times with a short delay
+            // between each attempt.
+            //
+            // We detect whether we want to retry by checking `pg_ctl`'s output
+            // for log messages like these:
+            //
+            //   FATAL:  could not create semaphores: Invalid argument DETAIL:
+            //   Failed system call was semget(189980241, 20, 03600).
+            //
+            // Initial bug report:
+            // https://www.postgresql.org/message-id/CALL7chmzY3eXHA7zHnODUVGZLSvK3wYCSP0RmcDFHJY8f28Q3g@mail.gmail.com
+            static SEMGET_BUG_LOG: sync::Once = sync::Once::new();
+            static SEMGET_BUG_RE1: sync::LazyLock<Regex> = sync::LazyLock::new(|| {
+                Regex::new(r"\bFATAL:\s+could not create semaphores: Invalid argument\b")
+                    .expect("invalid regex (for matching semaphore errors #1)")
+            });
+            static SEMGET_BUG_RE2: sync::LazyLock<Regex> = sync::LazyLock::new(|| {
+                Regex::new(r"\bDETAIL:\s+Failed system call was semget\b")
+                    .expect("invalid regex (for matching semaphore errors #2)")
+            });
+            let is_retryable = |output: &std::process::Output| {
+                SEMGET_BUG_RE1.is_match(&output.stderr) && SEMGET_BUG_RE2.is_match(&output.stderr)
+            };
+
             // Create the cluster and report back that we did so.
             fs::create_dir_all(&self.datadir)?;
+
+            // Construct the `pg_ctl init` command.
+            let mut command = self.ctl()?;
             #[allow(clippy::suspicious_command_arg_space)]
-            self.ctl()?
+            command
                 .arg("init")
+                // Silent; `--silent` flag accepted only in PostgreSQL >=9.2.
                 .arg("-s")
+                // Options for `initdb`; `--options` flag accepted only in PostgreSQL >=10.
                 .arg("-o")
-                // Passing multiple flags in a single `arg(...)` is
-                // intentional. These constitute the single value for the
-                // `-o` flag above.
+                // Passing multiple flags in a single `arg(...)` is intentional.
+                // These constitute the single value for the `-o` flag above.
                 .arg("-E utf8 --locale C -A trust")
-                .env("TZ", "UTC")
-                .output()?;
-            Ok(Modified)
+                .env("TZ", "UTC");
+
+            // Function that attempts to run `pg_ctl init`.
+            let init = || {
+                use backoff::Error;
+                use ClusterError::{CommandError as CmdError, IoError};
+                match command.output() {
+                    Ok(output) if output.status.success() => Ok(Modified),
+                    Ok(output) if is_retryable(&output) => Err(Error::transient(CmdError(output))),
+                    Ok(output) => Err(Error::permanent(CmdError(output))),
+                    Err(err) => Err(Error::permanent(IoError(err))),
+                }
+            };
+
+            // Function that notifies when `init` fails transiently.
+            let version = self.runtime()?.version;
+            let notify = move |_, delay: Duration| {
+                SEMGET_BUG_LOG.call_once(|| {
+                    log::info!(concat!(
+                        "In all presently released versions of PostgreSQL, `pg_ctl init` can fail ",
+                        "on some platforms (macOS, some BSDs) due to a semget(2) failure. This is ",
+                        "a particular problem in PostgreSQL 17.x (the linked bug report has more ",
+                        "information). As an imperfect workaround, `pgdo` retries the command a ",
+                        "few times when it detects this specific error. Original bug report: ",
+                        "https://www.postgresql.org/message-id/CALL7chmzY3eXHA7zHnODUVGZLSvK3wYCSP0RmcDFHJY8f28Q3g@mail.gmail.com.",
+                    ));
+                });
+                log::warn!("`pg_ctl init` (version {version}) failed; retrying in {delay:?}…",);
+            };
+
+            // Retry with exponential backoff + jitter.
+            let state = backoff::retry_notify(
+                backoff::ExponentialBackoffBuilder::new()
+                    .with_initial_interval(Duration::from_millis(200))
+                    .with_max_elapsed_time(Some(Duration::from_secs(60)))
+                    .with_max_interval(Duration::from_millis(10000))
+                    .build(),
+                init,
+                notify,
+            )
+            .map_err(|err| match err {
+                backoff::Error::Permanent(err) => err,
+                backoff::Error::Transient { err, .. } => err,
+            })?;
+
+            Ok(state)
         }
     }
 
