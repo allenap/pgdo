@@ -272,18 +272,88 @@ impl Cluster {
         } else {
             // Create the cluster and report back that we did so.
             fs::create_dir_all(&self.datadir)?;
+
+            let mut command = self.ctl()?;
             #[allow(clippy::suspicious_command_arg_space)]
-            self.ctl()?
+            command
                 .arg("init")
+                // Silent; `--silent` flag accepted only in PostgreSQL >=9.2.
                 .arg("-s")
+                // Options for `initdb`; `--options` flag accepted only in PostgreSQL >=10.
                 .arg("-o")
-                // Passing multiple flags in a single `arg(...)` is
-                // intentional. These constitute the single value for the
-                // `-o` flag above.
+                // Passing multiple flags in a single `arg(...)` is intentional.
+                // These constitute the single value for the `-o` flag above.
                 .arg("-E utf8 --locale C -A trust")
-                .env("TZ", "UTC")
-                .output()?;
-            Ok(Modified)
+                .env("TZ", "UTC");
+
+            let mut output = command.output()?;
+
+            let version = self.runtime()?.version;
+            if matches!(version, version::Version::Post10(17, _)) {
+                // In PostgreSQL 17 (for now, until a fix for this bug is
+                // released and back-ported), `pg_ctl init` can fail due to a
+                // semget(2) failure. We try to work around this by retrying the
+                // command a few times with a short delay between each attempt.
+                //
+                // We detect whether we want to retry by checking `pg_ctl`'s
+                // output for log messages like these:
+                //
+                //   FATAL:  could not create semaphores: Invalid argument
+                //   DETAIL:  Failed system call was semget(189980241, 20,
+                //   03600).
+                //
+                // Initial bug report:
+                // https://www.postgresql.org/message-id/CALL7chmzY3eXHA7zHnODUVGZLSvK3wYCSP0RmcDFHJY8f28Q3g@mail.gmail.com
+
+                use regex::bytes::Regex;
+                use std::sync::LazyLock;
+                use std::thread::sleep;
+                use std::time::Duration;
+
+                const MAX_ATTEMPTS: u64 = 5;
+                static RE1: LazyLock<Regex> = LazyLock::new(|| {
+                    Regex::new(r"\bFATAL:\s+could not create semaphores: Invalid argument\b")
+                        .expect("invalid regex (for matching semaphore errors #1)")
+                });
+                static RE2: LazyLock<Regex> = LazyLock::new(|| {
+                    Regex::new(r"\bDETAIL:\s+Failed system call was semget\b")
+                        .expect("invalid regex (for matching semaphore errors #2)")
+                });
+                let is_retryable = |output: &std::process::Output| {
+                    RE1.is_match(&output.stderr) && RE2.is_match(&output.stderr)
+                };
+
+                for attempt in 1..=MAX_ATTEMPTS {
+                    if output.status.success() {
+                        return Ok(Modified);
+                    } else if is_retryable(&output) {
+                        if attempt == 1 {
+                            log::info!(concat!(
+                                "In PostgreSQL 17 (for now, until a fix for this bug is released and back-ported), ",
+                                "`pg_ctl init` can fail due to a semget(2) failure. `pgdo` tries to work around this ",
+                                "by retrying the command a few times with a short delay between each attempt. See ",
+                                "https://www.postgresql.org/message-id/CALL7chmzY3eXHA7zHnODUVGZLSvK3wYCSP0RmcDFHJY8f28Q3g@mail.gmail.com ",
+                                "for the original bug report. Preparing now to retry with version {version}…",
+                            ), version=version);
+                        }
+                        let delay = Duration::from_millis(100 * attempt);
+                        log::warn!(
+                            "`pg_ctl init` (version {version}) failed (attempt {attempt} of {MAX_ATTEMPTS}); retrying in {delay:?}…"
+                        );
+                        sleep(delay);
+                        output = command.output()?;
+                    } else {
+                        return Err(ClusterError::CommandError(output));
+                    }
+                }
+                return Err(ClusterError::CommandError(output));
+            }
+
+            if output.status.success() {
+                Ok(Modified) // All good.
+            } else {
+                Err(ClusterError::CommandError(output))
+            }
         }
     }
 
