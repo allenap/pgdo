@@ -324,6 +324,10 @@ impl Cluster {
 
         // Track the logs so that we can see if there's a retryable failure.
         let logfile = self.logfile();
+        let logfile_name = logfile
+            .file_name()
+            .unwrap_or_else(|| "<unknown.log>".as_ref())
+            .display();
         let mut log: logfile::LogFile = logfile.as_path().try_into()?;
 
         // Next, invoke `pg_ctl` to start the cluster.
@@ -345,7 +349,7 @@ impl Cluster {
         // has visibility of it.
         let append_logs_to_stderr = |output: &mut Output| {
             writeln!(&mut output.stderr)?;
-            writeln!(&mut output.stderr, "-- postmaster.log --")?;
+            writeln!(&mut output.stderr, "-- {logfile_name} --")?;
             log.read_to_end(&mut output.stderr)?;
             Ok(())
         };
