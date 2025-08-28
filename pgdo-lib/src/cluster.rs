@@ -705,9 +705,27 @@ pub fn run<P: AsRef<Path>>(
 
 mod logfile {
     use std::fs::File;
-    use std::io::{self, Read, Seek};
+    use std::io::{self, ErrorKind::NotFound, Read, Seek};
     use std::path::{Path, PathBuf};
 
+    /// Abstraction for reading a log file that may be appended to repeatedly.
+    ///
+    /// For example, `postmaster.log` may be written to each time we call
+    /// `pg_ctl start`. If it succeeds, a spawned `postgres` process will
+    /// continue writing to the log indefinitely, even after `pg_ctl` finishes.
+    /// If it fails, however, it will write out the cause to this log. It's this
+    /// information that we want to capture so that we can use it for deciding
+    /// whether or not to retry a call to `pg_ctl`.
+    ///
+    /// The log file does not need to exist when creating a new [`LogFile`], and
+    /// it will not create it. Its [`Read::read`] implementation will return
+    /// `Ok(0)` as long as the log file does not exist.
+    ///
+    /// Limitations of [`LogFile`]:
+    /// - It keeps the file handle open, meaning that if the log file is deleted
+    ///   and reopened, this will not see new logs.
+    /// - It will not detect if the log is truncated; again, this will not see
+    ///   new logs.
     pub struct LogFile {
         path: PathBuf,
         file: Option<File>,
@@ -718,7 +736,7 @@ mod logfile {
 
         fn try_from(path: &Path) -> Result<Self, Self::Error> {
             let file = match File::open(path) {
-                Err(err) if err.kind() == io::ErrorKind::NotFound => None,
+                Err(err) if err.kind() == NotFound => None,
                 Err(err) => Err(err)?,
                 Ok(mut file) => {
                     file.seek(io::SeekFrom::End(0))?;
@@ -735,7 +753,7 @@ mod logfile {
                 file.read(buf)
             } else {
                 self.file = match File::open(&self.path) {
-                    Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(0),
+                    Err(err) if err.kind() == NotFound => return Ok(0),
                     Err(err) => Err(err)?,
                     Ok(file) => Some(file),
                 };
