@@ -287,7 +287,7 @@ impl Cluster {
                 .arg("-E utf8 --locale C -A trust")
                 .env("TZ", "UTC");
 
-            bugs::retry_pg_ctl(self.runtime()?.version, &mut command, |_| Ok(()))
+            bugs::retry_pg_ctl(&mut command, |_| Ok(()))
         }
     }
 
@@ -354,7 +354,7 @@ impl Cluster {
             Ok(())
         };
 
-        bugs::retry_pg_ctl(self.runtime()?.version, &mut command, append_logs_to_stderr)
+        bugs::retry_pg_ctl(&mut command, append_logs_to_stderr)
     }
 
     /// Connect to this cluster.
@@ -771,10 +771,10 @@ mod logfile {
 }
 
 mod bugs {
-    use super::{version, ClusterError, State, State::Modified};
+    use super::{ClusterError, State, State::Modified};
     use regex::bytes::Regex;
     use std::process::{Command, Output};
-    use std::{sync, time::Duration};
+    use std::{fmt::Write, sync, time::Duration};
 
     /// Work around bugs in `pg_ctl`.
     ///
@@ -794,7 +794,6 @@ mod bugs {
     /// report](https://www.postgresql.org/message-id/CALL7chmzY3eXHA7zHnODUVGZLSvK3wYCSP0RmcDFHJY8f28Q3g@mail.gmail.com)
     /// and its thread for _much_ more detail.
     pub fn retry_pg_ctl(
-        version: version::Version,
         command: &mut Command,
         mut supplement: impl FnMut(&mut Output) -> Result<(), ClusterError>,
     ) -> Result<State, ClusterError> {
@@ -811,6 +810,16 @@ mod bugs {
         fn is_retryable(logs: &[u8]) -> bool {
             SEMGET_BUG_RE1.is_match(logs) && SEMGET_BUG_RE2.is_match(logs)
         }
+
+        // Capture which `pg_ctl` command we're running – assume it's the first
+        // argument – for use with `notify` later on.
+        let command_summary = command.get_args().take(1).fold(
+            command.get_program().display().to_string(),
+            |mut summary, arg| {
+                write!(&mut summary, " {}", arg.display()).ok();
+                summary
+            },
+        );
 
         // Function that attempts to run `command`.
         let run = || {
@@ -842,7 +851,7 @@ mod bugs {
                     "https://www.postgresql.org/message-id/CALL7chmzY3eXHA7zHnODUVGZLSvK3wYCSP0RmcDFHJY8f28Q3g@mail.gmail.com.",
                 ));
             });
-            log::warn!("`pg_ctl` (version {version}) failed; retrying in {delay:?}…",);
+            log::warn!("`{command_summary}` failed; retrying in {delay:?}…",);
         };
 
         // Retry with exponential backoff + jitter.
