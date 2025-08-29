@@ -178,7 +178,7 @@ mod tests {
     use either::Left;
     use nix::fcntl::{flock, FlockArg};
 
-    fn can_lock<P: AsRef<Path>>(filename: P, exclusive: bool) -> bool {
+    fn can_lock<P: AsRef<Path>>(filename: P, exclusive: bool) -> nix::Result<()> {
         let file = OpenOptions::new()
             .append(true)
             .create(true)
@@ -189,14 +189,14 @@ mod tests {
         } else {
             FlockArg::LockSharedNonblock
         };
-        flock(file.as_raw_fd(), mode).is_ok()
+        flock(file.as_raw_fd(), mode)
     }
 
-    fn can_lock_exclusive<P: AsRef<Path>>(filename: P) -> bool {
+    fn can_lock_exclusive<P: AsRef<Path>>(filename: P) -> nix::Result<()> {
         can_lock(filename, true)
     }
 
-    fn can_lock_shared<P: AsRef<Path>>(filename: P) -> bool {
+    fn can_lock_shared<P: AsRef<Path>>(filename: P) -> nix::Result<()> {
         can_lock(filename, false)
     }
 
@@ -210,18 +210,18 @@ mod tests {
             .open(&lock_filename)
             .map(UnlockedFile::from)?;
 
-        assert!(can_lock_exclusive(&lock_filename));
-        assert!(can_lock_shared(&lock_filename));
+        assert_eq!(Ok(()), can_lock_exclusive(&lock_filename));
+        assert_eq!(Ok(()), can_lock_shared(&lock_filename));
 
         let lock = lock.lock_exclusive()?;
 
-        assert!(!can_lock_exclusive(&lock_filename));
-        assert!(!can_lock_shared(&lock_filename));
+        assert_ne!(Ok(()), can_lock_exclusive(&lock_filename));
+        assert_ne!(Ok(()), can_lock_shared(&lock_filename));
 
         lock.unlock()?;
 
-        assert!(can_lock_exclusive(&lock_filename));
-        assert!(can_lock_shared(&lock_filename));
+        assert_eq!(Ok(()), can_lock_exclusive(&lock_filename));
+        assert_eq!(Ok(()), can_lock_shared(&lock_filename));
 
         Ok(())
     }

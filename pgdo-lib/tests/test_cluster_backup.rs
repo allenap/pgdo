@@ -52,7 +52,6 @@ fn cluster_backup() -> TestResult {
             .filter_map(Result::ok)
             .filter(is_file)
             .collect::<Vec<_>>();
-        dbg!(&files_wal);
         assert_ne!(files_wal.len(), 0);
 
         // A base backup is in place alongside the WAL file directory.

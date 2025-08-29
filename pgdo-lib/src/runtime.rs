@@ -67,7 +67,7 @@ impl Runtime {
     /// ```rust
     /// # use pgdo::runtime::{RuntimeError, strategy::{Strategy, StrategyLike}};
     /// # let runtime = Strategy::default().fallback().unwrap();
-    /// let version = runtime.command("bash").arg("-c").arg("echo hello").output();
+    /// let hello = runtime.command("bash").arg("-c").arg("echo hello").output()?;
     /// # Ok::<(), RuntimeError>(())
     /// ```
     ///
