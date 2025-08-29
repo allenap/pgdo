@@ -18,7 +18,7 @@ name = "pgdo_test"
 path = "src/lib.rs"
 
 [dependencies]
-async-std = "1.13.1"
+async-std = "1.13.2"
 ctor = "0.5.0"
 log = "0.4.27"
 pgdo-test-macros = { path = "../pgdo-test-macros" }
