@@ -22,7 +22,7 @@ RUN apt-get update
 # officially enter EOL), but there is still logic in pgdo that works with
 # versions as old as 9.0.
 #
-RUN apt-get install -y postgresql-{9.{0,1,2,3,4,5,6},10,11,12,13,14,15,16}
+RUN apt-get install -y postgresql-{9.{0,1,2,3,4,5,6},10,11,12,13,14,15,16,17}
 
 # Add a non-root user.
 RUN groupadd pgdo --gid 1000
