@@ -24,6 +24,10 @@ RUN apt-get update
 #
 RUN apt-get install -y postgresql-{9.{0,1,2,3,4,5,6},10,11,12,13,14,15,16,17}
 
+# Remove any preexisting `ubuntu` user and groups.
+RUN if getent passwd ubuntu >/dev/null 2>&1; then userdel --remove ubuntu; fi
+RUN if getent group ubuntu >/dev/null 2>&1; then groupdel ubuntu; fi
+
 # Add a non-root user.
 RUN groupadd pgdo --gid 1000
 RUN \
