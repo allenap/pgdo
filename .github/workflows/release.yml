@@ -10,13 +10,13 @@ jobs:
     name: Build macOS ARM
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --target aarch64-apple-darwin
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: aarch64-apple-darwin
           path: target/aarch64-apple-darwin/release/pgdo
@@ -26,13 +26,13 @@ jobs:
     name: Build macOS Intel
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --target x86_64-apple-darwin
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: x86_64-apple-darwin
           path: target/x86_64-apple-darwin/release/pgdo
@@ -43,11 +43,11 @@ jobs:
     runs-on: macos-latest
     needs: [aarch64-apple-darwin, x86_64-apple-darwin]
     steps:
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v5
         with:
           name: x86_64-apple-darwin
           path: pgdo-x86_64-apple-darwin
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v5
         with:
           name: aarch64-apple-darwin
           path: pgdo-aarch64-apple-darwin
@@ -59,7 +59,7 @@ jobs:
             -output pgdo-apple-darwin \
             pgdo-x86_64-apple-darwin/pgdo \
             pgdo-aarch64-apple-darwin/pgdo
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: apple-darwin
           path: pgdo-apple-darwin
@@ -69,13 +69,13 @@ jobs:
     name: Build Linux
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --target x86_64-unknown-linux-musl
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: linux
           path: target/x86_64-unknown-linux-musl/release/pgdo
@@ -86,18 +86,18 @@ jobs:
     needs: [macos-universal, build-linux]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v5
         with:
           name: linux
           path: linux
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v5
         with:
           name: apple-darwin
       - name: Rename executables
         run: |
           mv -v linux/pgdo pgdo-linux
           find .
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v2
         with:
           files: |
             pgdo-apple-darwin
