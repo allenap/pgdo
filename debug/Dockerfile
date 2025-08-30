@@ -49,7 +49,7 @@ RUN cargo install sqlx-cli --no-default-features --features postgres
 
 # Add the most recent PostgreSQL runtime to `PATH`. Some tests in `pgdo` scan
 # `PATH` for runtimes; this will allow them to pass. It's also convenient.
-ENV PATH="/usr/lib/postgresql/16/bin:${PATH}"
+ENV PATH="/usr/lib/postgresql/17/bin:${PATH}"
 
 # Ensure that `USER` is set. At present this is required by `pgdo`, but
 # https://github.com/allenap/pgdo/issues/28 may resolve that.
