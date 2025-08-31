@@ -51,8 +51,6 @@ jobs:
         with:
           name: aarch64-apple-darwin
           path: pgdo-aarch64-apple-darwin
-      - name: debug
-        run: find .
       - name: Build Universal macOS Binary
         run: |
           lipo -create \

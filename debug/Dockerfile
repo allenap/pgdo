@@ -24,6 +24,10 @@ RUN apt-get update
 #
 RUN apt-get install -y postgresql-{9.{0,1,2,3,4,5,6},10,11,12,13,14,15,16,17}
 
+# Remove any preexisting `ubuntu` user and groups.
+RUN if getent passwd ubuntu >/dev/null 2>&1; then userdel --remove ubuntu; fi
+RUN if getent group ubuntu >/dev/null 2>&1; then groupdel ubuntu; fi
+
 # Add a non-root user.
 RUN groupadd pgdo --gid 1000
 RUN \
@@ -45,7 +49,7 @@ RUN cargo install sqlx-cli --no-default-features --features postgres
 
 # Add the most recent PostgreSQL runtime to `PATH`. Some tests in `pgdo` scan
 # `PATH` for runtimes; this will allow them to pass. It's also convenient.
-ENV PATH="/usr/lib/postgresql/16/bin:${PATH}"
+ENV PATH="/usr/lib/postgresql/17/bin:${PATH}"
 
 # Ensure that `USER` is set. At present this is required by `pgdo`, but
 # https://github.com/allenap/pgdo/issues/28 may resolve that.
