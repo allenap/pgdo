@@ -13,7 +13,7 @@ use crate::{args, runner};
 
 use pgdo::{
     cluster::{self, backup, resource, ClusterError},
-    coordinate::{cleanup::with_cleanup, finally::with_finally, State},
+    coordinate::{self, cleanup::with_cleanup, finally::with_finally, State},
 };
 
 /// Point-in-time backup for an existing cluster.
@@ -121,8 +121,11 @@ fn backup<D: AsRef<Path>>(resource: resource::ResourceFree, backup_dir: D) -> mi
             .into_diagnostic()?
     };
 
+    let (lock, subject) = resource.into_parts();
+
     log::info!("Starting cluster (if not already started)…");
-    let (started, resource) = resource::startup_if_exists(resource, &[])?;
+    let (started, resource) = coordinate::startup_if_exists(lock, &subject, &[]);
+    // resource::startup_if_exists(resource, &[])?;
     // Wrap `resource` in an `RwLock` so that we can pass it around AND so that
     // `do_cleanup` can reference it in its closure.
     let resource = RwLock::new(resource);
