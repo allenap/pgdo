@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    io::Write,
+    io::{self, Write},
     path::{Path, PathBuf},
     process::ExitCode,
 };
@@ -185,7 +185,12 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
             (ARCHIVE_MODE, "off".into()),
             (RESTORE_COMMAND, restore_command.into()),
             (RECOVERY_TARGET, "immediate".into()),
-            (RECOVERY_TARGET_ACTION, "shutdown".into()),
+            // Ideally, `recovery_target_action` should be `shutdown`. However,
+            // prior to PostgreSQL 17, this would cause `pg_ctl start` to exit
+            // non-zero, as if there had been an error; the only way to know
+            // otherwise was to scan the log output. Instead, allow the server
+            // to fully start before explicitly shutting it down; see below.
+            (RECOVERY_TARGET_ACTION, "promote".into()),
         ],
     )?
     else {
@@ -194,31 +199,39 @@ fn restore<D: AsRef<Path>>(backup_dir: D, restore_dir: D) -> Result<(), RestoreE
         ))?
     };
 
-    // Wait for recovery to complete.
-    {
-        let start = std::time::Instant::now();
-        let interval = std::time::Duration::from_secs(1);
-        let message = "Waiting for database recovery…";
-        term.write_line(message)?;
-        while resource.facet().running()? {
-            std::thread::sleep(interval);
-            term.clear_last_lines(1)?;
-            writeln!(
-                &term,
-                "{message} ({} elapsed)",
-                indicatif::HumanDuration(start.elapsed())
-            )?;
-        }
-        term.clear_last_lines(1)?;
-    }
+    // Request stop and wait for recovery to complete.
+    // {
+    //     resource.facet().stop()?;
+    //     let start = std::time::Instant::now();
+    //     let interval = std::time::Duration::from_secs(1);
+    //     let message = "Waiting for database recovery…";
+    //     term.write_line(message)?;
+    //     while resource.facet().running()? {
+    //         std::thread::sleep(interval);
+    //         term.clear_last_lines(1)?;
+    //         writeln!(
+    //             &term,
+    //             "{message} ({} elapsed)",
+    //             indicatif::HumanDuration(start.elapsed())
+    //         )?;
+    //     }
+    //     term.clear_last_lines(1)?;
+    // }
 
     // Remove the `recovery.signal` file in the restore so that subsequent
     // starts do not initiate database recovery.
-    std::fs::remove_file(restore_dir.join("recovery.signal"))?;
+    match std::fs::remove_file(restore_dir.join("recovery.signal")) {
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            // It's possible that PostgreSQL removed the file itself after
+            // completing recovery. This is fine.
+        }
+        Err(err) => Err(err)?,
+        Ok(()) => {}
+    }
 
     // Disable archiving.
     writeln!(&term, "Disabling archiving…")?;
-    resource.facet().start(&[(ARCHIVE_MODE, "off".into())])?;
+    // resource.facet().start(&[(ARCHIVE_MODE, "off".into())])?;
     with_finally(
         || resource.facet().stop(),
         || {
