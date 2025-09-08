@@ -20,7 +20,7 @@ path = "src/lib.rs"
 [dependencies]
 async-std = "1.13.2"
 ctor = "0.5.0"
-log = "0.4.27"
+log = "0.4.28"
 pgdo-test-macros = { path = "../pgdo-test-macros" }
 simple_logger = "5.0.0"
 
