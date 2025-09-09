@@ -28,7 +28,6 @@ mod tests;
 use std::time::Duration;
 
 use either::Either::{Left, Right};
-use rand::RngCore;
 
 use crate::lock;
 pub use error::CoordinateError;
@@ -73,7 +72,13 @@ where
     S: std::panic::RefUnwindSafe + Subject,
     F: std::panic::UnwindSafe + FnOnce() -> T,
 {
-    let lock = startup(lock, subject, options)?;
+    let retries: retries::BackoffIter<_> = backoff::ExponentialBackoffBuilder::new()
+        .with_initial_interval(Duration::from_millis(200))
+        .with_max_elapsed_time(Some(Duration::from_secs(60)))
+        .with_max_interval(Duration::from_millis(10000))
+        .build()
+        .into();
+    let (lock, _) = startup(lock, subject, options, retries)?;
     with_finally(
         || shutdown::<S, _, _>(lock, || subject.stop()),
         || -> Result<T, CoordinateError<S::Error>> { Ok(action()) },
@@ -97,7 +102,13 @@ where
     S: std::panic::RefUnwindSafe + Subject,
     F: std::panic::UnwindSafe + FnOnce() -> T,
 {
-    let lock = startup_if_exists(lock, subject, options)?;
+    let retries: retries::BackoffIter<_> = backoff::ExponentialBackoffBuilder::new()
+        .with_initial_interval(Duration::from_millis(200))
+        .with_max_elapsed_time(Some(Duration::from_secs(60)))
+        .with_max_interval(Duration::from_millis(10000))
+        .build()
+        .into();
+    let (lock, _) = startup_if_exists(lock, subject, options, retries)?;
     with_finally(
         || shutdown::<S, _, _>(lock, || subject.stop()),
         || -> Result<T, CoordinateError<S::Error>> { Ok(action()) },
@@ -121,7 +132,13 @@ where
     S: std::panic::RefUnwindSafe + Subject,
     F: std::panic::UnwindSafe + FnOnce() -> T,
 {
-    let lock = startup(lock, subject, options)?;
+    let retries: retries::BackoffIter<_> = backoff::ExponentialBackoffBuilder::new()
+        .with_initial_interval(Duration::from_millis(200))
+        .with_max_elapsed_time(Some(Duration::from_secs(60)))
+        .with_max_interval(Duration::from_millis(10000))
+        .build()
+        .into();
+    let (lock, _) = startup(lock, subject, options, retries)?;
     with_finally(
         || shutdown::<S, _, _>(lock, || subject.destroy()),
         || -> Result<T, CoordinateError<S::Error>> { Ok(action()) },
@@ -131,94 +148,118 @@ where
 // ----------------------------------------------------------------------------
 
 fn startup<S: Subject>(
-    mut lock: lock::UnlockedFile,
-    control: &S,
+    lock: lock::UnlockedFile,
+    subject: &S,
     options: S::Options<'_>,
-) -> Result<lock::LockedFileShared, CoordinateError<S::Error>> {
-    loop {
-        lock = match lock.try_lock_exclusive() {
+    retries: impl IntoIterator<Item = Duration>,
+) -> Result<(lock::LockedFileShared, State), CoordinateError<S::Error>> {
+    match retries::retry(
+        retries,
+        |lock| match lock
+            .try_lock_exclusive()
+            .map_err(CoordinateError::UnixError)
+        {
             Ok(Left(lock)) => {
                 // The subject is locked elsewhere, shared or exclusively. We
-                // optimistically take a shared lock. If the other lock is also
-                // shared, this will not block. If the other lock is exclusive,
-                // this will block until that lock is released (or changed to a
-                // shared lock).
-                let lock = lock.lock_shared()?;
-                // If obtaining the lock blocked, i.e. the lock elsewhere was
-                // exclusive, then the subject may have been started by the
-                // process that held that exclusive lock. We should check.
-                if control.running().map_err(CoordinateError::ControlError)? {
-                    return Ok(lock);
+                // optimistically take a shared lock.
+                match lock.try_lock_shared().map_err(CoordinateError::UnixError) {
+                    Ok(Left(lock)) => {
+                        // The subject is locked exclusively by another process.
+                        retries::Outcome::Retry(lock)
+                    }
+                    Ok(Right(lock)) => {
+                        // The subject is locked shared by another process.
+                        match subject.running().map_err(CoordinateError::ControlError) {
+                            Ok(true) => retries::Outcome::Ok(Left(lock)),
+                            Ok(false) => match lock.unlock().map_err(CoordinateError::UnixError) {
+                                Ok(lock) => retries::Outcome::Retry(lock),
+                                Err(err) => retries::Outcome::Err(err),
+                            },
+                            Err(err) => retries::Outcome::Err(err),
+                        }
+                    }
+                    Err(err) => retries::Outcome::Err(err),
                 }
-                // Release all locks then sleep for a random time between 200ms
-                // and 1000ms in an attempt to make sure that when there are
-                // many competing processes one of them rapidly acquires an
-                // exclusive lock and is able to create and start the subject.
-                let lock = lock.unlock()?;
-                let delay = rand::rng().next_u32();
-                let delay = 200 + (delay % 800);
-                let delay = Duration::from_millis(u64::from(delay));
-                std::thread::sleep(delay);
-                lock
             }
-            Ok(Right(lock)) => {
-                // We have an exclusive lock, so try to start the subject.
-                control
-                    .start(options)
-                    .map_err(CoordinateError::ControlError)?;
-                // Once started, downgrade to a shared log.
-                return Ok(lock.lock_shared()?);
-            }
-            Err(err) => return Err(err.into()),
-        };
+            Ok(Right(lock)) => retries::Outcome::Ok(Right(lock)),
+            Err(err) => retries::Outcome::Err(err),
+        },
+        lock,
+    ) {
+        Ok(Left(lock)) => {
+            // We have a shared lock and the subject is running.
+            Ok((lock, State::Unmodified))
+        }
+        Ok(Right(lock)) => {
+            // We have an exclusive lock; start the subject.
+            subject
+                .start(options)
+                .map_err(CoordinateError::ControlError)?;
+            // Once started, downgrade to a shared lock.
+            Ok((lock.lock_shared()?, State::Modified))
+        }
+        Err(retries::Error::Exhausted(_)) => Err(CoordinateError::Exhausted),
+        Err(retries::Error::Other(err)) => Err(err)?,
     }
 }
 
-fn startup_if_exists<S: Subject>(
-    mut lock: lock::UnlockedFile,
+pub fn startup_if_exists<S: Subject>(
+    lock: lock::UnlockedFile,
     subject: &S,
     options: S::Options<'_>,
-) -> Result<lock::LockedFileShared, CoordinateError<S::Error>> {
-    loop {
-        lock = match lock.try_lock_exclusive() {
+    retries: impl IntoIterator<Item = Duration>,
+) -> Result<(lock::LockedFileShared, State), CoordinateError<S::Error>> {
+    match retries::retry(
+        retries,
+        |lock| match lock
+            .try_lock_exclusive()
+            .map_err(CoordinateError::UnixError)
+        {
             Ok(Left(lock)) => {
                 // The subject is locked elsewhere, shared or exclusively. We
-                // optimistically take a shared lock. If the other lock is also
-                // shared, this will not block. If the other lock is exclusive,
-                // this will block until that lock is released (or changed to a
-                // shared lock).
-                let lock = lock.lock_shared()?;
-                // If obtaining the lock blocked, i.e. the lock elsewhere was
-                // exclusive, then the subject may have been started by the
-                // process that held that exclusive lock. We should check.
-                if subject.running().map_err(CoordinateError::ControlError)? {
-                    return Ok(lock);
+                // optimistically take a shared lock.
+                match lock.try_lock_shared().map_err(CoordinateError::UnixError) {
+                    Ok(Left(lock)) => {
+                        // The subject is locked exclusively by another process.
+                        retries::Outcome::Retry(lock)
+                    }
+                    Ok(Right(lock)) => {
+                        // The subject is locked shared by another process.
+                        match subject.running().map_err(CoordinateError::ControlError) {
+                            Ok(true) => retries::Outcome::Ok(Left(lock)),
+                            Ok(false) => match lock.unlock().map_err(CoordinateError::UnixError) {
+                                Ok(lock) => retries::Outcome::Retry(lock),
+                                Err(err) => retries::Outcome::Err(err),
+                            },
+                            Err(err) => retries::Outcome::Err(err),
+                        }
+                    }
+                    Err(err) => retries::Outcome::Err(err),
                 }
-                // Release all locks then sleep for a random time between 200ms
-                // and 1000ms in an attempt to make sure that when there are
-                // many competing processes one of them rapidly acquires an
-                // exclusive lock and is able to create and start the subject.
-                let lock = lock.unlock()?;
-                let delay = rand::rng().next_u32();
-                let delay = 200 + (delay % 800);
-                let delay = Duration::from_millis(u64::from(delay));
-                std::thread::sleep(delay);
-                lock
             }
-            Ok(Right(lock)) => {
-                // We have an exclusive lock, so try to start the subject.
-                if subject.exists().map_err(CoordinateError::ControlError)? {
-                    subject
-                        .start(options)
-                        .map_err(CoordinateError::ControlError)?;
-                } else {
-                    return Err(CoordinateError::DoesNotExist);
-                }
-                // Once started, downgrade to a shared log.
-                return Ok(lock.lock_shared()?);
+            Ok(Right(lock)) => retries::Outcome::Ok(Right(lock)),
+            Err(err) => retries::Outcome::Err(err),
+        },
+        lock,
+    ) {
+        Ok(Left(lock)) => {
+            // We have a shared lock and the subject is running.
+            Ok((lock, State::Unmodified))
+        }
+        Ok(Right(lock)) => {
+            // We have an exclusive lock; start the subject, IFF it exists.
+            if subject.exists().map_err(CoordinateError::ControlError)? {
+                subject
+                    .start(options)
+                    .map_err(CoordinateError::ControlError)?;
+                // Once started, downgrade to a shared lock.
+                Ok((lock.lock_shared()?, State::Modified))
+            } else {
+                Err(CoordinateError::DoesNotExist)
             }
-            Err(err) => return Err(err.into()),
-        };
+        }
+        Err(retries::Error::Exhausted(_)) => Err(CoordinateError::Exhausted),
+        Err(retries::Error::Other(err)) => Err(err)?,
     }
 }
 
@@ -248,5 +289,69 @@ where
             }
         }
         Err(err) => Err(err.into()),
+    }
+}
+
+pub mod retries {
+    use std::{thread::sleep, time::Duration};
+
+    #[derive(Clone, Debug)]
+    pub enum Outcome<T, State, E> {
+        Ok(T),
+        Retry(State),
+        Err(E),
+    }
+
+    pub enum Error<State, E> {
+        Exhausted(State),
+        Other(E),
+    }
+
+    pub fn retry<Retries, Op, OpState, OpResult, T, E>(
+        retries: Retries,
+        mut operation: Op,
+        mut state: OpState,
+    ) -> Result<T, Error<OpState, E>>
+    where
+        Retries: IntoIterator<Item = Duration>,
+        Op: FnMut(OpState) -> OpResult,
+        OpResult: Into<Outcome<T, OpState, E>>,
+    {
+        let mut retries = retries.into_iter();
+
+        loop {
+            state = match operation(state).into() {
+                Outcome::Err(error) => break Err(Error::Other(error)),
+                Outcome::Ok(value) => break Ok(value),
+                Outcome::Retry(state) => match retries.next() {
+                    None => break Err(Error::Exhausted(state)),
+                    Some(delay) => {
+                        sleep(delay);
+                        state
+                    }
+                },
+            }
+        }
+    }
+
+    use backoff::backoff::Backoff;
+
+    pub struct BackoffIter<B: Backoff> {
+        backoff: B,
+        // TODO: Add budget.
+    }
+
+    impl<B: Backoff> Iterator for BackoffIter<B> {
+        type Item = Duration;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            self.backoff.next_backoff()
+        }
+    }
+
+    impl<B: Backoff> From<B> for BackoffIter<B> {
+        fn from(value: B) -> Self {
+            Self { backoff: value }
+        }
     }
 }

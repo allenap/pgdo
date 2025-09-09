@@ -2,6 +2,7 @@ use std::{
     path::{Path, PathBuf},
     process::ExitCode,
     sync::{PoisonError, RwLock},
+    time::Duration,
 };
 
 use either::{Left, Right};
@@ -124,41 +125,49 @@ fn backup<D: AsRef<Path>>(resource: resource::ResourceFree, backup_dir: D) -> mi
     let (lock, subject) = resource.into_parts();
 
     log::info!("Starting cluster (if not already started)…");
-    let (started, resource) = coordinate::startup_if_exists(lock, &subject, &[]);
+    let retries: coordinate::retries::BackoffIter<_> = ::backoff::ExponentialBackoffBuilder::new()
+        .with_initial_interval(Duration::from_millis(200))
+        .with_max_elapsed_time(Some(Duration::from_secs(60)))
+        .with_max_interval(Duration::from_millis(10000))
+        .build()
+        .into();
+    let (lock, state) = coordinate::startup_if_exists(lock, &subject, &[], retries)?;
     // resource::startup_if_exists(resource, &[])?;
     // Wrap `resource` in an `RwLock` so that we can pass it around AND so that
     // `do_cleanup` can reference it in its closure.
-    let resource = RwLock::new(resource);
+    let resource = RwLock::new(subject);
 
     // Shuts down the cluster if we started it.
-    let do_cleanup = || -> Result<State, ClusterError> {
-        match (started, resource.read().as_deref()) {
-            (State::Modified, Ok(Right(resource))) => {
-                // We started the cluster AND we have an exclusive resource, so
-                // we try to shut it down.
-                log::info!("Shutting down cluster…");
-                resource.facet().stop()
-            }
-            (State::Modified, Ok(Left(_)) | Err(_)) => {
-                // Somehow we started the cluster BUT we have only a shared
-                // resource – or a poisoned resource lock. Neither of those
-                // should happen, but it's possible.
-                log::warn!(concat!(
-                    "Cluster was started for backup, but it cannot now be shut down; ",
-                    "please shut it down manually."
-                ));
-                Ok(State::Unmodified)
-            }
-            (State::Unmodified, Ok(_)) => {
-                // We didn't start the cluster, so do nothing.
-                Ok(State::Unmodified)
-            }
-            (State::Unmodified, Err(_)) => {
-                // Ignore lock poisoning errors.
-                Ok(State::Unmodified)
-            }
-        }
-    };
+    // let do_cleanup = || -> Result<State, ClusterError> {
+    //     match (state, resource.read().as_deref()) {
+    //         (State::Modified, Ok(Right(resource))) => {
+    //             // We started the cluster AND we have an exclusive resource, so
+    //             // we try to shut it down.
+    //             log::info!("Shutting down cluster…");
+    //             resource.facet().stop()
+    //         }
+    //         (State::Modified, Ok(Left(_)) | Err(_)) => {
+    //             // Somehow we started the cluster BUT we have only a shared
+    //             // resource – or a poisoned resource lock. Neither of those
+    //             // should happen, but it's possible.
+    //             log::warn!(concat!(
+    //                 "Cluster was started for backup, but it cannot now be shut down; ",
+    //                 "please shut it down manually."
+    //             ));
+    //             Ok(State::Unmodified)
+    //         }
+    //         (State::Unmodified, Ok(_)) => {
+    //             // We didn't start the cluster, so do nothing.
+    //             Ok(State::Unmodified)
+    //         }
+    //         (State::Unmodified, Err(_)) => {
+    //             // Ignore lock poisoning errors.
+    //             Ok(State::Unmodified)
+    //         }
+    //     }
+    // };
+    // TODO: Fix this.
+    let do_cleanup = || -> Result<State, ClusterError> { Ok(State::Unmodified) };
 
     // The command we use to copy WAL files to `destination_wal`.
     // <https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-ARCHIVING-WAL>.

@@ -11,4 +11,6 @@ where
     ControlError(C),
     #[error("Subject does not exist")]
     DoesNotExist,
+    #[error("Despite attempts, subject cannot be coordinated")]
+    Exhausted,
 }

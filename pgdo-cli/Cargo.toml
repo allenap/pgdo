@@ -16,6 +16,7 @@ name = "pgdo"
 path = "src/main.rs"
 
 [dependencies]
+backoff = "0.4.0"
 clap = { version = "=4.5.46", features = ["derive", "env"] }
 console = "=0.16.0"
 ctrlc = { version = "=3.4.7", features = ["termination"] }

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::{lock, shutdown, startup, CoordinateError, Subject};
 
 enum GuardDropMode {
@@ -29,7 +31,14 @@ where
         subject: T,
         options: T::Options<'_>,
     ) -> Result<Self, CoordinateError<T::Error>> {
-        let lock = startup(lock.into(), &subject, options)?;
+        let retries: crate::coordinate::retries::BackoffIter<_> =
+            backoff::ExponentialBackoffBuilder::new()
+                .with_initial_interval(Duration::from_millis(200))
+                .with_max_elapsed_time(Some(Duration::from_secs(60)))
+                .with_max_interval(Duration::from_millis(10000))
+                .build()
+                .into();
+        let (lock, _) = startup(lock.into(), &subject, options, retries)?;
         Ok(Self { mode: GuardDropMode::Stop, lock: lock.into(), subject })
     }
 }
