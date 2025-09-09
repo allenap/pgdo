@@ -9,6 +9,6 @@ where
     UnixError(#[from] nix::Error),
     #[error(transparent)]
     ControlError(C),
-    #[error("Cluster does not exist")]
+    #[error("Subject does not exist")]
     DoesNotExist,
 }
