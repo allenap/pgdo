@@ -43,11 +43,11 @@ jobs:
     runs-on: macos-latest
     needs: [aarch64-apple-darwin, x86_64-apple-darwin]
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           name: x86_64-apple-darwin
           path: pgdo-x86_64-apple-darwin
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           name: aarch64-apple-darwin
           path: pgdo-aarch64-apple-darwin
@@ -84,11 +84,11 @@ jobs:
     needs: [macos-universal, build-linux]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           name: linux
           path: linux
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           name: apple-darwin
       - name: Rename executables
