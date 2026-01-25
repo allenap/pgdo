@@ -6,6 +6,7 @@ use pgdo::{
     version::PartialVersion,
 };
 
+#[allow(clippy::test_attr_in_doctest)]
 /// Attribute macro to generate a test function for each discovered runtime.
 ///
 /// The function will be named after the original function, with a suffix
