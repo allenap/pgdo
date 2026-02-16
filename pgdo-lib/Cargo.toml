@@ -24,8 +24,8 @@ miette = "7.6.0"
 nix = { version = "0.31.1", features = ["fs", "user"] }
 postgres = "0.19.12"
 postgres-protocol = "0.6.10"
-rand = "0.9.2"
-regex = "1.12.2"
+rand = "0.10.0"
+regex = "1.12.3"
 shell-quote = "0.7.2"
 tempfile = "3.24.0"
 thiserror = "2.0.18"
@@ -47,5 +47,5 @@ default-features = false
 async-std = "1.13.2"
 paste = "1.0.15"
 pgdo-test = { path = "../pgdo-test" }
-rand = "0.9.2"
+rand = "0.10.0"
 tempfile = "3"
