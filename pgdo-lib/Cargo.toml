@@ -21,17 +21,17 @@ glob = "0.3.3"
 globset = "0.4.18"
 log = "0.4.29"
 miette = "7.6.0"
-nix = { version = "0.31.1", features = ["fs", "user"] }
+nix = { version = "0.31.2", features = ["fs", "user"] }
 postgres = "0.19.12"
 postgres-protocol = "0.6.10"
-rand = "0.9.2"
-regex = "1.12.2"
+rand = "0.10.0"
+regex = "1.12.3"
 shell-quote = "0.7.2"
-tempfile = "3.24.0"
+tempfile = "3.25.0"
 thiserror = "2.0.18"
 tokio-stream = "0.1.18"
 url = "2.5.8"
-uuid = { version = "1.20.0", features = ["v5"] }
+uuid = { version = "1.22.0", features = ["v5"] }
 
 [dependencies.sqlx]
 version = "0.8.6"
@@ -39,7 +39,7 @@ features = ["macros", "postgres", "runtime-tokio"]
 default-features = false
 
 [dependencies.tokio]
-version = "1.49.0"
+version = "1.50.0"
 features = ["parking_lot", "rt-multi-thread"]
 default-features = false
 
@@ -47,5 +47,5 @@ default-features = false
 async-std = "1.13.2"
 paste = "1.0.15"
 pgdo-test = { path = "../pgdo-test" }
-rand = "0.9.2"
+rand = "0.10.0"
 tempfile = "3"
