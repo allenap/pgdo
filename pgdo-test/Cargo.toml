@@ -22,7 +22,7 @@ async-std = "1.13.2"
 ctor = "0.6.3"
 log = "0.4.29"
 pgdo-test-macros = { path = "../pgdo-test-macros" }
-simple_logger = "5.1.0"
+simple_logger = "5.2.0"
 
 [dependencies.sqlx]
 version = "0.8.6"
