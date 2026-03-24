@@ -28,7 +28,7 @@ mod tests;
 use std::time::Duration;
 
 use either::Either::{Left, Right};
-use rand::RngCore;
+use rand::Rng;
 
 use crate::lock;
 pub use error::CoordinateError;
