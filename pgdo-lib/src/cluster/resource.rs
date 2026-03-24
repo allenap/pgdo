@@ -4,7 +4,7 @@ use std::time::Duration;
 use std::{ffi::OsStr, process::ExitStatus};
 
 use either::{Either, Left, Right};
-use rand::RngCore;
+use rand::Rng;
 
 use super::{
     coordinate::{resource, CoordinateError, State},
