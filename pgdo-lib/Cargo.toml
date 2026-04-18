@@ -22,16 +22,16 @@ globset = "0.4.18"
 log = "0.4.29"
 miette = "7.6.0"
 nix = { version = "0.31.2", features = ["fs", "user"] }
-postgres = "0.19.12"
-postgres-protocol = "0.6.10"
-rand = "0.10.0"
+postgres = "0.19.13"
+postgres-protocol = "0.6.11"
+rand = "0.10.1"
 regex = "1.12.3"
 shell-quote = "0.7.2"
 tempfile = "3.27.0"
 thiserror = "2.0.18"
 tokio-stream = "0.1.18"
 url = "2.5.8"
-uuid = { version = "1.22.0", features = ["v5"] }
+uuid = { version = "1.23.1", features = ["v5"] }
 
 [dependencies.sqlx]
 version = "0.8.6"
@@ -39,7 +39,7 @@ features = ["macros", "postgres", "runtime-tokio"]
 default-features = false
 
 [dependencies.tokio]
-version = "1.50.0"
+version = "1.52.1"
 features = ["parking_lot", "rt-multi-thread"]
 default-features = false
 
