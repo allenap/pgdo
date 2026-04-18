@@ -168,10 +168,10 @@ pub type HeldResource = Either<ResourceShared, ResourceExclusive>;
 /// The state is [`State::Unmodified`] if the cluster was already running, else
 /// [`State::Modified`] if the cluster was created or started by this function.
 ///
-/// The resource is [`Left(ResourceShared)`] if the cluster is already in use,
-/// or [`Right(ResourceExclusive)`] otherwise. Typically one would drop the
-/// exclusive hold down to shared as soon as possible, but the option is there
-/// to do maintenance, for example, that requires an exclusive hold.
+/// The resource is `Left(ResourceShared)` if the cluster is already in use, or
+/// `Right(ResourceExclusive)` otherwise. Typically one would drop the exclusive
+/// hold down to shared as soon as possible, but the option is there to do
+/// maintenance, for example, that requires an exclusive hold.
 pub fn startup(
     mut resource: ResourceFree,
     options: super::Options<'_>,
@@ -263,8 +263,8 @@ pub fn startup_if_exists(
 /// The state is [`State::Unmodified`] if the cluster could not be shut down or
 /// if it was already shut down, else [`State::Modified`].
 ///
-/// The resource is [`Left(ResourceShared)`] if the cluster is already in use –
-/// i.e. the resource passed in is returned – else [`Right(ResourceExclusive)`]
+/// The resource is `Left(ResourceShared)` if the cluster is already in use –
+/// i.e. the resource passed in is returned – else `Right(ResourceExclusive)`
 /// otherwise.
 pub fn shutdown(resource: ResourceShared) -> Result<(State, HeldResource), Error> {
     match resource.try_exclusive() {

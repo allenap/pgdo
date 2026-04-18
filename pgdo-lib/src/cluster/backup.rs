@@ -128,7 +128,7 @@ impl Backup {
     /// Performs a "base backup" of the cluster.
     ///
     /// Returns the directory into which the backup has been created. This is
-    /// always a subdirectory of [`self.backup_dir`].
+    /// always a subdirectory of [`self.backup_dir`][`Self::backup_dir`].
     ///
     /// This must be performed _after_ configuring continuous archiving (see
     /// [`Backup::do_configure_archiving`]).
