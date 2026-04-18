@@ -24,7 +24,7 @@ impl Runtimes {
         let fallback = strategy.fallback();
 
         // Sort by version. Higher versions will sort last.
-        runtimes.sort_by(|ra, rb| ra.version.cmp(&rb.version));
+        runtimes.sort_by_key(|ra| ra.version);
 
         for runtime in runtimes {
             let default = match fallback {

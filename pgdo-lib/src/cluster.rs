@@ -317,7 +317,7 @@ impl Cluster {
             arg.push_quoted(Sh, &self.datadir);
             for (parameter, value) in options {
                 arg.extend(b" -c ");
-                arg.push_quoted(Sh, &format!("{parameter}={value}",));
+                arg.push_quoted(Sh, &format!("{parameter}={value}"));
             }
             OsString::from_vec(arg)
         };
@@ -851,15 +851,15 @@ mod bugs {
                     "https://www.postgresql.org/message-id/CALL7chmzY3eXHA7zHnODUVGZLSvK3wYCSP0RmcDFHJY8f28Q3g@mail.gmail.com.",
                 ));
             });
-            log::warn!("`{command_summary}` failed; retrying in {delay:?}…",);
+            log::warn!("`{command_summary}` failed; retrying in {delay:?}…");
         };
 
         // Retry with exponential backoff + jitter.
         let state = backoff::retry_notify(
             backoff::ExponentialBackoffBuilder::new()
                 .with_initial_interval(Duration::from_millis(200))
-                .with_max_elapsed_time(Some(Duration::from_secs(60)))
-                .with_max_interval(Duration::from_millis(10000))
+                .with_max_elapsed_time(Some(Duration::from_mins(1)))
+                .with_max_interval(Duration::from_secs(10))
                 .build(),
             run,
             notify,

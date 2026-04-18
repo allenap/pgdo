@@ -16,7 +16,7 @@ impl fmt::Display for ConstraintError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         use ConstraintError::*;
         match self {
-            GlobError(ref error) => write!(fmt, "could not parse constraint: {error}",),
+            GlobError(ref error) => write!(fmt, "could not parse constraint: {error}"),
             VersionError(ref error) => write!(
                 fmt,
                 "could not parse version constraint {text:?}: {error}",
