@@ -8,7 +8,7 @@ on:
 jobs:
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v6
       # Install Rust.
@@ -26,11 +26,11 @@ jobs:
         run: |
           # See https://www.postgresql.org/support/versioning/ for official
           # support information, and https://apt.postgresql.org/pub/repos/apt/
-          # for all available versions. At present only version 11 and above are
-          # officially supported upstream (and version 11 will get its final
-          # release in November 2023 and officially enter EOL), but there is
+          # for all available versions. At present only version 14 and above are
+          # officially supported upstream (and version 14 will get its final
+          # release in November 2026 and officially enter EOL), but there is
           # still logic in pgdo that works with versions as old as 9.0.
-          sudo apt-get install -y postgresql-{9.{0,1,2,3,4,5,6},10,11,12,13,14,15,16,17}
+          sudo apt-get install -y postgresql-{9.{0,1,2,3,4,5,6},10,11,12,13,14,15,16,17,18}
       - name: Set PATH for all PostgreSQL runtimes
         run: |
           printf '%s\n' /usr/lib/postgresql/*/bin | sort -Vr | tee -a "$GITHUB_PATH"
@@ -42,7 +42,7 @@ jobs:
 
   fmt:
     name: Rustfmt
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -52,7 +52,7 @@ jobs:
 
   clippy:
     name: Clippy # i.e. `cargo check` plus extra linting.
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
