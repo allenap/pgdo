@@ -39,12 +39,11 @@ features = ["macros", "postgres", "runtime-tokio"]
 default-features = false
 
 [dependencies.tokio]
-version = "1.52.1"
+version = "1.52.3"
 features = ["parking_lot", "rt-multi-thread"]
 default-features = false
 
 [dev-dependencies]
-async-std = "1.13.2"
 paste = "1.0.15"
 pgdo-test = { path = "../pgdo-test" }
 tempfile = "3"

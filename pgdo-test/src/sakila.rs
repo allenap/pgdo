@@ -2,8 +2,8 @@
 //!
 //! [sakila]: https://github.com/jOOQ/sakila
 
-use async_std::stream::StreamExt;
 use sqlx::Executor;
+use tokio_stream::StreamExt;
 
 pub static SAKILA_SCHEMA: &str =
     include_str!("../../sakila/postgres-sakila-db/postgres-sakila-schema.sql");
