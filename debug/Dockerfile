@@ -22,7 +22,7 @@ RUN apt-get update
 # officially enter EOL), but there is still logic in pgdo that works with
 # versions as old as 9.0.
 #
-RUN apt-get install -y postgresql-{9.{0,1,2,3,4,5,6},10,11,12,13,14,15,16,17}
+RUN apt-get install -y postgresql-{9.{0,1,2,3,4,5,6},10,11,12,13,14,15,16,17,18}
 
 # Remove any preexisting `ubuntu` user and groups.
 RUN if getent passwd ubuntu >/dev/null 2>&1; then userdel --remove ubuntu; fi
@@ -44,12 +44,12 @@ ADD --chown=pgdo:pgdo --chmod=755 https://sh.rustup.rs /tmp/rustup-init
 RUN /tmp/rustup-init -y --component clippy && rm /tmp/rustup-init
 ENV PATH="/home/pgdo/.cargo/bin:${PATH}"
 
-# Install SQLx tooling.
-RUN cargo install sqlx-cli --no-default-features --features postgres
+# Install SQLx tooling to match the SQLx crate in dependencies.
+RUN cargo install sqlx-cli@0.8.6 --no-default-features --features postgres
 
 # Add the most recent PostgreSQL runtime to `PATH`. Some tests in `pgdo` scan
 # `PATH` for runtimes; this will allow them to pass. It's also convenient.
-ENV PATH="/usr/lib/postgresql/17/bin:${PATH}"
+ENV PATH="/usr/lib/postgresql/18/bin:${PATH}"
 
 # Ensure that `USER` is set. At present this is required by `pgdo`, but
 # https://github.com/allenap/pgdo/issues/28 may resolve that.

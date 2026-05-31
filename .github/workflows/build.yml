@@ -14,8 +14,8 @@ jobs:
       # Install Rust.
       - uses: dtolnay/rust-toolchain@stable
       # Install SQLx.
-      - name: Install SQLx tooling
-        run: cargo install sqlx-cli --no-default-features --features postgres
+      - name: Install SQLx tooling to match the SQLx crate in dependencies
+        run: cargo install sqlx-cli@0.8.6 --no-default-features --features postgres
       # Install PostgreSQL runtimes.
       - name: Set up PostgreSQL APT repository
         run: |
