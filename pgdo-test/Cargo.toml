@@ -25,6 +25,6 @@ simple_logger = "5.2.0"
 tokio-stream = "0.1.18"
 
 [dependencies.sqlx]
-version = "0.8.6"
+version = "0.9.0"
 features = ["macros", "postgres", "runtime-tokio"]
 default-features = false

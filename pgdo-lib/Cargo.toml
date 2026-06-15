@@ -34,7 +34,7 @@ url = "2.5.8"
 uuid = { version = "1.23.1", features = ["v5"] }
 
 [dependencies.sqlx]
-version = "0.8.6"
+version = "0.9.0"
 features = ["macros", "postgres", "runtime-tokio"]
 default-features = false
 
