@@ -430,7 +430,7 @@ impl FromStr for TimeUnit {
 
 #[cfg(test)]
 mod tests {
-    use paste::paste;
+    use pastey::paste;
 
     use super::{
         AsSql,
