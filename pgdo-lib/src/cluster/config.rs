@@ -6,6 +6,10 @@ use super::sqlx;
 
 trait AsSql {
     fn as_sql(&self) -> Cow<'_, str>;
+    fn as_safe_sql(&self) -> sqlx::AssertSqlSafe<String> {
+        let sql = self.as_sql().into_owned();
+        sqlx::AssertSqlSafe(sql)
+    }
 }
 
 /// Reload configuration using `pg_reload_conf`. Equivalent to `SIGHUP` or
@@ -25,7 +29,7 @@ impl AlterSystem<'_> {
     /// Alter the system. Changes made by `ALTER SYSTEM` may require a reload or
     /// even a full restart to take effect.
     pub async fn apply(&self, pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
-        sqlx::query(&self.as_sql()).execute(pool).await?;
+        sqlx::query(self.as_safe_sql()).execute(pool).await?;
         Ok(())
     }
 }
