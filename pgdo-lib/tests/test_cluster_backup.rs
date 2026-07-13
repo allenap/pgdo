@@ -30,7 +30,7 @@ fn cluster_backup() -> TestResult {
 
     // Run backup 3 times.
     for num in 1..=3 {
-        let archive_command = format!("cp %p {}/%f", &backup.backup_wal_dir.display());
+        let archive_command = format!("cp %p {}/%f", backup.backup_wal_dir.display());
         let restart_needed = rt
             .block_on(backup.do_configure_archiving(&resource, &archive_command))
             .unwrap();
