@@ -10,7 +10,7 @@ jobs:
     name: Test
     runs-on: ubicloud-standard-8
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # Install Rust.
       - uses: dtolnay/rust-toolchain@stable
       # Install SQLx.
@@ -44,7 +44,7 @@ jobs:
     name: Rustfmt
     runs-on: ubicloud-standard-2
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -54,7 +54,7 @@ jobs:
     name: Clippy # i.e. `cargo check` plus extra linting.
     runs-on: ubicloud-standard-2
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
