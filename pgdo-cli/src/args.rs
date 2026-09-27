@@ -13,7 +13,7 @@ pub struct ClusterArgs {
         long = "datadir",
         env = "PGDATA",
         value_name = "PGDATA",
-        default_value = "cluster",
+        default_value = "pgdo.cluster",
         display_order = 1
     )]
     pub dir: PathBuf,

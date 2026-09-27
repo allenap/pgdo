@@ -58,7 +58,7 @@ Options:
   -V, --version  Print version
 
 Options for shell:
-  -D, --datadir <PGDATA>              The directory in which the cluster lives [env: PGDATA=] [default: cluster]
+  -D, --datadir <PGDATA>              The directory in which the cluster lives [env: PGDATA=] [default: pgdo.cluster]
   -d, --database <PGDATABASE>         The database to connect to [env: PGDATABASE=] [default: postgres]
       --mode <MODE>                   Run the cluster in a "safer" or "faster" mode [possible values: slower-but-safer, faster-but-less-safe]
       --runtime-default <CONSTRAINT>  Select the default runtime, used when creating new clusters
@@ -82,8 +82,9 @@ $ pgdo exec pg_dump
 
 ## Clusters
 
-By default, `pgdo` creates and uses a cluster in a directory named `cluster`
-in the current directory; use `--datadir` or `PGDATA` to choose another. This is
+By default, `pgdo` creates and uses a cluster in a directory named
+`pgdo.cluster` in the current directory; use `--datadir` or `PGDATA` to choose
+another. This is
 PostgreSQL's data directory. `pgdo` also keeps a few files of its own in there,
 all named `pgdo.*`, e.g. `pgdo.lock`, which coordinates `pgdo` processes using
 the cluster. `pgdo` will use an existing cluster, but will only create a new one

@@ -1,6 +1,7 @@
-# The default PGDATA for the `pgdo` binary – or `cargo run` – is `cluster`.
-# Ignore it by default; like it or not, it's going to get created when mucking
-# around.
+# The default PGDATA for the `pgdo` binary – or `cargo run` – is `pgdo.cluster`
+# (previously `cluster`). Ignore it by default; like it or not, it's going to
+# get created when mucking around.
+/pgdo.cluster/
 /cluster/
 
 # Rust build stuff.
