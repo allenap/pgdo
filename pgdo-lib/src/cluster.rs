@@ -102,6 +102,20 @@ impl fmt::Display for ClusterStatus {
 /// may be running. The methods here can be used to create, start, introspect,
 /// stop, and destroy the cluster. There's no protection against concurrent
 /// changes to the cluster made by other processes; use a [`Session`] for that.
+///
+/// # Blocking
+///
+/// All methods here block. Most run external programs like `pg_ctl`, `initdb`,
+/// or `psql`, and block until those finish. From async code, call them within
+/// something like Tokio's `spawn_blocking`.
+///
+/// Methods that talk to the cluster over a connection –
+/// [`connect`][`Self::connect`], [`databases`][`Self::databases`],
+/// [`createdb`][`Self::createdb`], [`dropdb`][`Self::dropdb`], and the
+/// functions in [`config`] – use the synchronous [`postgres`] client, which
+/// runs its own Tokio runtime internally. These **panic** if called from within
+/// an async context (i.e. within another Tokio runtime) so `spawn_blocking` or
+/// similar is **required** for them.
 #[derive(Debug)]
 pub struct Cluster {
     /// The data directory of the cluster.
@@ -311,6 +325,11 @@ impl Cluster {
     /// Connect to this cluster, as the current user.
     ///
     /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
+    ///
+    /// The returned client is synchronous and **panics** if used from within an
+    /// async context; see [Blocking][`Cluster#blocking`]. For async code, use an
+    /// async client with [`socket_dir`][`Self::socket_dir`] or
+    /// [`url`][`Self::url`] instead.
     pub fn connect(&self, database: Option<&str>) -> Result<postgres::Client, ClusterError> {
         let user = crate::util::current_user()?;
         let host = self.socket_dir().to_string_lossy(); // postgres crate API limitation.

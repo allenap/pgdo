@@ -19,6 +19,14 @@
 //! Coordination uses [`flock(2)`](https://linux.die.net/man/2/flock) locks on
 //! a file: a shared lock while the session is held; an exclusive lock to create
 //! and start the cluster, and to stop or destroy it.
+//!
+//! Starting, ending, and dropping a session all block, sometimes for a while:
+//! they may wait for other processes to release locks, and they run `pg_ctl`.
+//! From async code, start and end sessions within something like Tokio's
+//! `spawn_blocking`. Dropping a session within an async context is safe, but
+//! blocks the current thread until the cluster has stopped. See also
+//! [Blocking][`Cluster#blocking`] for the methods available through a
+//! session.
 
 use std::os::unix::prelude::OsStrExt;
 use std::time::Duration;
