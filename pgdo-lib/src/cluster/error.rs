@@ -29,10 +29,11 @@ pub enum ClusterError {
     RuntimeError(#[from] runtime::RuntimeError),
     #[error("Database error")]
     DatabaseError(#[from] cluster::postgres::Error),
-    #[error("Database error")]
-    SqlxError(#[from] cluster::sqlx::Error),
-    #[error("Cluster in use; cannot lock exclusively")]
-    InUse,
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    ConfigError(#[from] cluster::config::ConfigError),
+    #[error("Could not lock cluster")]
+    LockError(#[from] nix::Error),
     #[error("External command failed: {0:?}")]
     CommandError(Output),
     #[error(transparent)]

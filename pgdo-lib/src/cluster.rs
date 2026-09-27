@@ -1,34 +1,41 @@
 //! Create, start, introspect, stop, and destroy PostgreSQL clusters.
 
 pub mod config;
-pub mod resource;
+pub mod session;
 
 mod error;
 
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Read, Write};
-use std::os::unix::prelude::{OsStrExt, OsStringExt};
+use std::os::unix::prelude::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output};
 use std::{fmt, fs};
 
-use postgres;
+pub use postgres;
 use shell_quote::{QuoteExt, Sh};
-pub use sqlx;
 
 use crate::runtime::{
     self,
     strategy::{Strategy, StrategyLike},
     Runtime,
 };
-use crate::{
-    coordinate::{
-        self,
-        State::{self, *},
-    },
-    version,
-};
+use crate::version;
 pub use error::ClusterError;
+pub use session::{Finish, Session};
+
+/// The outcome of an action on a cluster.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum State {
+    /// The action we requested was performed from this process, e.g. we tried
+    /// to create the cluster, and we did indeed create the cluster.
+    Modified,
+    /// The action we requested was performed by another process, or was not
+    /// necessary, e.g. we tried to stop the cluster but it was already stopped.
+    Unmodified,
+}
+
+use State::{Modified, Unmodified};
 
 /// `template0` is always present in a PostgreSQL cluster.
 ///
@@ -94,8 +101,7 @@ impl fmt::Display for ClusterStatus {
 /// The cluster may not yet exist on disk. It may exist but be stopped, or it
 /// may be running. The methods here can be used to create, start, introspect,
 /// stop, and destroy the cluster. There's no protection against concurrent
-/// changes to the cluster made by other processes, but the functions in the
-/// [`coordinate`][`crate::coordinate`] module may help.
+/// changes to the cluster made by other processes; use a [`Session`] for that.
 #[derive(Debug)]
 pub struct Cluster {
     /// The data directory of the cluster.
@@ -147,7 +153,7 @@ impl Cluster {
     fn ctl(&self) -> Result<Command, ClusterError> {
         let mut command = self.runtime()?.execute("pg_ctl");
         command.env("PGDATA", &self.datadir);
-        command.env("PGHOST", &self.datadir);
+        command.env("PGHOST", self.socket_dir());
         Ok(command)
     }
 
@@ -249,7 +255,7 @@ impl Cluster {
         //  -c name=value -- set a configuration parameter.
         let options = {
             let mut arg: Vec<u8> = b"-h '' -k ".into();
-            arg.push_quoted(Sh, &self.datadir);
+            arg.push_quoted(Sh, self.socket_dir());
             for (parameter, value) in options {
                 arg.extend(b" -c ");
                 arg.push_quoted(Sh, &format!("{parameter}={value}"));
@@ -292,58 +298,44 @@ impl Cluster {
         bugs::retry_pg_ctl(&mut command, append_logs_to_stderr)
     }
 
-    /// Connect to this cluster.
+    /// The directory in which this cluster's Unix-domain socket lives.
+    ///
+    /// Clusters managed by pgdo listen **only** on a Unix-domain socket, not on
+    /// TCP. To connect with a client library, use this as the host, e.g. for
+    /// SQLx use `PgConnectOptions::new().socket(cluster.socket_dir())`. See also
+    /// [`url`][`Self::url`].
+    pub fn socket_dir(&self) -> &Path {
+        &self.datadir
+    }
+
+    /// Connect to this cluster, as the current user.
     ///
     /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
-    fn connect(&self, database: Option<&str>) -> Result<postgres::Client, ClusterError> {
+    pub fn connect(&self, database: Option<&str>) -> Result<postgres::Client, ClusterError> {
         let user = crate::util::current_user()?;
-        let host = self.datadir.to_string_lossy(); // postgres crate API limitation.
+        let host = self.socket_dir().to_string_lossy(); // postgres crate API limitation.
         let client = postgres::Client::configure()
             .host(&host)
             .dbname(database.unwrap_or(DATABASE_POSTGRES))
             .user(&user)
+            .application_name("pgdo")
             .connect(postgres::NoTls)?;
         Ok(client)
     }
 
-    /// Create a lazy SQLx pool for this cluster.
+    /// Return a URL for connecting to the given database in this cluster, e.g.
+    /// `postgresql://?host=%2Fpath%2Fto%2Fcluster&dbname=postgres`.
     ///
-    /// Although it's possible to call this anywhere, at runtime it needs a
-    /// Tokio context to work, e.g.:
+    /// The URL has no user; clients typically default to the current user.
     ///
-    /// ```rust,no_run
-    /// # use pgdo::cluster::ClusterError;
-    /// # let runtime = pgdo::runtime::strategy::Strategy::default();
-    /// # let cluster = pgdo::cluster::Cluster::new("some/where", runtime)?;
-    /// let tokio = tokio::runtime::Runtime::new()?;
-    /// let rows = tokio.block_on(async {
-    ///   let pool = cluster.pool(None)?;
-    ///   let rows = sqlx::query("SELECT 1").fetch_all(&pool).await?;
-    ///   Ok::<_, ClusterError>(rows)
-    /// })?;
-    /// # Ok::<(), ClusterError>(())
-    /// ```
-    ///
-    /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
-    pub fn pool(&self, database: Option<&str>) -> Result<sqlx::PgPool, ClusterError> {
-        Ok(sqlx::PgPool::connect_lazy_with(
-            sqlx::postgres::PgConnectOptions::new()
-                .socket(&self.datadir)
-                .database(database.unwrap_or(DATABASE_POSTGRES))
-                .username(&crate::util::current_user()?)
-                .application_name("pgdo"),
-        ))
-    }
-
-    /// Return a URL for this cluster, if possible.
-    ///
-    /// It is not possible to return a URL for a cluster when `self.datadir` is
-    /// not valid UTF-8, in which case `Ok(None)` is returned.
-    fn url(&self, database: &str) -> Result<Option<url::Url>, url::ParseError> {
-        match self.datadir.to_str() {
-            Some(datadir) => url::Url::parse_with_params(
+    /// It is not possible to return a URL for a cluster when its
+    /// [`socket_dir`][`Self::socket_dir`] is not valid UTF-8, in which case
+    /// `Ok(None)` is returned.
+    pub fn url(&self, database: &str) -> Result<Option<url::Url>, url::ParseError> {
+        match self.socket_dir().to_str() {
+            Some(socket_dir) => url::Url::parse_with_params(
                 "postgresql://",
-                [("host", datadir), ("dbname", database)],
+                [("host", socket_dir), ("dbname", database)],
             )
             .map(Some),
             None => Ok(None),
@@ -382,7 +374,7 @@ impl Cluster {
 
         // Set a few standard PostgreSQL environment variables.
         command.env("PGDATA", &self.datadir);
-        command.env("PGHOST", &self.datadir);
+        command.env("PGHOST", self.socket_dir());
         command.env("PGDATABASE", database);
 
         // Set `DATABASE_URL` if `self.datadir` is valid UTF-8, otherwise ensure
@@ -582,63 +574,6 @@ pub fn determine_superuser_role_names(
 }
 
 pub type Options<'a> = &'a [(config::Parameter<'a>, config::Value)];
-
-/// [`Cluster`] can be coordinated.
-impl coordinate::Subject for Cluster {
-    type Error = ClusterError;
-    type Options<'a> = Options<'a>;
-
-    fn start(&self, options: Self::Options<'_>) -> Result<State, Self::Error> {
-        self.start(options)
-    }
-
-    fn stop(&self) -> Result<State, Self::Error> {
-        self.stop()
-    }
-
-    fn destroy(&self) -> Result<State, Self::Error> {
-        self.destroy()
-    }
-
-    fn exists(&self) -> Result<bool, Self::Error> {
-        Ok(exists(self))
-    }
-
-    fn running(&self) -> Result<bool, Self::Error> {
-        self.running()
-    }
-}
-
-#[allow(clippy::unreadable_literal)]
-const UUID_NS: uuid::Uuid = uuid::Uuid::from_u128(93875103436633470414348750305797058811);
-
-pub type ClusterGuard = coordinate::guard::Guard<Cluster>;
-
-/// Create and start a cluster at the given path, with the given options.
-///
-/// Uses the default runtime strategy. Returns a guard which will stop the
-/// cluster when it's dropped.
-pub fn run<P: AsRef<Path>>(
-    path: P,
-    options: Options<'_>,
-) -> Result<ClusterGuard, coordinate::CoordinateError<ClusterError>> {
-    let path = path.as_ref();
-    // We have to create the data directory so that we can canonicalize its
-    // location. This is because we use the data directory's path as the basis
-    // for the lock file's name. This is duplicative – `Cluster::create` also
-    // creates the data directory – but necessary.
-    fs::create_dir_all(path)?;
-    let path = path.canonicalize()?;
-
-    let strategy = crate::runtime::strategy::Strategy::default();
-    let cluster = crate::cluster::Cluster::new(&path, strategy)?;
-
-    let lock_name = path.as_os_str().as_bytes();
-    let lock_uuid = uuid::Uuid::new_v5(&UUID_NS, lock_name);
-    let lock = crate::lock::UnlockedFile::try_from(&lock_uuid)?;
-
-    ClusterGuard::startup(lock, cluster, options)
-}
 
 // ----------------------------------------------------------------------
 

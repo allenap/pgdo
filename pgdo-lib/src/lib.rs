@@ -9,7 +9,6 @@
 #![allow(clippy::redundant_else)]
 
 pub mod cluster;
-pub mod coordinate;
 pub mod lock;
 pub mod runtime;
 pub mod util;

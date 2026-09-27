@@ -3,10 +3,7 @@ use std::ffi::OsString;
 use miette::WrapErr;
 
 use super::ExitResult;
-use crate::{
-    args,
-    runner::{self, Runner},
-};
+use crate::{args, runner};
 
 /// Execute an arbitrary command, creating and starting the cluster as
 /// necessary.
@@ -48,24 +45,14 @@ impl Exec {
             lifecycle,
             runtime,
         } = self;
-        runner::run(
-            if lifecycle.destroy {
-                Runner::RunAndDestroy
-            } else {
-                Runner::RunAndStop
-            },
-            cluster,
-            cluster_mode,
-            runtime,
-            |cluster| {
-                runner::ensure_database(cluster, &database.name)?;
-                runner::check_exit(
-                    cluster
-                        .exec(Some(&database.name), command, &args)
-                        .wrap_err("Executing command in cluster failed")?,
-                )
-            },
-        )
+        runner::run(cluster, cluster_mode, runtime, lifecycle, |cluster| {
+            runner::ensure_database(cluster, &database.name)?;
+            runner::check_exit(
+                cluster
+                    .exec(Some(&database.name), command, &args)
+                    .wrap_err("Executing command in cluster failed")?,
+            )
+        })
     }
 }
 

@@ -13,9 +13,6 @@ jobs:
       - uses: actions/checkout@v6
       # Install Rust.
       - uses: dtolnay/rust-toolchain@stable
-      # Install SQLx.
-      - name: Install SQLx tooling to match the SQLx crate in dependencies
-        run: cargo install sqlx-cli@0.8.6 --no-default-features --features postgres
       # Install PostgreSQL runtimes.
       - name: Set up PostgreSQL APT repository
         run: |
@@ -33,9 +30,9 @@ jobs:
       - name: Set PATH for all PostgreSQL runtimes
         run: |
           printf '%s\n' /usr/lib/postgresql/*/bin | sort -Vr | tee -a "$GITHUB_PATH"
-      # Check SQLx compilation metadata.
-      - name: Check SQLx database compilation metadata is up-to-date
-        run: bin/sqlx prepare --check --database-url="postgresql://?host=${PWD}/cluster&dbname=postgres" --workspace
+      # Smoke-test the command-line tool.
+      - name: Run a command in a cluster with pgdo
+        run: cargo run --package pgdo-cli -- exec --destroy -- psql --no-psqlrc --command 'SELECT version()'
       # Finally, run tests.
       - run: cargo test
 

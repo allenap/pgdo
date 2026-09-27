@@ -53,38 +53,31 @@ PostgreSQL clusters of any version that is supported upstream, from PostgreSQL
 
 ```rust
 use pgdo::{
-  cluster::{
-    Cluster, ClusterError,
-    sqlx::{query, Row}
-  },
-  runtime::{
-    self,
-    strategy::StrategyLike,
-  },
+  cluster::{Cluster, ClusterError},
+  runtime::{self, strategy::StrategyLike},
 };
-let tokio = tokio::runtime::Runtime::new()?;
 for runtime in runtime::strategy::Strategy::default().runtimes() {
   let data_dir = tempfile::tempdir()?;
   let cluster = Cluster::new(&data_dir, runtime)?;
   cluster.start(&[])?;
   assert_eq!(cluster.databases()?, vec!["postgres", "template0", "template1"]);
-  let rows = tokio.block_on(async {
-    let pool = cluster.pool(None)?;
-    let rows = query("SELECT 1234 -- …").fetch_all(&pool).await?;
-    Ok::<_, ClusterError>(rows)
-  })?;
-  let collations: Vec<i32> = rows.iter().map(|row| row.get(0)).collect();
-  assert_eq!(collations, vec![1234]);
+  let mut client = cluster.connect(None)?;
+  let row = client.query_one("SELECT 1234 -- …", &[])?;
+  assert_eq!(row.get::<_, i32>(0), 1234);
   cluster.stop()?;
 }
 # Ok::<(), ClusterError>(())
 ```
 
-**However**, you may want to use this with the functions in the `coordinate`
-module like [`run_and_stop`][`coordinate::run_and_stop`] and
-[`run_and_destroy`][`coordinate::run_and_destroy`]. These add locking to the
-setup and teardown steps of using a cluster so that multiple processes can
-safely share a single on-demand cluster.
+**However**, you will usually want to use a [`Session`][`cluster::Session`]
+instead: `cluster.session(&[])?` creates and starts the cluster as necessary,
+and stops it – or destroys it – when the session ends. Sessions use locking so
+that multiple processes can safely share a single on-demand cluster; the cluster
+is stopped only when the last session ends.
+
+To connect with a different client library, such as SQLx, use
+[`Cluster::socket_dir`][`cluster::Cluster::socket_dir`] or
+[`Cluster::url`][`cluster::Cluster::url`].
 
 ## Contributing
 
@@ -122,7 +115,7 @@ From <https://wiki.postgresql.org/wiki/Apt>:
 ```shellsession
 $ sudo apt-get install -y postgresql-common
 $ sudo sh /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-$ sudo apt-get install -y postgresql-{9.{4,5,6},10,11,12,13}  # Adjust as necessary.
+$ sudo apt-get install -y postgresql-{15,16,17,18}  # Adjust as necessary.
 ```
 
 #### macOS
@@ -131,7 +124,7 @@ Using [Homebrew](https://brew.sh/):
 
 ```shellsession
 $ brew install postgresql  # Latest version.
-$ brew install postgresql@{9.{4,5,6},10,11,12,13}  # Adjust as necessary.
+$ brew install postgresql@{15,16,17,18}  # Adjust as necessary.
 ```
 
 ### Releasing new versions of pgdo-cli and pgdo-lib
