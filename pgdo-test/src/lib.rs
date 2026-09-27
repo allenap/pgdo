@@ -1,15 +1,15 @@
 pub mod sakila;
 pub use pgdo_test_macros::for_all_runtimes;
 
-/// Connect to the cluster listening in `socket_dir` with the [`postgres`]
+/// Connect to the cluster listening in `socketdir` with the [`postgres`]
 /// client, as consumers of pgdo might.
 pub fn connect(
-    socket_dir: &std::path::Path,
+    socketdir: &std::path::Path,
     user: &str,
     database: &str,
 ) -> Result<postgres::Client, postgres::Error> {
     postgres::Client::configure()
-        .host_path(socket_dir)
+        .host_path(socketdir)
         .user(user)
         .dbname(database)
         .connect(postgres::NoTls)

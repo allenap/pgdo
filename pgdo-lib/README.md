@@ -57,14 +57,14 @@ use pgdo::{
   runtime::{self, strategy::StrategyLike},
 };
 for runtime in runtime::strategy::Strategy::default().runtimes() {
-  let data_dir = tempfile::tempdir()?;
-  let cluster = Cluster::new(&data_dir, runtime)?;
+  let datadir = tempfile::tempdir()?;
+  let cluster = Cluster::new(&datadir, runtime)?;
   cluster.start(&[])?;
   assert_eq!(cluster.databases()?, vec!["postgres", "template0", "template1"]);
   assert_eq!(cluster.createdb("example")?, State::Modified);
-  // Connect with your client library of choice via `cluster.socket_dir()`, or
+  // Connect with your client library of choice via `cluster.datadir`, or
   // with a URL from `cluster.url("example")`, e.g.:
-  let url = cluster.url("example")?.expect("socket_dir is not valid UTF-8");
+  let url = cluster.url("example")?.expect("datadir is not valid UTF-8");
   assert_eq!(url.scheme(), "postgresql");
   cluster.stop()?;
 }
@@ -78,7 +78,7 @@ that multiple processes can safely share a single on-demand cluster; the cluster
 is stopped only when the last session ends.
 
 To connect with a different client library, such as SQLx, use
-[`Cluster::socket_dir`][`cluster::Cluster::socket_dir`] or
+[`Cluster::datadir`][`cluster::Cluster::datadir`] or
 [`Cluster::url`][`cluster::Cluster::url`].
 
 ## Contributing

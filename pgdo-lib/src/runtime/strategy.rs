@@ -19,7 +19,7 @@ pub type Runtimes<'a> = Box<dyn Iterator<Item = Runtime> + 'a>;
 ///
 /// However, a good place to start is the [`Default`] implementation of
 /// [`Strategy`]. It might do what you need.
-pub trait StrategyLike: std::fmt::Debug + std::panic::RefUnwindSafe + 'static {
+pub trait StrategyLike: std::fmt::Debug + 'static {
     /// Find all runtimes that this strategy knows about.
     fn runtimes(&self) -> Runtimes<'_>;
 

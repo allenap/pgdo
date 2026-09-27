@@ -10,7 +10,7 @@
 //! async context, though it will block the calling thread.
 //!
 //! To work with a cluster from your own code, use a full-featured client
-//! library, connecting via [`Cluster::socket_dir`][`super::Cluster::socket_dir`]
+//! library, connecting via [`Cluster::datadir`][`super::Cluster::datadir`]
 //! or [`Cluster::url`][`super::Cluster::url`].
 //!
 //! [trust]: https://www.postgresql.org/docs/current/auth-trust.html
@@ -142,10 +142,10 @@ pub(crate) struct Client {
 }
 
 impl Client {
-    /// Connect to the cluster listening in `socket_dir`, with trust
+    /// Connect to the cluster listening in `socketdir`, with trust
     /// authentication.
-    pub fn connect(socket_dir: &Path, user: &str, database: &str) -> Result<Self, ClientError> {
-        let stream = UnixStream::connect(socket_dir.join(format!(".s.PGSQL.{PORT}")))?;
+    pub fn connect(socketdir: &Path, user: &str, database: &str) -> Result<Self, ClientError> {
+        let stream = UnixStream::connect(socketdir.join(format!(".s.PGSQL.{PORT}")))?;
         let mut client = Client { stream, buf: BytesMut::new() };
 
         let mut message = BytesMut::new();
@@ -283,8 +283,8 @@ mod tests {
     type TestResult = Result<(), Box<dyn std::error::Error>>;
 
     fn with_cluster(test: impl FnOnce(&Cluster) -> TestResult) -> TestResult {
-        let temp_dir = tempfile::tempdir()?;
-        let cluster = Cluster::new(temp_dir.path().join("data"), Strategy::default())?;
+        let tempdir = tempfile::tempdir()?;
+        let cluster = Cluster::new(tempdir.path().join("data"), Strategy::default())?;
         cluster.start(&[])?;
         let result = test(&cluster);
         cluster.stop()?;
@@ -293,7 +293,7 @@ mod tests {
 
     fn connect(cluster: &Cluster, database: &str) -> Result<Client, ClientError> {
         let user = crate::util::current_user().unwrap();
-        Client::connect(cluster.socket_dir(), &user, database)
+        Client::connect(&cluster.datadir, &user, database)
     }
 
     #[test]

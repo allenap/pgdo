@@ -18,7 +18,7 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 fn connect(cluster: &Cluster) -> Result<postgres::Client, Box<dyn std::error::Error>> {
     let user = pgdo::util::current_user()?;
     Ok(pgdo_test::connect(
-        cluster.socket_dir(),
+        &cluster.datadir,
         &user,
         cluster::DATABASE_POSTGRES,
     )?)
@@ -44,12 +44,12 @@ fn cluster_does_not_exist() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_does_exist() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(&data_dir, runtime.clone())?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(&datadir, runtime.clone())?;
     cluster.create()?;
     assert!(exists(&cluster));
-    let cluster = Cluster::new(&data_dir, runtime)?;
+    let cluster = Cluster::new(&datadir, runtime)?;
     assert!(exists(&cluster));
     Ok(())
 }
@@ -65,24 +65,24 @@ fn cluster_has_no_version_when_it_does_not_exist() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_has_version_when_it_does_exist() -> TestResult {
-    let data_dir = tempfile::tempdir()?; // NOT a subdirectory.
-    let version_file = data_dir.path().join("PG_VERSION");
-    File::create(&version_file)?;
+    let datadir = tempfile::tempdir()?; // NOT a subdirectory.
+    let versionfile = datadir.path().join("PG_VERSION");
+    File::create(&versionfile)?;
     let pg_version: PartialVersion = runtime.version.into();
     let pg_version = pg_version.widened(); // e.g. 16.4 -> 16.
-    std::fs::write(&version_file, format!("{pg_version}\n"))?;
-    let cluster = Cluster::new(&data_dir, runtime)?;
+    std::fs::write(&versionfile, format!("{pg_version}\n"))?;
+    let cluster = Cluster::new(&datadir, runtime)?;
     assert!(matches!(version(&cluster), Ok(Some(_))));
     Ok(())
 }
 
 #[test]
 fn cluster_with_unsupported_version_is_an_error() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
-    let cluster = Cluster::new(&data_dir, Strategy::default())?;
+    let datadir = tempfile::tempdir()?;
+    let cluster = Cluster::new(&datadir, Strategy::default())?;
     for old_version in ["9.6", "14"] {
         std::fs::write(
-            data_dir.path().join("PG_VERSION"),
+            datadir.path().join("PG_VERSION"),
             format!("{old_version}\n"),
         )?;
         assert!(matches!(
@@ -96,9 +96,9 @@ fn cluster_with_unsupported_version_is_an_error() -> TestResult {
 
 #[for_all_runtimes]
 #[test]
-fn cluster_has_pid_file() -> TestResult {
-    let data_dir = PathBuf::from("/some/where");
-    let cluster = Cluster::new(data_dir, runtime)?;
+fn cluster_has_pidfile() -> TestResult {
+    let datadir = PathBuf::from("/some/where");
+    let cluster = Cluster::new(datadir, runtime)?;
     assert_eq!(
         PathBuf::from("/some/where/postmaster.pid"),
         cluster.pidfile()
@@ -108,9 +108,9 @@ fn cluster_has_pid_file() -> TestResult {
 
 #[for_all_runtimes]
 #[test]
-fn cluster_has_log_file() -> TestResult {
-    let data_dir = PathBuf::from("/some/where");
-    let cluster = Cluster::new(data_dir, runtime)?;
+fn cluster_has_logfile() -> TestResult {
+    let datadir = PathBuf::from("/some/where");
+    let cluster = Cluster::new(datadir, runtime)?;
     assert_eq!(
         PathBuf::from("/some/where/postmaster.log"),
         cluster.logfile()
@@ -121,9 +121,9 @@ fn cluster_has_log_file() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_create_creates_cluster() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(data_dir, runtime)?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(datadir, runtime)?;
     assert!(!exists(&cluster));
     assert!(cluster.create()? == Modified);
     assert!(exists(&cluster));
@@ -133,9 +133,9 @@ fn cluster_create_creates_cluster() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(data_dir, runtime.clone())?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(datadir, runtime.clone())?;
     cluster.start(&[])?;
     let result = connect(&cluster)?.query("SHOW ALL", &[])?;
     let params: std::collections::HashMap<String, String> = result
@@ -193,9 +193,9 @@ fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResu
 #[for_all_runtimes]
 #[test]
 fn cluster_create_does_nothing_when_it_already_exists() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(data_dir, runtime)?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(datadir, runtime)?;
     assert!(!exists(&cluster));
     assert!(cluster.create()? == Modified);
     assert!(exists(&cluster));
@@ -206,9 +206,9 @@ fn cluster_create_does_nothing_when_it_already_exists() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_start_stop_starts_and_stops_cluster() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(data_dir, runtime)?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(datadir, runtime)?;
     assert_eq!(cluster.status()?, ClusterStatus::Missing);
     cluster.create()?;
     assert_eq!(cluster.status()?, ClusterStatus::Stopped);
@@ -222,9 +222,9 @@ fn cluster_start_stop_starts_and_stops_cluster() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_start_with_options() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(data_dir, runtime)?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(datadir, runtime)?;
     cluster.start(&[("example.setting".into(), "Hello, World!".into())])?;
     let example_setting: String = connect(&cluster)?
         .query_one("SHOW example.setting", &[])?
@@ -237,17 +237,17 @@ fn cluster_start_with_options() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_exec_sets_environment() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(data_dir, runtime)?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(datadir, runtime)?;
     cluster.create()?;
     cluster.start(&[])?;
-    let env_file = temp_dir.path().join("env");
+    let envfile = tempdir.path().join("env");
     let mut env_command: Vec<u8> = "env -0 > ".into();
-    env_command.push_quoted(Sh, &env_file);
+    env_command.push_quoted(Sh, &envfile);
     let env_args: [OsString; 2] = ["-c".into(), OsString::from_vec(env_command)];
     cluster.exec(None, "sh".into(), &env_args)?;
-    let env = std::fs::read_to_string(env_file)?;
+    let env = std::fs::read_to_string(envfile)?;
     let env = env
         .split('\u{0}')
         .filter_map(|line| line.split_once('='))
@@ -269,9 +269,9 @@ fn cluster_exec_sets_environment() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_destroy_stops_and_removes_cluster() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(data_dir, runtime)?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(datadir, runtime)?;
     cluster.create()?;
     cluster.start(&[])?;
     assert!(exists(&cluster));
@@ -283,9 +283,9 @@ fn cluster_destroy_stops_and_removes_cluster() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_destroy_removes_cluster() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(data_dir, runtime)?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(datadir, runtime)?;
     cluster.create()?;
     assert!(exists(&cluster));
     cluster.destroy()?;
@@ -296,9 +296,9 @@ fn cluster_destroy_removes_cluster() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_destroy_does_nothing_if_cluster_does_not_exist() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(data_dir, runtime)?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(datadir, runtime)?;
     assert!(!exists(&cluster));
     cluster.destroy()?;
     assert!(!exists(&cluster));
@@ -308,9 +308,9 @@ fn cluster_destroy_does_nothing_if_cluster_does_not_exist() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_databases_returns_vec_of_database_names() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(data_dir, runtime)?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(datadir, runtime)?;
     cluster.start(&[])?;
 
     let expected: HashSet<String> = ["postgres", "template0", "template1"]
@@ -329,9 +329,9 @@ fn cluster_databases_returns_vec_of_database_names() -> TestResult {
 fn cluster_databases_with_non_plain_names_can_be_created_and_dropped() -> TestResult {
     // PostgreSQL identifiers containing hyphens, for example, or where we
     // want to preserve capitalisation, are possible.
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(data_dir, runtime)?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(datadir, runtime)?;
     cluster.start(&[])?;
     cluster.createdb("foo-bar")?;
     cluster.createdb("Foo-BAR")?;
@@ -352,9 +352,9 @@ fn cluster_databases_with_non_plain_names_can_be_created_and_dropped() -> TestRe
 #[for_all_runtimes]
 #[test]
 fn cluster_databases_that_already_exist_can_be_created_without_error() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(data_dir, runtime)?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(datadir, runtime)?;
     cluster.start(&[])?;
     assert!(matches!(cluster.createdb("foo-bar")?, Modified));
     assert!(matches!(cluster.createdb("foo-bar")?, Unmodified));
@@ -365,9 +365,9 @@ fn cluster_databases_that_already_exist_can_be_created_without_error() -> TestRe
 #[for_all_runtimes]
 #[test]
 fn cluster_databases_that_do_not_exist_can_be_dropped_without_error() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(data_dir, runtime)?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(datadir, runtime)?;
     cluster.start(&[])?;
     cluster.createdb("foo-bar")?;
     assert!(matches!(cluster.dropdb("foo-bar")?, Modified));
@@ -379,11 +379,150 @@ fn cluster_databases_that_do_not_exist_can_be_dropped_without_error() -> TestRes
 #[for_all_runtimes]
 #[test]
 fn determine_superuser_role_names() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = Cluster::new(data_dir, runtime)?;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(datadir, runtime)?;
     cluster.create()?;
     let superusers = cluster::determine_superuser_role_names(&cluster)?;
     assert!(!superusers.is_empty());
+    Ok(())
+}
+
+// ----------------------------------------------------------------------------
+// Creating and destroying clusters alongside pgdo's own files.
+
+fn default_cluster(datadir: &Path) -> Result<Cluster, ClusterError> {
+    Cluster::new(datadir, Strategy::default())
+}
+
+fn entries(dir: &Path) -> Vec<String> {
+    let mut names: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn cluster_create_in_directory_with_pgdo_files() -> TestResult {
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    std::fs::create_dir(&datadir)?;
+    std::fs::write(datadir.join("pgdo.lock"), "")?;
+    let cluster = default_cluster(&datadir)?;
+    assert_eq!(cluster.create()?, Modified);
+    assert!(exists(&cluster));
+    assert!(datadir.join("pgdo.lock").is_file());
+    assert!(!datadir.join("pgdo.init").exists());
+    assert!(!datadir.join("PG_VERSION.init").exists());
+    Ok(())
+}
+
+#[test]
+fn cluster_create_refuses_directory_with_other_files() -> TestResult {
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    std::fs::create_dir(&datadir)?;
+    std::fs::write(datadir.join("pgdo.lock"), "")?;
+    std::fs::write(datadir.join("important.txt"), "keep me")?;
+    let cluster = default_cluster(&datadir)?;
+    assert!(matches!(
+        cluster.create(),
+        Err(ClusterError::DataDirNotEmpty(dir, entries))
+            if dir == datadir && entries == vec!["important.txt"]
+    ));
+    // Nothing was changed.
+    assert_eq!(entries(&datadir), vec!["important.txt", "pgdo.lock"]);
+    Ok(())
+}
+
+#[test]
+fn cluster_create_resumes_interrupted_move() -> TestResult {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Make a cluster elsewhere to play the part of `initdb`'s output.
+    let tempdir = tempfile::tempdir()?;
+    let source = default_cluster(&tempdir.path().join("source"))?;
+    source.create()?;
+
+    // Arrange the data directory as if a move was interrupted: `PG_VERSION`
+    // has been moved to `PG_VERSION.init`, and some entries have been moved.
+    let datadir = tempdir.path().join("data");
+    std::fs::create_dir(&datadir)?;
+    std::fs::rename(&source.datadir, datadir.join("pgdo.init"))?;
+    std::fs::rename(
+        datadir.join("pgdo.init/PG_VERSION"),
+        datadir.join("PG_VERSION.init"),
+    )?;
+    for name in ["base", "global"] {
+        std::fs::rename(datadir.join("pgdo.init").join(name), datadir.join(name))?;
+    }
+
+    let cluster = default_cluster(&datadir)?;
+    assert!(!exists(&cluster));
+    assert_eq!(cluster.create()?, Modified);
+    assert!(exists(&cluster));
+    assert!(!datadir.join("pgdo.init").exists());
+    assert!(!datadir.join("PG_VERSION.init").exists());
+    let mode = std::fs::metadata(&datadir)?.permissions().mode() & 0o777;
+    assert_eq!(mode, 0o700);
+    // It's a working cluster.
+    cluster.start(&[])?;
+    assert!(cluster.databases()?.contains(&"postgres".to_owned()));
+    cluster.stop()?;
+    Ok(())
+}
+
+#[test]
+fn cluster_create_discards_interrupted_initdb() -> TestResult {
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    std::fs::create_dir_all(datadir.join("pgdo.init/base"))?;
+    std::fs::write(datadir.join("pgdo.init/junk"), "")?;
+    let cluster = default_cluster(&datadir)?;
+    assert_eq!(cluster.create()?, Modified);
+    assert!(exists(&cluster));
+    assert!(!datadir.join("junk").exists());
+    assert!(!datadir.join("pgdo.init").exists());
+    Ok(())
+}
+
+#[test]
+fn cluster_create_makes_data_directory_private() -> TestResult {
+    use std::os::unix::fs::PermissionsExt;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    std::fs::create_dir(&datadir)?;
+    std::fs::set_permissions(&datadir, std::fs::Permissions::from_mode(0o755))?;
+    let cluster = default_cluster(&datadir)?;
+    cluster.create()?;
+    let mode = std::fs::metadata(&datadir)?.permissions().mode() & 0o777;
+    assert_eq!(mode, 0o700);
+    Ok(())
+}
+
+#[test]
+fn cluster_destroy_keeps_lockfile() -> TestResult {
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    std::fs::create_dir(&datadir)?;
+    std::fs::write(datadir.join("pgdo.lock"), "")?;
+    let cluster = default_cluster(&datadir)?;
+    cluster.start(&[])?;
+    assert_eq!(cluster.destroy()?, Modified);
+    assert_eq!(entries(&datadir), vec!["pgdo.lock"]);
+    Ok(())
+}
+
+#[test]
+fn cluster_destroy_removes_data_directory_without_pgdo_files() -> TestResult {
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = default_cluster(&datadir)?;
+    cluster.start(&[])?;
+    assert_eq!(cluster.destroy()?, Modified);
+    assert!(!datadir.exists());
+    assert_eq!(cluster.destroy()?, Unmodified);
     Ok(())
 }

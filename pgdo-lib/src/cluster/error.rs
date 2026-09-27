@@ -33,6 +33,11 @@ pub enum ClusterError {
     #[error(transparent)]
     #[diagnostic(transparent)]
     ConfigError(#[from] cluster::config::ConfigError),
+    #[error("Data directory {0:?} is not a PostgreSQL cluster, and is not empty: {entries}", entries = .1.join(", "))]
+    #[diagnostic(help(
+        "pgdo creates clusters only in empty directories (pgdo's own `pgdo.*` files excepted)"
+    ))]
+    DataDirNotEmpty(std::path::PathBuf, Vec<String>),
     #[error("Could not lock cluster")]
     LockError(#[from] nix::Error),
     #[error("External command failed: {0:?}")]

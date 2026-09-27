@@ -45,7 +45,7 @@ use State::{Modified, Unmodified};
 /// `template0` should never be modified so it's rare to connect to this
 /// database, even as a convenient default – see [`DATABASE_TEMPLATE1`] for an
 /// explanation as to why.
-pub static DATABASE_TEMPLATE0: &str = "template0";
+pub const DATABASE_TEMPLATE0: &str = "template0";
 
 /// `template1` is always present in a PostgreSQL cluster.
 ///
@@ -60,7 +60,7 @@ pub static DATABASE_TEMPLATE0: &str = "template0";
 ///
 /// [Template Databases]:
 ///     https://www.postgresql.org/docs/current/manage-ag-templatedbs.html
-pub static DATABASE_TEMPLATE1: &str = "template1";
+pub const DATABASE_TEMPLATE1: &str = "template1";
 
 /// `postgres` is always created by `initdb` when building a PostgreSQL cluster.
 ///
@@ -77,7 +77,7 @@ pub static DATABASE_TEMPLATE1: &str = "template1";
 /// functionality of this crate will be broken. Ideally we could connect to a
 /// PostgreSQL cluster without specifying a database, but that is presently not
 /// possible.
-pub static DATABASE_POSTGRES: &str = "postgres";
+pub const DATABASE_POSTGRES: &str = "postgres";
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ClusterStatus {
@@ -103,6 +103,17 @@ impl fmt::Display for ClusterStatus {
 /// stop, and destroy the cluster. There's no protection against concurrent
 /// changes to the cluster made by other processes; use a [`Session`] for that.
 ///
+/// In other words, `Cluster` is the low-level API; [`Session`] is the locking
+/// API, and is what most code should use. In particular, [`create`],
+/// [`start`], [`stop`], and [`destroy`] are unsafe to call while another
+/// process might be doing the same, or might be using the cluster, so call them
+/// directly only when you know no other process can be.
+///
+/// [`create`]: Self::create
+/// [`start`]: Self::start
+/// [`stop`]: Self::stop
+/// [`destroy`]: Self::destroy
+///
 /// # Blocking
 ///
 /// All methods here block. Most run external programs like `pg_ctl`, `initdb`,
@@ -114,10 +125,45 @@ impl fmt::Display for ClusterStatus {
 pub struct Cluster {
     /// The data directory of the cluster.
     ///
-    /// Corresponds to the `PGDATA` environment variable.
+    /// Corresponds to the `PGDATA` environment variable. pgdo keeps a few files
+    /// of its own in here too, all named `pgdo.*`.
+    ///
+    /// This is also where the cluster's Unix-domain socket lives. Clusters
+    /// managed by pgdo listen **only** on a Unix-domain socket, not on TCP. To
+    /// connect with a client library, use this as the host, e.g. for SQLx use
+    /// `PgConnectOptions::new().socket(&cluster.datadir)`. See also
+    /// [`url`][`Self::url`].
     pub datadir: PathBuf,
     /// How to select the PostgreSQL installation to use with this cluster.
     pub strategy: Strategy,
+}
+
+/// Files and directories that pgdo keeps in a cluster's data directory,
+/// alongside PostgreSQL's own.
+mod files {
+    /// Used by [`Session`][super::Session] to coordinate processes.
+    pub const LOCK: &str = "pgdo.lock";
+    /// Where [`Cluster::create`][super::Cluster::create] runs `initdb`, before
+    /// moving the result into the data directory.
+    pub const INIT: &str = "pgdo.init";
+    /// Marks an in-progress move from [`INIT`] into the data directory; see
+    /// [`Cluster::create`][super::Cluster::create].
+    pub const VERSION_INIT: &str = "PG_VERSION.init";
+    /// Reserved for recording which process owns a running cluster.
+    pub const OWNER: &str = "pgdo.owner";
+    /// PostgreSQL's version file; its presence marks a cluster.
+    pub const VERSION: &str = "PG_VERSION";
+
+    /// Is the given name one of pgdo's own files?
+    pub fn is_pgdo(name: &std::ffi::OsStr) -> bool {
+        matches!(name.to_str(), Some(LOCK | OWNER | INIT | VERSION_INIT))
+    }
+
+    /// Is the given name one of the files that sessions use to coordinate?
+    /// These must outlive the cluster itself; see `Session`.
+    pub fn is_session(name: &std::ffi::OsStr) -> bool {
+        matches!(name.to_str(), Some(LOCK | OWNER))
+    }
 }
 
 impl Cluster {
@@ -161,7 +207,7 @@ impl Cluster {
     fn ctl(&self) -> Result<Command, ClusterError> {
         let mut command = self.runtime()?.execute("pg_ctl");
         command.env("PGDATA", &self.datadir);
-        command.env("PGHOST", self.socket_dir());
+        command.env("PGHOST", &self.datadir);
         Ok(command)
     }
 
@@ -199,6 +245,11 @@ impl Cluster {
         }
     }
 
+    /// The lock file used by [`Session`] to coordinate processes.
+    pub(crate) fn lockfile(&self) -> PathBuf {
+        self.datadir.join(files::LOCK)
+    }
+
     /// Return the path to the PID file used in this cluster.
     ///
     /// The PID file does not necessarily exist.
@@ -214,30 +265,102 @@ impl Cluster {
     }
 
     /// Create the cluster if it does not already exist.
+    ///
+    /// `initdb` refuses to use a directory that is not empty, but pgdo keeps its
+    /// own files – e.g. `pgdo.lock` – in the data directory. So this runs
+    /// `initdb` in a subdirectory, `pgdo.init`, then moves the result up:
+    ///
+    /// 1. Move `pgdo.init/PG_VERSION` to `PG_VERSION.init`. This marks a move
+    ///    in progress, and means that neither directory looks like a cluster.
+    /// 2. Move everything else from `pgdo.init` into the data directory, then
+    ///    remove `pgdo.init`.
+    /// 3. Move `PG_VERSION.init` to `PG_VERSION`.
+    ///
+    /// If interrupted, calling this again will finish the job: if
+    /// `PG_VERSION.init` exists, it resumes the move; otherwise it discards
+    /// `pgdo.init`, if it exists, and runs `initdb` again.
+    ///
+    /// This refuses to create a cluster in a data directory that contains
+    /// anything other than pgdo's own files; see
+    /// [`ClusterError::DataDirNotEmpty`].
+    ///
+    /// Use this only while holding an exclusive lock on the cluster, e.g. via a
+    /// [`Session`], or when no other process can be using the cluster.
     pub fn create(&self) -> Result<State, ClusterError> {
         if exists(self) {
             // Nothing more to do; the cluster is already in place.
-            Ok(Unmodified)
-        } else {
-            // Create the cluster and report back that we did so.
-            fs::create_dir_all(&self.datadir)?;
-
-            // Construct the `pg_ctl init` command.
-            let mut command = self.ctl()?;
-            #[allow(clippy::suspicious_command_arg_space)]
-            command
-                .arg("init")
-                // Silent; `--silent` flag accepted only in PostgreSQL >=9.2.
-                .arg("-s")
-                // Options for `initdb`; `--options` flag accepted only in PostgreSQL >=10.
-                .arg("-o")
-                // Passing multiple flags in a single `arg(...)` is intentional.
-                // These constitute the single value for the `-o` flag above.
-                .arg("-E utf8 --locale C -A trust")
-                .env("TZ", "UTC");
-
-            bugs::retry_pg_ctl(&mut command, |_| Ok(()))
+            return Ok(Unmodified);
         }
+
+        fs::create_dir_all(&self.datadir)?;
+        let initdir = self.datadir.join(files::INIT);
+        let version_init = self.datadir.join(files::VERSION_INIT);
+
+        if !version_init.exists() {
+            // No move is in progress, but `initdb` may have been interrupted;
+            // discard anything it left behind.
+            match fs::remove_dir_all(&initdir) {
+                Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err)?,
+                _ => (),
+            }
+            self.check_datadir_empty()?;
+            self.initdb(&initdir)?;
+            fs::rename(initdir.join(files::VERSION), &version_init)?;
+        }
+
+        // Move everything else. If resuming, `pgdo.init` may already be gone.
+        match fs::read_dir(&initdir) {
+            Ok(entries) => {
+                for entry in entries {
+                    let entry = entry?;
+                    fs::rename(entry.path(), self.datadir.join(entry.file_name()))?;
+                }
+                // Match the permissions that `initdb` chose; PostgreSQL will
+                // refuse to start if the data directory is too permissive.
+                fs::set_permissions(&self.datadir, fs::metadata(&initdir)?.permissions())?;
+                fs::remove_dir(&initdir)?;
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => (),
+            Err(err) => Err(err)?,
+        }
+
+        // Finally, make the data directory a cluster.
+        fs::rename(&version_init, self.datadir.join(files::VERSION))?;
+        Ok(Modified)
+    }
+
+    /// Check that the data directory contains nothing but pgdo's own files.
+    fn check_datadir_empty(&self) -> Result<(), ClusterError> {
+        let mut entries = fs::read_dir(&self.datadir)?
+            .map(|entry| entry.map(|entry| entry.file_name()))
+            .filter(|name| !matches!(name, Ok(name) if files::is_pgdo(name)))
+            .map(|name| name.map(|name| name.to_string_lossy().into_owned()))
+            .collect::<Result<Vec<_>, _>>()?;
+        if entries.is_empty() {
+            Ok(())
+        } else {
+            entries.sort();
+            Err(ClusterError::DataDirNotEmpty(self.datadir.clone(), entries))
+        }
+    }
+
+    /// Run `initdb`, via `pg_ctl init`, into the given directory.
+    fn initdb(&self, dir: &Path) -> Result<State, ClusterError> {
+        let mut command = self.runtime()?.execute("pg_ctl");
+        #[allow(clippy::suspicious_command_arg_space)]
+        command
+            .env("PGDATA", dir)
+            .arg("init")
+            // Silent; `--silent` flag accepted only in PostgreSQL >=9.2.
+            .arg("-s")
+            // Options for `initdb`; `--options` flag accepted only in PostgreSQL >=10.
+            .arg("-o")
+            // Passing multiple flags in a single `arg(...)` is intentional.
+            // These constitute the single value for the `-o` flag above.
+            .arg("-E utf8 --locale C -A trust")
+            .env("TZ", "UTC");
+
+        bugs::retry_pg_ctl(&mut command, |_| Ok(()))
     }
 
     /// Start the cluster if it's not already running, with the given options.
@@ -263,7 +386,7 @@ impl Cluster {
         //  -c name=value -- set a configuration parameter.
         let options = {
             let mut arg: Vec<u8> = b"-h '' -k ".into();
-            arg.push_quoted(Sh, self.socket_dir());
+            arg.push_quoted(Sh, &self.datadir);
             for (parameter, value) in options {
                 arg.extend(b" -c ");
                 arg.push_quoted(Sh, &format!("{parameter}={value}"));
@@ -306,16 +429,6 @@ impl Cluster {
         bugs::retry_pg_ctl(&mut command, append_logs_to_stderr)
     }
 
-    /// The directory in which this cluster's Unix-domain socket lives.
-    ///
-    /// Clusters managed by pgdo listen **only** on a Unix-domain socket, not on
-    /// TCP. To connect with a client library, use this as the host, e.g. for
-    /// SQLx use `PgConnectOptions::new().socket(cluster.socket_dir())`. See also
-    /// [`url`][`Self::url`].
-    pub fn socket_dir(&self) -> &Path {
-        &self.datadir
-    }
-
     /// Connect to this cluster, as the current user, using pgdo's minimal
     /// internal [`client`].
     ///
@@ -323,7 +436,7 @@ impl Cluster {
     pub(crate) fn connect(&self, database: Option<&str>) -> Result<client::Client, ClusterError> {
         let user = crate::util::current_user()?;
         let database = database.unwrap_or(DATABASE_POSTGRES);
-        Ok(client::Client::connect(self.socket_dir(), &user, database)?)
+        Ok(client::Client::connect(&self.datadir, &user, database)?)
     }
 
     /// Return a URL for connecting to the given database in this cluster, e.g.
@@ -332,13 +445,13 @@ impl Cluster {
     /// The URL has no user; clients typically default to the current user.
     ///
     /// It is not possible to return a URL for a cluster when its
-    /// [`socket_dir`][`Self::socket_dir`] is not valid UTF-8, in which case
-    /// `Ok(None)` is returned.
+    /// [`datadir`][`Self::datadir`] is not valid UTF-8, in which case `Ok(None)`
+    /// is returned.
     pub fn url(&self, database: &str) -> Result<Option<url::Url>, url::ParseError> {
-        match self.socket_dir().to_str() {
-            Some(socket_dir) => url::Url::parse_with_params(
+        match self.datadir.to_str() {
+            Some(datadir) => url::Url::parse_with_params(
                 "postgresql://",
-                [("host", socket_dir), ("dbname", database)],
+                [("host", datadir), ("dbname", database)],
             )
             .map(Some),
             None => Ok(None),
@@ -377,7 +490,7 @@ impl Cluster {
 
         // Set a few standard PostgreSQL environment variables.
         command.env("PGDATA", &self.datadir);
-        command.env("PGHOST", self.socket_dir());
+        command.env("PGHOST", &self.datadir);
         command.env("PGDATABASE", database);
 
         // Set `DATABASE_URL` if `self.datadir` is valid UTF-8, otherwise ensure
@@ -468,13 +581,39 @@ impl Cluster {
     }
 
     /// Destroy the cluster if it exists, after stopping it.
+    ///
+    /// This removes everything in the data directory **except** the files that
+    /// sessions use to coordinate, i.e. `pgdo.lock`, then removes the data
+    /// directory if it is empty.
+    /// A [`Session`] that ends with [`Finish::Destroy`] removes pgdo's files –
+    /// safely – and the data directory too.
     pub fn destroy(&self) -> Result<State, ClusterError> {
         self.stop()?;
-        match fs::remove_dir_all(&self.datadir) {
-            Ok(()) => Ok(Modified),
-            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Unmodified),
+        let entries = match fs::read_dir(&self.datadir) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Unmodified),
             Err(err) => Err(err)?,
+        };
+        for entry in entries {
+            let entry = entry?;
+            if !files::is_session(&entry.file_name()) {
+                let path = entry.path();
+                if entry.file_type()?.is_dir() {
+                    fs::remove_dir_all(path)?;
+                } else {
+                    fs::remove_file(path)?;
+                }
+            }
         }
+        match fs::remove_dir(&self.datadir) {
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::DirectoryNotEmpty
+                ) => {}
+            result => result?,
+        }
+        Ok(Modified)
     }
 }
 
@@ -505,8 +644,8 @@ pub fn exists<P: AsRef<Path>>(datadir: P) -> bool {
 pub fn version<P: AsRef<Path>>(
     datadir: P,
 ) -> Result<Option<version::PartialVersion>, ClusterError> {
-    let version_file = datadir.as_ref().join("PG_VERSION");
-    match std::fs::read_to_string(version_file) {
+    let versionfile = datadir.as_ref().join("PG_VERSION");
+    match std::fs::read_to_string(versionfile) {
         Ok(version) => Ok(Some(version.parse()?)),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err)?,
@@ -543,7 +682,7 @@ pub fn determine_superuser_role_names(
     use std::process::Stdio;
     use std::sync::LazyLock;
 
-    static QUERY: &[u8] = b"select rolname from pg_roles where rolsuper and rolcanlogin\n";
+    const QUERY: &[u8] = b"select rolname from pg_roles where rolsuper and rolcanlogin\n";
     static RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r#"\brolname\s*=\s*"(.+)""#)
             .expect("invalid regex (for matching single-user role names)")

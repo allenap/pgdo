@@ -81,7 +81,7 @@ pub(crate) fn ensure_database(cluster: &cluster::Cluster, database_name: &str) -
 /// takes care of creating, starting, stopping, and destroying the cluster – via
 /// a [`cluster::Session`] – and running the given action.
 pub(crate) fn run<ACTION>(
-    args::ClusterArgs { dir: cluster_dir }: args::ClusterArgs,
+    args::ClusterArgs { dir: datadir }: args::ClusterArgs,
     args::ClusterModeArgs { mode: cluster_mode }: args::ClusterModeArgs,
     args::RuntimeArgs { fallback }: args::RuntimeArgs,
     lifecycle: args::LifecycleArgs,
@@ -92,17 +92,17 @@ where
 {
     // Attempt to create the cluster directory. Unlike `Cluster::session`, do
     // not create parent directories; a mistyped path should not create a tree.
-    match fs::create_dir(&cluster_dir) {
+    match fs::create_dir(&datadir) {
         Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
         err @ Err(_) => err
             .into_diagnostic()
             .wrap_err_with(|| "Could not create cluster directory")
-            .wrap_err_with(|| format!("Cluster directory: {}", cluster_dir.display()))?,
+            .wrap_err_with(|| format!("Cluster directory: {}", datadir.display()))?,
         _ => (),
     }
 
     let strategy = determine_strategy(fallback)?;
-    let session = cluster::Cluster::new(cluster_dir, strategy)?
+    let session = cluster::Cluster::new(datadir, strategy)?
         .session(&[])?
         .finish(lifecycle.finish());
 
@@ -143,9 +143,9 @@ fn set_cluster_mode(
 ) -> Result<(), cluster::ClusterError> {
     use pgdo::cluster::config::{self, Parameter};
 
-    static FSYNC: Parameter = Parameter("fsync");
-    static FULL_PAGE_WRITES: Parameter = Parameter("full_page_writes");
-    static SYNCHRONOUS_COMMIT: Parameter = Parameter("synchronous_commit");
+    const FSYNC: Parameter = Parameter("fsync");
+    const FULL_PAGE_WRITES: Parameter = Parameter("full_page_writes");
+    const SYNCHRONOUS_COMMIT: Parameter = Parameter("synchronous_commit");
 
     match mode {
         args::ClusterMode::Fast => {

@@ -6,8 +6,8 @@ type TestResult = Result<(), ClusterError>;
 #[for_all_runtimes]
 #[test]
 fn cluster_parameter_set() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
-    let cluster = Cluster::new(&data_dir, runtime)?;
+    let datadir = tempfile::tempdir()?;
+    let cluster = Cluster::new(&datadir, runtime)?;
     cluster.start(&[])?;
 
     // By default, `trace_notify` is disabled.
@@ -33,8 +33,8 @@ fn cluster_parameter_set() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_parameter_get() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
-    let cluster = Cluster::new(&data_dir, runtime)?;
+    let datadir = tempfile::tempdir()?;
+    let cluster = Cluster::new(&datadir, runtime)?;
     cluster.start(&[])?;
 
     let value = config::Parameter::from("application_name").get(&cluster)?;
@@ -47,8 +47,8 @@ fn cluster_parameter_get() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_setting_list() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
-    let cluster = Cluster::new(&data_dir, runtime)?;
+    let datadir = tempfile::tempdir()?;
+    let cluster = Cluster::new(&datadir, runtime)?;
     cluster.start(&[])?;
 
     let settings = config::Setting::list(&cluster)?;
@@ -68,8 +68,8 @@ fn cluster_setting_list() -> TestResult {
 #[for_all_runtimes]
 #[test]
 fn cluster_setting_get() -> TestResult {
-    let data_dir = tempfile::tempdir()?;
-    let cluster = Cluster::new(&data_dir, runtime)?;
+    let datadir = tempfile::tempdir()?;
+    let cluster = Cluster::new(&datadir, runtime)?;
     cluster.start(&[])?;
 
     let parameter = config::Parameter::from("application_name");
