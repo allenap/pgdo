@@ -1,5 +1,6 @@
 //! Create, start, introspect, stop, and destroy PostgreSQL clusters.
 
+pub mod client;
 pub mod config;
 pub mod session;
 
@@ -12,7 +13,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output};
 use std::{fmt, fs};
 
-pub use postgres;
 use shell_quote::{QuoteExt, Sh};
 
 use crate::runtime::{
@@ -106,16 +106,10 @@ impl fmt::Display for ClusterStatus {
 /// # Blocking
 ///
 /// All methods here block. Most run external programs like `pg_ctl`, `initdb`,
-/// or `psql`, and block until those finish. From async code, call them within
-/// something like Tokio's `spawn_blocking`.
-///
-/// Methods that talk to the cluster over a connection –
-/// [`connect`][`Self::connect`], [`databases`][`Self::databases`],
-/// [`createdb`][`Self::createdb`], [`dropdb`][`Self::dropdb`], and the
-/// functions in [`config`] – use the synchronous [`postgres`] client, which
-/// runs its own Tokio runtime internally. These **panic** if called from within
-/// an async context (i.e. within another Tokio runtime) so `spawn_blocking` or
-/// similar is **required** for them.
+/// or `psql`, and block until those finish; the rest talk to the cluster over a
+/// socket with pgdo's [minimal client][`client`], and block on that I/O. All
+/// are safe to call from async code, but will block the calling thread; to
+/// avoid that, call them within something like Tokio's `spawn_blocking`.
 #[derive(Debug)]
 pub struct Cluster {
     /// The data directory of the cluster.
@@ -144,14 +138,14 @@ impl Cluster {
             None => self
                 .strategy
                 .fallback()
-                .ok_or_else(|| ClusterError::RuntimeDefaultNotFound)?,
+                .ok_or(ClusterError::RuntimeDefaultNotFound)?,
             Some(version) if !runtime::is_supported(version) => {
                 return Err(ClusterError::UnsupportedVersion(version))
             }
             Some(version) => self
                 .strategy
                 .select(&version.into())
-                .ok_or_else(|| ClusterError::RuntimeNotFound(version))?,
+                .ok_or(ClusterError::RuntimeNotFound(version))?,
         };
         // Strategies that discover runtimes skip those that are unsupported,
         // but a strategy can also be given a specific runtime.
@@ -322,24 +316,14 @@ impl Cluster {
         &self.datadir
     }
 
-    /// Connect to this cluster, as the current user.
+    /// Connect to this cluster, as the current user, using pgdo's minimal
+    /// internal [`client`].
     ///
     /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
-    ///
-    /// The returned client is synchronous and **panics** if used from within an
-    /// async context; see [Blocking][`Cluster#blocking`]. For async code, use an
-    /// async client with [`socket_dir`][`Self::socket_dir`] or
-    /// [`url`][`Self::url`] instead.
-    pub fn connect(&self, database: Option<&str>) -> Result<postgres::Client, ClusterError> {
+    pub(crate) fn connect(&self, database: Option<&str>) -> Result<client::Client, ClusterError> {
         let user = crate::util::current_user()?;
-        let host = self.socket_dir().to_string_lossy(); // postgres crate API limitation.
-        let client = postgres::Client::configure()
-            .host(&host)
-            .dbname(database.unwrap_or(DATABASE_POSTGRES))
-            .user(&user)
-            .application_name("pgdo")
-            .connect(postgres::NoTls)?;
-        Ok(client)
+        let database = database.unwrap_or(DATABASE_POSTGRES);
+        Ok(client::Client::connect(self.socket_dir(), &user, database)?)
     }
 
     /// Return a URL for connecting to the given database in this cluster, e.g.
@@ -408,12 +392,13 @@ impl Cluster {
 
     /// The names of databases in this cluster.
     pub fn databases(&self) -> Result<Vec<String>, ClusterError> {
-        let mut conn = self.connect(None)?;
-        let rows = conn.query(
-            "SELECT datname FROM pg_catalog.pg_database ORDER BY datname",
-            &[],
-        )?;
-        let datnames: Vec<String> = rows.iter().map(|row| row.get(0)).collect();
+        let rows = self
+            .connect(None)?
+            .query("SELECT datname FROM pg_catalog.pg_database ORDER BY datname")?;
+        let datnames = rows
+            .iter()
+            .filter_map(|row| row.get(0).map(str::to_owned))
+            .collect();
         Ok(datnames)
     }
 
@@ -422,15 +407,18 @@ impl Cluster {
     /// Returns [`Unmodified`] if the database already exists, otherwise it
     /// returns [`Modified`].
     pub fn createdb(&self, database: &str) -> Result<State, ClusterError> {
-        use postgres::error::SqlState;
         let statement = format!(
             "CREATE DATABASE {}",
             postgres_protocol::escape::escape_identifier(database)
         );
-        match self.connect(None)?.execute(statement.as_str(), &[]) {
-            Err(err) if err.code() == Some(&SqlState::DUPLICATE_DATABASE) => Ok(Unmodified),
+        match self.connect(None)?.execute(&statement) {
+            Err(client::ClientError::ServerError(err))
+                if err.code == client::DUPLICATE_DATABASE =>
+            {
+                Ok(Unmodified)
+            }
             Err(err) => Err(err)?,
-            Ok(_) => Ok(Modified),
+            Ok(()) => Ok(Modified),
         }
     }
 
@@ -439,15 +427,18 @@ impl Cluster {
     /// Returns [`Unmodified`] if the database does not exist, otherwise it
     /// returns [`Modified`].
     pub fn dropdb(&self, database: &str) -> Result<State, ClusterError> {
-        use postgres::error::SqlState;
         let statement = format!(
             "DROP DATABASE {}",
             postgres_protocol::escape::escape_identifier(database)
         );
-        match self.connect(None)?.execute(statement.as_str(), &[]) {
-            Err(err) if err.code() == Some(&SqlState::UNDEFINED_DATABASE) => Ok(Unmodified),
+        match self.connect(None)?.execute(&statement) {
+            Err(client::ClientError::ServerError(err))
+                if err.code == client::UNDEFINED_DATABASE =>
+            {
+                Ok(Unmodified)
+            }
             Err(err) => Err(err)?,
-            Ok(_) => Ok(Modified),
+            Ok(()) => Ok(Modified),
         }
     }
 

@@ -27,8 +27,9 @@ pub enum ClusterError {
     RuntimeDefaultNotFound,
     #[error("Runtime error")]
     RuntimeError(#[from] runtime::RuntimeError),
-    #[error("Database error")]
-    DatabaseError(#[from] cluster::postgres::Error),
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    ClientError(#[from] cluster::client::ClientError),
     #[error(transparent)]
     #[diagnostic(transparent)]
     ConfigError(#[from] cluster::config::ConfigError),

@@ -905,7 +905,9 @@ name = "pgdo-lib"
 version = "0.6.0"
 dependencies = [
  "backoff",
+ "bytes",
  "either",
+ "fallible-iterator",
  "glob",
  "globset",
  "log",
@@ -920,6 +922,7 @@ dependencies = [
  "shell-quote",
  "tempfile",
  "thiserror",
+ "tokio",
  "url",
  "uuid",
 ]

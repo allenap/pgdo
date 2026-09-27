@@ -53,7 +53,7 @@ PostgreSQL clusters of any version that is supported upstream, from PostgreSQL
 
 ```rust
 use pgdo::{
-  cluster::{Cluster, ClusterError},
+  cluster::{Cluster, ClusterError, State},
   runtime::{self, strategy::StrategyLike},
 };
 for runtime in runtime::strategy::Strategy::default().runtimes() {
@@ -61,12 +61,14 @@ for runtime in runtime::strategy::Strategy::default().runtimes() {
   let cluster = Cluster::new(&data_dir, runtime)?;
   cluster.start(&[])?;
   assert_eq!(cluster.databases()?, vec!["postgres", "template0", "template1"]);
-  let mut client = cluster.connect(None)?;
-  let row = client.query_one("SELECT 1234 -- …", &[])?;
-  assert_eq!(row.get::<_, i32>(0), 1234);
+  assert_eq!(cluster.createdb("example")?, State::Modified);
+  // Connect with your client library of choice via `cluster.socket_dir()`, or
+  // with a URL from `cluster.url("example")`, e.g.:
+  let url = cluster.url("example")?.expect("socket_dir is not valid UTF-8");
+  assert_eq!(url.scheme(), "postgresql");
   cluster.stop()?;
 }
-# Ok::<(), ClusterError>(())
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 **However**, you will usually want to use a [`Session`][`cluster::Session`]

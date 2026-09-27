@@ -10,25 +10,20 @@ fn cluster_parameter_set() -> TestResult {
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start(&[])?;
 
-    let mut client = cluster.connect(None)?;
-
     // By default, `trace_notify` is disabled.
     let parameter = config::Parameter::from("trace_notify");
-    let value = parameter.get(&mut client)?;
+    let value = parameter.get(&cluster)?;
     assert_eq!(value, Some(config::Value::Boolean(false)));
 
     // We'll enable it.
-    parameter.set(&mut client, true)?;
+    parameter.set(&cluster, true)?;
 
     // We need to reload the configuration.
-    config::reload(&mut client)?;
+    config::reload(&cluster)?;
 
-    // We also need a fresh connection, otherwise it is non-deterministic whether
-    // the setting is picked up.
-    let mut client = cluster.connect(None)?;
-
+    // Each call makes a fresh connection, which picks up the reloaded setting.
     // Now `trace_notify` is enabled.
-    let value = parameter.get(&mut client)?;
+    let value = parameter.get(&cluster)?;
     assert_eq!(value, Some(config::Value::Boolean(true)));
 
     cluster.stop()?;
@@ -42,8 +37,7 @@ fn cluster_parameter_get() -> TestResult {
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start(&[])?;
 
-    let mut client = cluster.connect(None)?;
-    let value = config::Parameter::from("application_name").get(&mut client)?;
+    let value = config::Parameter::from("application_name").get(&cluster)?;
     assert_eq!(value, Some(config::Value::String("pgdo".to_owned())));
 
     cluster.stop()?;
@@ -57,7 +51,7 @@ fn cluster_setting_list() -> TestResult {
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start(&[])?;
 
-    let settings = config::Setting::list(&mut cluster.connect(None)?)?;
+    let settings = config::Setting::list(&cluster)?;
     let mapping: std::collections::HashMap<config::Parameter, config::Value> = settings
         .iter()
         .map(|setting| (setting.into(), setting.try_into().unwrap()))
@@ -79,8 +73,8 @@ fn cluster_setting_get() -> TestResult {
     cluster.start(&[])?;
 
     let parameter = config::Parameter::from("application_name");
-    let application_name = config::Setting::get(parameter, &mut cluster.connect(None)?)?
-        .expect("missing application_name setting");
+    let application_name =
+        config::Setting::get(parameter, &cluster)?.expect("missing application_name setting");
 
     assert_eq!(application_name.setting, "pgdo");
     assert_eq!(application_name.vartype, "string");

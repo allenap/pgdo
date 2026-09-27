@@ -1,25 +1,25 @@
 use std::{borrow::Cow, fmt, str::FromStr};
 
-use postgres::GenericClient;
 use postgres_protocol::escape::{escape_identifier, escape_literal};
+
+use super::{client::Row, Cluster, ClusterError};
 
 trait AsSql {
     fn as_sql(&self) -> Cow<'_, str>;
 }
 
-/// Error getting a configuration value.
+/// Error understanding a configuration setting.
 #[derive(thiserror::Error, miette::Diagnostic, Debug)]
 pub enum ConfigError {
-    #[error("Database error")]
-    DatabaseError(#[from] postgres::Error),
     #[error("Could not understand setting: {0}")]
     SettingError(String),
 }
 
 /// Reload configuration using `pg_reload_conf`. Equivalent to `SIGHUP` or
 /// `pg_ctl reload`.
-pub fn reload(client: &mut impl GenericClient) -> Result<(), postgres::Error> {
-    client.batch_execute("SELECT pg_reload_conf()")
+pub fn reload(cluster: &Cluster) -> Result<(), ClusterError> {
+    cluster.connect(None)?.execute("SELECT pg_reload_conf()")?;
+    Ok(())
 }
 
 pub enum AlterSystem<'a> {
@@ -31,10 +31,9 @@ pub enum AlterSystem<'a> {
 impl AlterSystem<'_> {
     /// Alter the system. Changes made by `ALTER SYSTEM` may require a reload or
     /// even a full restart to take effect.
-    pub fn apply(&self, client: &mut impl GenericClient) -> Result<(), postgres::Error> {
-        // `ALTER SYSTEM` cannot be parameterised, and cannot run inside a
-        // transaction block, so use the simple query protocol.
-        client.batch_execute(&self.as_sql())
+    pub fn apply(&self, cluster: &Cluster) -> Result<(), ClusterError> {
+        cluster.connect(None)?.execute(&self.as_sql())?;
+        Ok(())
     }
 }
 
@@ -78,6 +77,11 @@ pub struct Setting {
     pub pending_restart: bool,
 }
 
+/// Separates elements of `enumvals` in [`SETTINGS_QUERY`]. pgdo's client
+/// receives all values as text; joining with a control character avoids having
+/// to parse PostgreSQL's array syntax.
+const ENUMVALS_SEPARATOR: char = '\x1f';
+
 /// Query for [`Setting`]s. Columns must be in the order that
 /// [`Setting::try_from`] expects.
 static SETTINGS_QUERY: &str = r"
@@ -93,7 +97,7 @@ static SETTINGS_QUERY: &str = r"
         source,
         min_val,
         max_val,
-        enumvals,
+        array_to_string(enumvals, chr(31)),
         boot_val,
         reset_val,
         sourcefile,
@@ -103,53 +107,70 @@ static SETTINGS_QUERY: &str = r"
         pg_catalog.pg_settings
 ";
 
-impl TryFrom<&postgres::Row> for Setting {
-    type Error = postgres::Error;
+impl TryFrom<&Row> for Setting {
+    type Error = ConfigError;
 
-    fn try_from(row: &postgres::Row) -> Result<Self, Self::Error> {
+    fn try_from(row: &Row) -> Result<Self, Self::Error> {
+        let optional = |column: usize| row.get(column).map(str::to_owned);
+        let required = |column: usize| {
+            optional(column).ok_or_else(|| {
+                ConfigError::SettingError(format!("unexpected NULL in column {column}: {row:?}"))
+            })
+        };
         Ok(Self {
-            name: row.try_get(0)?,
-            setting: row.try_get(1)?,
-            unit: row.try_get(2)?,
-            category: row.try_get(3)?,
-            short_desc: row.try_get(4)?,
-            extra_desc: row.try_get(5)?,
-            context: row.try_get(6)?,
-            vartype: row.try_get(7)?,
-            source: row.try_get(8)?,
-            min_val: row.try_get(9)?,
-            max_val: row.try_get(10)?,
-            enumvals: row.try_get(11)?,
-            boot_val: row.try_get(12)?,
-            reset_val: row.try_get(13)?,
-            sourcefile: row.try_get(14)?,
-            sourceline: row.try_get(15)?,
-            pending_restart: row.try_get(16)?,
+            name: required(0)?,
+            setting: required(1)?,
+            unit: optional(2),
+            category: required(3)?,
+            short_desc: required(4)?,
+            extra_desc: optional(5),
+            context: required(6)?,
+            vartype: required(7)?,
+            source: required(8)?,
+            min_val: optional(9),
+            max_val: optional(10),
+            enumvals: row.get(11).map(|enumvals| {
+                enumvals
+                    .split(ENUMVALS_SEPARATOR)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            }),
+            boot_val: optional(12),
+            reset_val: optional(13),
+            sourcefile: optional(14),
+            sourceline: row
+                .get(15)
+                .map(|line| {
+                    line.parse().map_err(|_| {
+                        ConfigError::SettingError(format!("invalid sourceline: {row:?}"))
+                    })
+                })
+                .transpose()?,
+            pending_restart: match row.get(16) {
+                Some("t") => true,
+                Some("f") => false,
+                _ => Err(ConfigError::SettingError(format!(
+                    "invalid pending_restart: {row:?}"
+                )))?,
+            },
         })
     }
 }
 
 impl Setting {
-    pub fn list(client: &mut impl GenericClient) -> Result<Vec<Self>, postgres::Error> {
-        client
-            .query(SETTINGS_QUERY, &[])?
-            .iter()
-            .map(Self::try_from)
-            .collect()
+    pub fn list(cluster: &Cluster) -> Result<Vec<Self>, ClusterError> {
+        let rows = cluster.connect(None)?.query(SETTINGS_QUERY)?;
+        Ok(rows.iter().map(Self::try_from).collect::<Result<_, _>>()?)
     }
 
-    pub fn get<N: AsRef<str>>(
-        name: N,
-        client: &mut impl GenericClient,
-    ) -> Result<Option<Self>, postgres::Error> {
-        client
-            .query_opt(
-                &format!("{SETTINGS_QUERY} WHERE name = $1"),
-                &[&name.as_ref()],
-            )?
-            .as_ref()
-            .map(Self::try_from)
-            .transpose()
+    pub fn get<N: AsRef<str>>(name: N, cluster: &Cluster) -> Result<Option<Self>, ClusterError> {
+        let query = format!(
+            "{SETTINGS_QUERY} WHERE name = {}",
+            escape_literal(name.as_ref())
+        );
+        let rows = cluster.connect(None)?.query(&query)?;
+        Ok(rows.first().map(Self::try_from).transpose()?)
     }
 }
 
@@ -160,25 +181,21 @@ impl Parameter<'_> {
     /// Get the current [`Value`] for this parameter.
     ///
     /// If you want the full/raw [`Setting`], use [`Setting::get`] instead.
-    pub fn get(&self, client: &mut impl GenericClient) -> Result<Option<Value>, ConfigError> {
-        Setting::get(self.0, client)?
+    pub fn get(&self, cluster: &Cluster) -> Result<Option<Value>, ClusterError> {
+        Ok(Setting::get(self.0, cluster)?
             .map(|setting| Value::try_from(&setting).map_err(ConfigError::SettingError))
-            .transpose()
+            .transpose()?)
     }
 
     /// Set the current value for this parameter.
-    pub fn set<V: Into<Value>>(
-        &self,
-        client: &mut impl GenericClient,
-        value: V,
-    ) -> Result<(), postgres::Error> {
+    pub fn set<V: Into<Value>>(&self, cluster: &Cluster, value: V) -> Result<(), ClusterError> {
         let value = value.into();
-        AlterSystem::Set(self, &value).apply(client)
+        AlterSystem::Set(self, &value).apply(cluster)
     }
 
     /// Reset the value for this parameter.
-    pub fn reset(&self, client: &mut impl GenericClient) -> Result<(), postgres::Error> {
-        AlterSystem::Reset(self).apply(client)
+    pub fn reset(&self, cluster: &Cluster) -> Result<(), ClusterError> {
+        AlterSystem::Reset(self).apply(cluster)
     }
 }
 

@@ -13,7 +13,16 @@ use pgdo::runtime::strategy::Strategy;
 use pgdo::version::{PartialVersion, Version};
 use pgdo_test::for_all_runtimes;
 
-type TestResult = Result<(), ClusterError>;
+type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+fn connect(cluster: &Cluster) -> Result<postgres::Client, Box<dyn std::error::Error>> {
+    let user = pgdo::util::current_user()?;
+    Ok(pgdo_test::connect(
+        cluster.socket_dir(),
+        &user,
+        cluster::DATABASE_POSTGRES,
+    )?)
+}
 
 #[for_all_runtimes]
 #[test]
@@ -128,7 +137,7 @@ fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResu
     let data_dir = temp_dir.path().join("data");
     let cluster = Cluster::new(data_dir, runtime.clone())?;
     cluster.start(&[])?;
-    let result = cluster.connect(None)?.query("SHOW ALL", &[])?;
+    let result = connect(&cluster)?.query("SHOW ALL", &[])?;
     let params: std::collections::HashMap<String, String> = result
         .into_iter()
         .map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
@@ -217,8 +226,7 @@ fn cluster_start_with_options() -> TestResult {
     let data_dir = temp_dir.path().join("data");
     let cluster = Cluster::new(data_dir, runtime)?;
     cluster.start(&[("example.setting".into(), "Hello, World!".into())])?;
-    let example_setting: String = cluster
-        .connect(None)?
+    let example_setting: String = connect(&cluster)?
         .query_one("SHOW example.setting", &[])?
         .get(0);
     assert_eq!(example_setting, "Hello, World!");
