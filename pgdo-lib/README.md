@@ -48,8 +48,8 @@ and [Lib.rs](https://lib.rs/crates/pgdo-cli).
 
 The essential functionality in this crate is in the `Cluster` struct and its
 implementation. This covers the logic you need to create, run, and destroy
-PostgreSQL clusters of any officially supported version (and a few older
-versions that are not supported upstream).
+PostgreSQL clusters of any version that is supported upstream, from PostgreSQL
+15 onwards (see `pgdo::runtime::MINIMUM_VERSION`).
 
 ```rust
 use pgdo::{

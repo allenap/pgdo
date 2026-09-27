@@ -20,6 +20,27 @@ use crate::util;
 use crate::version;
 pub use error::RuntimeError;
 
+/// The oldest version of PostgreSQL that pgdo supports.
+///
+/// The rule: this is the oldest major version still supported by the
+/// PostgreSQL project, or 15, whichever is greater. Bump it in the first
+/// release after a major version reaches end-of-life; see the [PostgreSQL
+/// "Versioning Policy" page][versioning] for dates.
+///
+/// [versioning]: https://www.postgresql.org/support/versioning/
+pub const MINIMUM_VERSION: version::Version = version::Version::Post10(15, 0);
+
+/// Does pgdo support the given version of PostgreSQL?
+///
+/// This is pgdo's policy, separate from the [`version`] module, which can parse
+/// and represent any version of PostgreSQL. See [`MINIMUM_VERSION`].
+///
+/// Note that [`version::Version`] orders all pre-10 versions before 10 and
+/// later, so a plain comparison works across both versioning schemes.
+pub fn is_supported<V: Into<version::Version>>(version: V) -> bool {
+    version.into() >= MINIMUM_VERSION
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Runtime {
     /// Path to the directory containing the `pg_ctl` executable and other
@@ -34,6 +55,11 @@ impl Runtime {
     pub fn new<P: AsRef<Path>>(bindir: P) -> Result<Self, RuntimeError> {
         let version = cache::version(bindir.as_ref().join("pg_ctl"))?;
         Ok(Self { bindir: bindir.as_ref().to_owned(), version })
+    }
+
+    /// Does pgdo support this runtime? See [`is_supported`].
+    pub fn is_supported(&self) -> bool {
+        is_supported(self.version)
     }
 
     /// Return a [`Command`] prepped to run the given `program` in this
@@ -87,7 +113,8 @@ impl Runtime {
 
 #[cfg(test)]
 mod tests {
-    use super::{Runtime, RuntimeError};
+    use super::{is_supported, Runtime, RuntimeError, MINIMUM_VERSION};
+    use crate::version::{PartialVersion, Version};
 
     use std::env;
     use std::path::PathBuf;
@@ -106,5 +133,27 @@ mod tests {
         let pg = Runtime::new(&bindir)?;
         assert_eq!(bindir, pg.bindir);
         Ok(())
+    }
+
+    #[test]
+    fn supports_versions_from_minimum_version() {
+        let Version::Post10(major, minor) = MINIMUM_VERSION else {
+            panic!("expected minimum version to be 10 or later");
+        };
+        assert!(is_supported(MINIMUM_VERSION));
+        assert!(is_supported(Version::Post10(major, minor + 1)));
+        assert!(is_supported(Version::Post10(major + 1, 0)));
+        assert!(is_supported(PartialVersion::Post10m(major)));
+    }
+
+    #[test]
+    fn does_not_support_versions_before_minimum_version() {
+        let Version::Post10(major, _) = MINIMUM_VERSION else {
+            panic!("expected minimum version to be 10 or later");
+        };
+        assert!(!is_supported(Version::Post10(major - 1, 99)));
+        assert!(!is_supported(PartialVersion::Post10m(major - 1)));
+        assert!(!is_supported(Version::Pre10(9, 6, 24)));
+        assert!(!is_supported(PartialVersion::Pre10m(9, 6)));
     }
 }

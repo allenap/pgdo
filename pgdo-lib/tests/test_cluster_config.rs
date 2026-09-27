@@ -3,7 +3,7 @@ use pgdo_test::for_all_runtimes;
 
 type TestResult = Result<(), ClusterError>;
 
-#[for_all_runtimes(min = "9.5")]
+#[for_all_runtimes]
 #[test]
 fn cluster_parameter_set() -> TestResult {
     let data_dir = tempfile::tempdir()?;
@@ -41,7 +41,7 @@ fn cluster_parameter_set() -> TestResult {
     Ok(())
 }
 
-#[for_all_runtimes(min = "9.5")]
+#[for_all_runtimes]
 #[test]
 fn cluster_parameter_get() -> TestResult {
     let data_dir = tempfile::tempdir()?;
@@ -60,7 +60,7 @@ fn cluster_parameter_get() -> TestResult {
     Ok(())
 }
 
-#[for_all_runtimes(min = "9.5")]
+#[for_all_runtimes]
 #[test]
 fn cluster_setting_list() -> TestResult {
     let data_dir = tempfile::tempdir()?;
@@ -85,7 +85,7 @@ fn cluster_setting_list() -> TestResult {
     Ok(())
 }
 
-#[for_all_runtimes(min = "9.5")]
+#[for_all_runtimes]
 #[test]
 fn cluster_setting_get() -> TestResult {
     let data_dir = tempfile::tempdir()?;

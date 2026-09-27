@@ -50,9 +50,6 @@ Usage: pgdo [OPTIONS] [COMMAND]
 Commands:
   shell     Start a psql shell, creating and starting the cluster as necessary (DEFAULT)
   exec      Execute an arbitrary command, creating and starting the cluster as necessary
-  clone     Perform a one-off clone/backup of an existing cluster
-  backup    Point-in-time backup for an existing cluster
-  restore   Point-in-time restore/recovery from a backup made previously with the `backup` command
   runtimes  List discovered PostgreSQL runtimes
   help      Print this message or the help of the given subcommand(s)
 
@@ -68,13 +65,10 @@ Options for shell:
       --destroy                       Destroy the cluster after use. WARNING: This will DELETE THE DATA DIRECTORY. The default is to NOT destroy the cluster
 
 $ pgdo runtimes
-   10.22      /opt/homebrew/Cellar/postgresql@10/10.22_6/bin
-   11.21      /opt/homebrew/Cellar/postgresql@11/11.21/bin
-   12.16      /opt/homebrew/Cellar/postgresql@12/12.16/bin
-   13.12      /opt/homebrew/Cellar/postgresql@13/13.12/bin
-   14.9       /opt/homebrew/Cellar/postgresql@14/14.9/bin
-   15.4       /opt/homebrew/Cellar/postgresql@15/15.4/bin
-=> 16.0       /opt/homebrew/bin
+   15.19      /opt/homebrew/Cellar/postgresql@15/15.19/bin
+   16.15      /opt/homebrew/Cellar/postgresql@16/16.15/bin
+   17.11      /opt/homebrew/Cellar/postgresql@17/17.11/bin
+=> 18.6       /opt/homebrew/Cellar/postgresql@18/18.6/bin
 
 $ pgdo shell
 postgres=# select …
