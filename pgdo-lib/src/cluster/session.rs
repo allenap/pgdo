@@ -22,11 +22,9 @@
 //!
 //! Starting, ending, and dropping a session all block, sometimes for a while:
 //! they may wait for other processes to release locks, and they run `pg_ctl`.
-//! From async code, start and end sessions within something like Tokio's
-//! `spawn_blocking`. Dropping a session within an async context is safe, but
-//! blocks the current thread until the cluster has stopped. See also
-//! [Blocking][`Cluster#blocking`] for the methods available through a
-//! session.
+//! This is safe within an async context, but blocks the current thread; to
+//! avoid that, start and end sessions within something like Tokio's
+//! `spawn_blocking`. See also [Blocking][`Cluster#blocking`].
 
 use std::os::unix::prelude::OsStrExt;
 use std::time::Duration;

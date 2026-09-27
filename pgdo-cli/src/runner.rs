@@ -147,20 +147,19 @@ fn set_cluster_mode(
     static FULL_PAGE_WRITES: Parameter = Parameter("full_page_writes");
     static SYNCHRONOUS_COMMIT: Parameter = Parameter("synchronous_commit");
 
-    let mut client = cluster.connect(None)?;
     match mode {
         args::ClusterMode::Fast => {
-            FSYNC.set(&mut client, false)?;
-            FULL_PAGE_WRITES.set(&mut client, false)?;
-            SYNCHRONOUS_COMMIT.set(&mut client, false)?;
+            FSYNC.set(cluster, false)?;
+            FULL_PAGE_WRITES.set(cluster, false)?;
+            SYNCHRONOUS_COMMIT.set(cluster, false)?;
         }
         args::ClusterMode::Slow => {
-            FSYNC.reset(&mut client)?;
-            FULL_PAGE_WRITES.reset(&mut client)?;
-            SYNCHRONOUS_COMMIT.reset(&mut client)?;
+            FSYNC.reset(cluster)?;
+            FULL_PAGE_WRITES.reset(cluster)?;
+            SYNCHRONOUS_COMMIT.reset(cluster)?;
         }
     }
     // TODO: Check `pg_file_settings` for errors before reloading.
-    config::reload(&mut client)?;
+    config::reload(cluster)?;
     Ok(())
 }

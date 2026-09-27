@@ -200,6 +200,24 @@ mod tests {
         can_lock(filename, false)
     }
 
+    /// Retry `check` for up to a second until it succeeds.
+    ///
+    /// Other tests in this process spawn child processes. A child forked while
+    /// a lock file here is open inherits a copy of its file descriptor – and so
+    /// its `flock` – until it `exec`s, so a lock can briefly outlive the `File`
+    /// that took it. Checks that a file is lockable must allow for that.
+    fn eventually(check: impl Fn() -> nix::Result<()>) -> nix::Result<()> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        loop {
+            match check() {
+                Err(_) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                result => return result,
+            }
+        }
+    }
+
     #[test]
     fn file_lock_exclusive_takes_exclusive_flock() -> io::Result<()> {
         let lock_dir = tempfile::tempdir()?;
@@ -210,8 +228,8 @@ mod tests {
             .open(&lock_filename)
             .map(UnlockedFile::from)?;
 
-        assert_eq!(Ok(()), can_lock_exclusive(&lock_filename));
-        assert_eq!(Ok(()), can_lock_shared(&lock_filename));
+        assert_eq!(Ok(()), eventually(|| can_lock_exclusive(&lock_filename)));
+        assert_eq!(Ok(()), eventually(|| can_lock_shared(&lock_filename)));
 
         let lock = lock.lock_exclusive()?;
 
@@ -220,8 +238,8 @@ mod tests {
 
         lock.unlock()?;
 
-        assert_eq!(Ok(()), can_lock_exclusive(&lock_filename));
-        assert_eq!(Ok(()), can_lock_shared(&lock_filename));
+        assert_eq!(Ok(()), eventually(|| can_lock_exclusive(&lock_filename)));
+        assert_eq!(Ok(()), eventually(|| can_lock_shared(&lock_filename)));
 
         Ok(())
     }
