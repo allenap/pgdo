@@ -45,7 +45,7 @@ use State::{Modified, Unmodified};
 /// `template0` should never be modified so it's rare to connect to this
 /// database, even as a convenient default – see [`DATABASE_TEMPLATE1`] for an
 /// explanation as to why.
-pub static DATABASE_TEMPLATE0: &str = "template0";
+pub const DATABASE_TEMPLATE0: &str = "template0";
 
 /// `template1` is always present in a PostgreSQL cluster.
 ///
@@ -60,7 +60,7 @@ pub static DATABASE_TEMPLATE0: &str = "template0";
 ///
 /// [Template Databases]:
 ///     https://www.postgresql.org/docs/current/manage-ag-templatedbs.html
-pub static DATABASE_TEMPLATE1: &str = "template1";
+pub const DATABASE_TEMPLATE1: &str = "template1";
 
 /// `postgres` is always created by `initdb` when building a PostgreSQL cluster.
 ///
@@ -77,7 +77,7 @@ pub static DATABASE_TEMPLATE1: &str = "template1";
 /// functionality of this crate will be broken. Ideally we could connect to a
 /// PostgreSQL cluster without specifying a database, but that is presently not
 /// possible.
-pub static DATABASE_POSTGRES: &str = "postgres";
+pub const DATABASE_POSTGRES: &str = "postgres";
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ClusterStatus {
@@ -543,7 +543,7 @@ pub fn determine_superuser_role_names(
     use std::process::Stdio;
     use std::sync::LazyLock;
 
-    static QUERY: &[u8] = b"select rolname from pg_roles where rolsuper and rolcanlogin\n";
+    const QUERY: &[u8] = b"select rolname from pg_roles where rolsuper and rolcanlogin\n";
     static RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r#"\brolname\s*=\s*"(.+)""#)
             .expect("invalid regex (for matching single-user role names)")

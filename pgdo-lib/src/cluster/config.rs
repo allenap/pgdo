@@ -84,7 +84,7 @@ const ENUMVALS_SEPARATOR: char = '\x1f';
 
 /// Query for [`Setting`]s. Columns must be in the order that
 /// [`Setting::try_from`] expects.
-static SETTINGS_QUERY: &str = r"
+const SETTINGS_QUERY: &str = r"
     SELECT
         name,
         setting,

@@ -143,9 +143,9 @@ fn set_cluster_mode(
 ) -> Result<(), cluster::ClusterError> {
     use pgdo::cluster::config::{self, Parameter};
 
-    static FSYNC: Parameter = Parameter("fsync");
-    static FULL_PAGE_WRITES: Parameter = Parameter("full_page_writes");
-    static SYNCHRONOUS_COMMIT: Parameter = Parameter("synchronous_commit");
+    const FSYNC: Parameter = Parameter("fsync");
+    const FULL_PAGE_WRITES: Parameter = Parameter("full_page_writes");
+    const SYNCHRONOUS_COMMIT: Parameter = Parameter("synchronous_commit");
 
     match mode {
         args::ClusterMode::Fast => {
