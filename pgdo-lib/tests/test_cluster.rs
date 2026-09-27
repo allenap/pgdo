@@ -13,6 +13,7 @@ use pgdo::cluster::{
     version, Cluster, ClusterError, ClusterStatus,
 };
 use pgdo::coordinate::State::*;
+use pgdo::runtime::strategy::Strategy;
 use pgdo::version::{PartialVersion, Version};
 use pgdo_test::for_all_runtimes;
 
@@ -67,10 +68,28 @@ fn cluster_has_version_when_it_does_exist() -> TestResult {
     let version_file = data_dir.path().join("PG_VERSION");
     File::create(&version_file)?;
     let pg_version: PartialVersion = runtime.version.into();
-    let pg_version = pg_version.widened(); // e.g. 9.6.5 -> 9.6 or 14.3 -> 14.
+    let pg_version = pg_version.widened(); // e.g. 16.4 -> 16.
     std::fs::write(&version_file, format!("{pg_version}\n"))?;
     let cluster = Cluster::new(&data_dir, runtime)?;
     assert!(matches!(version(&cluster), Ok(Some(_))));
+    Ok(())
+}
+
+#[test]
+fn cluster_with_unsupported_version_is_an_error() -> TestResult {
+    let data_dir = tempfile::tempdir()?;
+    let cluster = Cluster::new(&data_dir, Strategy::default())?;
+    for old_version in ["9.6", "14"] {
+        std::fs::write(
+            data_dir.path().join("PG_VERSION"),
+            format!("{old_version}\n"),
+        )?;
+        assert!(matches!(
+            cluster.status(),
+            Err(ClusterError::UnsupportedVersion(version))
+                if version.to_string() == old_version
+        ));
+    }
     Ok(())
 }
 
@@ -125,23 +144,8 @@ fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResu
         .into_iter()
         .map(|row| (row.get::<String, _>(0), row.get::<String, _>(1)))
         .collect();
-    // PostgreSQL 9.4.22's release notes reveal:
-    //
-    //   Etc/UCT is now a backward-compatibility link to Etc/UTC,
-    //   instead of being a separate zone that generates the
-    //   abbreviation UCT, which nowadays is typically a typo.
-    //   PostgreSQL will still accept UCT as an input zone abbreviation,
-    //   but it won't output it.
-    //     -- https://www.postgresql.org/docs/9.4/release-9-4-22.html
-    //
-    if runtime.version < Version::from_str("9.4.22")? {
-        let dealias = |tz: &String| (if tz == "UCT" { "UTC" } else { tz }).to_owned();
-        assert_eq!(params.get("TimeZone").map(dealias), Some("UTC".into()));
-        assert_eq!(params.get("log_timezone").map(dealias), Some("UTC".into()));
-    } else {
-        assert_eq!(params.get("TimeZone"), Some(&"UTC".into()));
-        assert_eq!(params.get("log_timezone"), Some(&"UTC".into()));
-    }
+    assert_eq!(params.get("TimeZone"), Some(&"UTC".into()));
+    assert_eq!(params.get("log_timezone"), Some(&"UTC".into()));
     // PostgreSQL 16's release notes reveal:
     //
     //   Remove read-only server variables lc_collate and lc_ctype …
@@ -217,9 +221,7 @@ fn cluster_start_stop_starts_and_stops_cluster() -> TestResult {
     Ok(())
 }
 
-/// Versions before 9.2 don't appear to support custom settings, i.e. those with
-/// a period in the middle, so it's hard to test this on older versions.
-#[for_all_runtimes(min = "9.2")]
+#[for_all_runtimes]
 #[test]
 fn cluster_start_with_options() -> TestResult {
     let temp_dir = tempfile::tempdir()?;

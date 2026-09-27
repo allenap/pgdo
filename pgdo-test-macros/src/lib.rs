@@ -14,11 +14,12 @@ use pgdo::{
 /// `runtime` variable available, which is a [`pgdo::runtime::Runtime`].
 ///
 /// Optional inclusive minimum and maximum version constraints can be provided
-/// as arguments to the attribute:
+/// as arguments to the attribute, `min = "…"` and/or `max = "…"`. For example,
+/// to test behaviour that changed in PostgreSQL 16:
 ///
 /// ```rust
 /// # use pgdo_test_macros::for_all_runtimes;
-/// #[for_all_runtimes(min = "11", max = "13")]
+/// #[for_all_runtimes(min = "16")]
 /// #[test]
 /// fn my_test() { /* … */ }
 /// ```

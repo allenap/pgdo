@@ -13,16 +13,12 @@ RUN apt-get install -y postgresql-common
 RUN sh /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
 RUN apt-get update
 
-# Install various PostgreSQL versions.
-#
-# See https://www.postgresql.org/support/versioning/ for official support
+# Install every PostgreSQL version that pgdo supports, i.e. from
+# `pgdo::runtime::MINIMUM_VERSION` onwards. See
+# https://www.postgresql.org/support/versioning/ for official support
 # information, and https://apt.postgresql.org/pub/repos/apt/ for all available
-# versions. At present only version 11 and above are officially supported
-# upstream (and version 11 will get its final release in November 2023 and
-# officially enter EOL), but there is still logic in pgdo that works with
-# versions as old as 9.0.
-#
-RUN apt-get install -y postgresql-{9.{0,1,2,3,4,5,6},10,11,12,13,14,15,16,17,18}
+# versions.
+RUN apt-get install -y postgresql-{15,16,17,18}
 
 # Remove any preexisting `ubuntu` user and groups.
 RUN if getent passwd ubuntu >/dev/null 2>&1; then userdel --remove ubuntu; fi

@@ -16,6 +16,7 @@ use pgdo::{
         constraint::Constraint,
         strategy::{Strategy, StrategyLike},
     },
+    version::PartialVersion,
 };
 
 /// Check the exit status of a process and return an appropriate exit code.
@@ -33,10 +34,23 @@ pub(crate) enum StrategyError {
     #[error("No runtime matches constraint {0:?}")]
     #[diagnostic(help("Use `runtimes` to see available runtimes"))]
     ConstraintNotSatisfied(runtime::constraint::Constraint),
+    #[error(
+        "PostgreSQL {0} is not supported; pgdo requires PostgreSQL {min} or later",
+        min = runtime::MINIMUM_VERSION
+    )]
+    #[diagnostic(help("Use `runtimes` to see available runtimes"))]
+    UnsupportedVersion(PartialVersion),
 }
 
 /// Determine the strategy to use for a cluster, given an optional constraint.
 pub(crate) fn determine_strategy(fallback: Option<Constraint>) -> Result<Strategy, StrategyError> {
+    // Unsupported runtimes are never discovered, so a constraint that asks for
+    // one can never be satisfied. Say so specifically.
+    if let Some(Constraint::Version(version)) = fallback {
+        if !runtime::is_supported(version) {
+            return Err(StrategyError::UnsupportedVersion(version));
+        }
+    }
     let strategy = runtime::strategy::Strategy::default();
     let fallback: Option<_> = match fallback {
         Some(constraint) => match strategy.select(&constraint) {
@@ -88,10 +102,8 @@ pub(crate) fn lock_for<P: AsRef<Path>>(
     Ok((path, lock))
 }
 
-#[allow(clippy::enum_variant_names)]
 pub(crate) enum Runner {
     RunAndStop,
-    RunAndStopIfExists,
     RunAndDestroy,
 }
 
@@ -110,23 +122,15 @@ pub(crate) fn run<ACTION>(
 where
     ACTION: FnOnce(&cluster::Cluster) -> ExitResult + std::panic::UnwindSafe,
 {
-    match runner {
-        Runner::RunAndStop | Runner::RunAndDestroy => {
-            // Attempt to create the cluster directory.
-            match fs::create_dir(&cluster_dir) {
-                Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
-                err @ Err(_) => err
-                    .into_diagnostic()
-                    .wrap_err_with(|| "Could not create cluster directory")
-                    .wrap_err_with(|| format!("Cluster directory: {}", cluster_dir.display()))?,
-                _ => (),
-            }
-        }
-        Runner::RunAndStopIfExists => {
-            // Do not create cluster directory. If the cluster directory does
-            // not exist, we expect to crash later.
-        }
-    };
+    // Attempt to create the cluster directory.
+    match fs::create_dir(&cluster_dir) {
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
+        err @ Err(_) => err
+            .into_diagnostic()
+            .wrap_err_with(|| "Could not create cluster directory")
+            .wrap_err_with(|| format!("Cluster directory: {}", cluster_dir.display()))?,
+        _ => (),
+    }
 
     let (datadir, lock) = lock_for(&cluster_dir)?;
     let strategy = determine_strategy(fallback)?;
@@ -149,10 +153,9 @@ where
         action(&cluster)
     };
 
-    use coordinate::{run_and_destroy, run_and_stop, run_and_stop_if_exists};
+    use coordinate::{run_and_destroy, run_and_stop};
     match runner {
         Runner::RunAndStop => run_and_stop(&cluster, &[], lock, act),
-        Runner::RunAndStopIfExists => run_and_stop_if_exists(&cluster, &[], lock, act),
         Runner::RunAndDestroy => run_and_destroy(&cluster, &[], lock, act),
     }?
 }

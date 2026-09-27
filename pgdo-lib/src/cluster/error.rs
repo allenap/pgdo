@@ -6,8 +6,19 @@ use crate::{cluster, runtime, util, version};
 pub enum ClusterError {
     #[error("Input/output error")]
     IoError(#[from] io::Error),
-    #[error("PostgreSQL version not supported: {0}")]
-    UnsupportedVersion(version::Version),
+    #[error(
+        "Cluster is PostgreSQL {0}, which is not supported; pgdo requires PostgreSQL {min} or later",
+        min = runtime::MINIMUM_VERSION
+    )]
+    #[diagnostic(help(
+        "Upgrade the cluster with `pg_upgrade`, or use an older release of pgdo to work with it"
+    ))]
+    UnsupportedVersion(version::PartialVersion),
+    #[error(
+        "PostgreSQL runtime {0} is not supported; pgdo requires PostgreSQL {min} or later",
+        min = runtime::MINIMUM_VERSION
+    )]
+    UnsupportedRuntime(version::Version),
     #[error("PostgreSQL version not known")]
     VersionError(#[from] version::VersionError),
     #[error("PostgreSQL runtime not found for version {0}")]

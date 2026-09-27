@@ -1,6 +1,5 @@
 //! Create, start, introspect, stop, and destroy PostgreSQL clusters.
 
-pub mod backup;
 pub mod config;
 pub mod resource;
 
@@ -18,6 +17,7 @@ use shell_quote::{QuoteExt, Sh};
 pub use sqlx;
 
 use crate::runtime::{
+    self,
     strategy::{Strategy, StrategyLike},
     Runtime,
 };
@@ -120,15 +120,25 @@ impl Cluster {
 
     /// Determine the runtime to use with this cluster.
     fn runtime(&self) -> Result<Runtime, ClusterError> {
-        match version(self)? {
+        let runtime = match version(self)? {
             None => self
                 .strategy
                 .fallback()
-                .ok_or_else(|| ClusterError::RuntimeDefaultNotFound),
+                .ok_or_else(|| ClusterError::RuntimeDefaultNotFound)?,
+            Some(version) if !runtime::is_supported(version) => {
+                return Err(ClusterError::UnsupportedVersion(version))
+            }
             Some(version) => self
                 .strategy
                 .select(&version.into())
-                .ok_or_else(|| ClusterError::RuntimeNotFound(version)),
+                .ok_or_else(|| ClusterError::RuntimeNotFound(version))?,
+        };
+        // Strategies that discover runtimes skip those that are unsupported,
+        // but a strategy can also be given a specific runtime.
+        if runtime.is_supported() {
+            Ok(runtime)
+        } else {
+            Err(ClusterError::UnsupportedRuntime(runtime.version))
         }
     }
 
@@ -156,97 +166,22 @@ impl Cluster {
     /// [`ClusterError`].
     pub fn status(&self) -> Result<ClusterStatus, ClusterError> {
         let output = self.ctl()?.arg("status").output()?;
-        let code = match output.status.code() {
-            // Killed by signal; return early.
-            None => return Err(ClusterError::CommandError(output)),
-            // Success; return early (the server is running).
-            Some(0) => return Ok(ClusterStatus::Running),
-            // More work required to decode what this means.
-            Some(code) => code,
-        };
-        let runtime = self.runtime()?;
-        // PostgreSQL has evolved to return different error codes in
-        // later versions, so here we check for specific codes to avoid
-        // masking errors from insufficient permissions or missing
-        // executables, for example.
-        let status = match runtime.version {
-            // PostgreSQL 10.x and later.
-            version::Version::Post10(_major, _minor) => {
-                // PostgreSQL 10
-                // https://www.postgresql.org/docs/10/static/app-pg-ctl.html
-                match code {
-                    // 3 means that the data directory is present and
-                    // accessible but that the server is not running.
-                    3 => Some(ClusterStatus::Stopped),
-                    // 4 means that the data directory is not present or is
-                    // not accessible. If it's missing, then the server is
-                    // not running. If it is present but not accessible
-                    // then crash because we can't know if the server is
-                    // running or not.
-                    4 if !exists(self) => Some(ClusterStatus::Missing),
-                    // For anything else we don't know.
-                    _ => None,
-                }
-            }
-            // PostgreSQL 9.x only.
-            version::Version::Pre10(9, point, _minor) => {
-                // PostgreSQL 9.4+
-                // https://www.postgresql.org/docs/9.4/static/app-pg-ctl.html
-                // https://www.postgresql.org/docs/9.5/static/app-pg-ctl.html
-                // https://www.postgresql.org/docs/9.6/static/app-pg-ctl.html
-                if point >= 4 {
-                    match code {
-                        // 3 means that the data directory is present and
-                        // accessible but that the server is not running.
-                        3 => Some(ClusterStatus::Stopped),
-                        // 4 means that the data directory is not present or is
-                        // not accessible. If it's missing, then the server is
-                        // not running. If it is present but not accessible
-                        // then crash because we can't know if the server is
-                        // running or not.
-                        4 if !exists(self) => Some(ClusterStatus::Missing),
-                        // For anything else we don't know.
-                        _ => None,
-                    }
-                }
-                // PostgreSQL 9.2+
-                // https://www.postgresql.org/docs/9.2/static/app-pg-ctl.html
-                // https://www.postgresql.org/docs/9.3/static/app-pg-ctl.html
-                else if point >= 2 {
-                    match code {
-                        // 3 means that the data directory is present and
-                        // accessible but that the server is not running OR
-                        // that the data directory is not present.
-                        3 if !exists(self) => Some(ClusterStatus::Missing),
-                        3 => Some(ClusterStatus::Stopped),
-                        // For anything else we don't know.
-                        _ => None,
-                    }
-                }
-                // PostgreSQL 9.0+
-                // https://www.postgresql.org/docs/9.0/static/app-pg-ctl.html
-                // https://www.postgresql.org/docs/9.1/static/app-pg-ctl.html
-                else {
-                    match code {
-                        // 1 means that the server is not running OR the data
-                        // directory is not present OR that the data directory
-                        // is not accessible.
-                        1 if !exists(self) => Some(ClusterStatus::Missing),
-                        1 => Some(ClusterStatus::Stopped),
-                        // For anything else we don't know.
-                        _ => None,
-                    }
-                }
-            }
-            // All other versions.
-            version::Version::Pre10(_major, _point, _minor) => None,
-        };
-
-        match status {
-            Some(running) => Ok(running),
-            // TODO: Perhaps include the exit code from `pg_ctl status` in the
-            // error message, and whatever it printed out.
-            None => Err(ClusterError::UnsupportedVersion(runtime.version)),
+        // See https://www.postgresql.org/docs/current/app-pg-ctl.html for the
+        // meaning of these exit codes. We check for specific codes to avoid
+        // masking errors from insufficient permissions or missing executables,
+        // for example.
+        match output.status.code() {
+            // The server is running.
+            Some(0) => Ok(ClusterStatus::Running),
+            // The data directory is present and accessible but the server is
+            // not running.
+            Some(3) => Ok(ClusterStatus::Stopped),
+            // The data directory is not present or is not accessible. If it's
+            // missing, then the server is not running. If it is present but not
+            // accessible then we can't know if the server is running or not.
+            Some(4) if !exists(self) => Ok(ClusterStatus::Missing),
+            // Killed by signal, or some other exit code we don't understand.
+            _ => Err(ClusterError::CommandError(output)),
         }
     }
 
