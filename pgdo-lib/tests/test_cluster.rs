@@ -7,21 +7,13 @@ use std::str::FromStr;
 
 use shell_quote::{QuoteExt, Sh};
 
-use pgdo::cluster::{
-    self, exists,
-    sqlx::{query, Row},
-    version, Cluster, ClusterError, ClusterStatus,
-};
-use pgdo::coordinate::State::*;
+use pgdo::cluster::State::*;
+use pgdo::cluster::{self, exists, version, Cluster, ClusterError, ClusterStatus};
 use pgdo::runtime::strategy::Strategy;
 use pgdo::version::{PartialVersion, Version};
 use pgdo_test::for_all_runtimes;
 
 type TestResult = Result<(), ClusterError>;
-
-fn block_on<F: std::future::Future>(future: F) -> F::Output {
-    tokio::runtime::Runtime::new().unwrap().block_on(future)
-}
 
 #[for_all_runtimes]
 #[test]
@@ -136,13 +128,10 @@ fn cluster_create_creates_cluster_with_neutral_locale_and_timezone() -> TestResu
     let data_dir = temp_dir.path().join("data");
     let cluster = Cluster::new(data_dir, runtime.clone())?;
     cluster.start(&[])?;
-    let result = block_on(async {
-        let pool = cluster.pool(None)?;
-        Ok::<_, ClusterError>(query("SHOW ALL").fetch_all(&pool).await?)
-    })?;
+    let result = cluster.connect(None)?.query("SHOW ALL", &[])?;
     let params: std::collections::HashMap<String, String> = result
         .into_iter()
-        .map(|row| (row.get::<String, _>(0), row.get::<String, _>(1)))
+        .map(|row| (row.get::<_, String>(0), row.get::<_, String>(1)))
         .collect();
     assert_eq!(params.get("TimeZone"), Some(&"UTC".into()));
     assert_eq!(params.get("log_timezone"), Some(&"UTC".into()));
@@ -228,11 +217,10 @@ fn cluster_start_with_options() -> TestResult {
     let data_dir = temp_dir.path().join("data");
     let cluster = Cluster::new(data_dir, runtime)?;
     cluster.start(&[("example.setting".into(), "Hello, World!".into())])?;
-    let example_setting = block_on(async {
-        let pool = cluster.pool(None)?;
-        Ok::<_, ClusterError>(query("SHOW example.setting").fetch_one(&pool).await?)
-    })
-    .map(|row| row.get::<String, _>(0))?;
+    let example_setting: String = cluster
+        .connect(None)?
+        .query_one("SHOW example.setting", &[])?
+        .get(0);
     assert_eq!(example_setting, "Hello, World!");
     cluster.stop()?;
     Ok(())
@@ -389,15 +377,5 @@ fn determine_superuser_role_names() -> TestResult {
     cluster.create()?;
     let superusers = cluster::determine_superuser_role_names(&cluster)?;
     assert!(!superusers.is_empty());
-    Ok(())
-}
-
-#[for_all_runtimes]
-#[test]
-fn run_starts_cluster_and_returns_guard() -> TestResult {
-    let temp_dir = tempfile::tempdir()?;
-    let data_dir = temp_dir.path().join("data");
-    let cluster = cluster::run(data_dir, Default::default()).unwrap();
-    assert_eq!(cluster.status()?, ClusterStatus::Running);
     Ok(())
 }

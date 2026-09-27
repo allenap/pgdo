@@ -1,10 +1,7 @@
 use miette::WrapErr;
 
 use super::ExitResult;
-use crate::{
-    args,
-    runner::{self, Runner},
-};
+use crate::{args, runner};
 
 /// Start a psql shell, creating and starting the cluster as necessary
 /// (DEFAULT).
@@ -30,24 +27,14 @@ pub struct Shell {
 impl Shell {
     pub fn invoke(self) -> ExitResult {
         let Self { cluster, cluster_mode, database, lifecycle, runtime } = self;
-        runner::run(
-            if lifecycle.destroy {
-                Runner::RunAndDestroy
-            } else {
-                Runner::RunAndStop
-            },
-            cluster,
-            cluster_mode,
-            runtime,
-            |cluster| {
-                runner::ensure_database(cluster, &database.name)?;
-                runner::check_exit(
-                    cluster
-                        .shell(Some(&database.name))
-                        .wrap_err("Starting PostgreSQL shell in cluster failed")?,
-                )
-            },
-        )
+        runner::run(cluster, cluster_mode, runtime, lifecycle, |cluster| {
+            runner::ensure_database(cluster, &database.name)?;
+            runner::check_exit(
+                cluster
+                    .shell(Some(&database.name))
+                    .wrap_err("Starting PostgreSQL shell in cluster failed")?,
+            )
+        })
     }
 }
 

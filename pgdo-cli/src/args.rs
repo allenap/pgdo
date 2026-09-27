@@ -68,6 +68,17 @@ pub struct LifecycleArgs {
     pub destroy: bool,
 }
 
+impl LifecycleArgs {
+    /// What to do with the cluster when finished with it.
+    pub fn finish(&self) -> pgdo::cluster::Finish {
+        if self.destroy {
+            pgdo::cluster::Finish::Destroy
+        } else {
+            pgdo::cluster::Finish::Stop
+        }
+    }
+}
+
 // ----------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]

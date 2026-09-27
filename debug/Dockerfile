@@ -40,9 +40,6 @@ ADD --chown=pgdo:pgdo --chmod=755 https://sh.rustup.rs /tmp/rustup-init
 RUN /tmp/rustup-init -y --component clippy && rm /tmp/rustup-init
 ENV PATH="/home/pgdo/.cargo/bin:${PATH}"
 
-# Install SQLx tooling to match the SQLx crate in dependencies.
-RUN cargo install sqlx-cli@0.8.6 --no-default-features --features postgres
-
 # Add the most recent PostgreSQL runtime to `PATH`. Some tests in `pgdo` scan
 # `PATH` for runtimes; this will allow them to pass. It's also convenient.
 ENV PATH="/usr/lib/postgresql/18/bin:${PATH}"

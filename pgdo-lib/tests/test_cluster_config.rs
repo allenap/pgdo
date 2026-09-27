@@ -10,32 +10,26 @@ fn cluster_parameter_set() -> TestResult {
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start(&[])?;
 
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
-        let pool = cluster.pool(None)?;
+    let mut client = cluster.connect(None)?;
 
-        // By default, `trace_notify` is disabled.
-        let parameter = config::Parameter::from("trace_notify");
-        let value = parameter.get(&pool).await?;
-        assert_eq!(value, Some(config::Value::Boolean(false)));
+    // By default, `trace_notify` is disabled.
+    let parameter = config::Parameter::from("trace_notify");
+    let value = parameter.get(&mut client)?;
+    assert_eq!(value, Some(config::Value::Boolean(false)));
 
-        // We'll enable it.
-        parameter.set(&pool, true).await?;
+    // We'll enable it.
+    parameter.set(&mut client, true)?;
 
-        // We need to reload the configuration.
-        config::reload(&pool).await?;
+    // We need to reload the configuration.
+    config::reload(&mut client)?;
 
-        // BUGBUG: We also need fresh connections, otherwise the test below is
-        // flaky. It is non-deterministic whether the setting is picked up.
-        // TODO: Maybe `RESET ALL` would work?
-        let pool = cluster.pool(None)?;
+    // We also need a fresh connection, otherwise it is non-deterministic whether
+    // the setting is picked up.
+    let mut client = cluster.connect(None)?;
 
-        // Now `trace_notify` is enabled.
-        let value = parameter.get(&pool).await?;
-        assert_eq!(value, Some(config::Value::Boolean(true)));
-
-        Ok::<(), ClusterError>(())
-    })?;
+    // Now `trace_notify` is enabled.
+    let value = parameter.get(&mut client)?;
+    assert_eq!(value, Some(config::Value::Boolean(true)));
 
     cluster.stop()?;
     Ok(())
@@ -48,12 +42,8 @@ fn cluster_parameter_get() -> TestResult {
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start(&[])?;
 
-    let rt = tokio::runtime::Runtime::new()?;
-    let value = rt.block_on(async {
-        let pool = cluster.pool(None)?;
-        let value = config::Parameter::from("application_name").get(&pool).await;
-        Ok::<_, ClusterError>(value?)
-    })?;
+    let mut client = cluster.connect(None)?;
+    let value = config::Parameter::from("application_name").get(&mut client)?;
     assert_eq!(value, Some(config::Value::String("pgdo".to_owned())));
 
     cluster.stop()?;
@@ -67,11 +57,7 @@ fn cluster_setting_list() -> TestResult {
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start(&[])?;
 
-    let rt = tokio::runtime::Runtime::new()?;
-    let settings = rt.block_on(async {
-        let pool = cluster.pool(None)?;
-        Ok::<_, ClusterError>(config::Setting::list(&pool).await?)
-    })?;
+    let settings = config::Setting::list(&mut cluster.connect(None)?)?;
     let mapping: std::collections::HashMap<config::Parameter, config::Value> = settings
         .iter()
         .map(|setting| (setting.into(), setting.try_into().unwrap()))
@@ -92,13 +78,8 @@ fn cluster_setting_get() -> TestResult {
     let cluster = Cluster::new(&data_dir, runtime)?;
     cluster.start(&[])?;
 
-    let rt = tokio::runtime::Runtime::new()?;
     let parameter = config::Parameter::from("application_name");
-    let application_name = rt
-        .block_on(async {
-            let pool = cluster.pool(None)?;
-            Ok::<_, ClusterError>(config::Setting::get(&parameter, &pool).await?)
-        })?
+    let application_name = config::Setting::get(parameter, &mut cluster.connect(None)?)?
         .expect("missing application_name setting");
 
     assert_eq!(application_name.setting, "pgdo");

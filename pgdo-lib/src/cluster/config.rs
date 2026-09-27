@@ -1,22 +1,25 @@
 use std::{borrow::Cow, fmt, str::FromStr};
 
+use postgres::GenericClient;
 use postgres_protocol::escape::{escape_identifier, escape_literal};
-
-use super::sqlx;
 
 trait AsSql {
     fn as_sql(&self) -> Cow<'_, str>;
-    fn as_safe_sql(&self) -> sqlx::AssertSqlSafe<String> {
-        let sql = self.as_sql().into_owned();
-        sqlx::AssertSqlSafe(sql)
-    }
+}
+
+/// Error getting a configuration value.
+#[derive(thiserror::Error, miette::Diagnostic, Debug)]
+pub enum ConfigError {
+    #[error("Database error")]
+    DatabaseError(#[from] postgres::Error),
+    #[error("Could not understand setting: {0}")]
+    SettingError(String),
 }
 
 /// Reload configuration using `pg_reload_conf`. Equivalent to `SIGHUP` or
 /// `pg_ctl reload`.
-pub async fn reload(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
-    sqlx::query("SELECT pg_reload_conf()").execute(pool).await?;
-    Ok(())
+pub fn reload(client: &mut impl GenericClient) -> Result<(), postgres::Error> {
+    client.batch_execute("SELECT pg_reload_conf()")
 }
 
 pub enum AlterSystem<'a> {
@@ -28,9 +31,10 @@ pub enum AlterSystem<'a> {
 impl AlterSystem<'_> {
     /// Alter the system. Changes made by `ALTER SYSTEM` may require a reload or
     /// even a full restart to take effect.
-    pub async fn apply(&self, pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
-        sqlx::query(self.as_safe_sql()).execute(pool).await?;
-        Ok(())
+    pub fn apply(&self, client: &mut impl GenericClient) -> Result<(), postgres::Error> {
+        // `ALTER SYSTEM` cannot be parameterised, and cannot run inside a
+        // transaction block, so use the simple query protocol.
+        client.batch_execute(&self.as_sql())
     }
 }
 
@@ -51,13 +55,9 @@ impl AsSql for AlterSystem<'_> {
 /// This is fairly stringly-typed and mostly informational. For getting and
 /// setting values, [`Parameter`] and [`Value`] may be more convenient.
 ///
-/// **Note** that this does not work on PostgreSQL 9.4 and earlier because the
-/// `pending_restart` column does not exist. PostgreSQL 9.4 has long been
-/// obsolete so a workaround is not provided.
-///
 /// See the [documentation for
 /// `pg_settings`](https://www.postgresql.org/docs/current/view-pg-settings.html).
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone)]
 pub struct Setting {
     pub name: String,
     pub setting: String,
@@ -78,69 +78,78 @@ pub struct Setting {
     pub pending_restart: bool,
 }
 
+/// Query for [`Setting`]s. Columns must be in the order that
+/// [`Setting::try_from`] expects.
+static SETTINGS_QUERY: &str = r"
+    SELECT
+        name,
+        setting,
+        unit,
+        category,
+        short_desc,
+        extra_desc,
+        context,
+        vartype,
+        source,
+        min_val,
+        max_val,
+        enumvals,
+        boot_val,
+        reset_val,
+        sourcefile,
+        sourceline,
+        pending_restart
+    FROM
+        pg_catalog.pg_settings
+";
+
+impl TryFrom<&postgres::Row> for Setting {
+    type Error = postgres::Error;
+
+    fn try_from(row: &postgres::Row) -> Result<Self, Self::Error> {
+        Ok(Self {
+            name: row.try_get(0)?,
+            setting: row.try_get(1)?,
+            unit: row.try_get(2)?,
+            category: row.try_get(3)?,
+            short_desc: row.try_get(4)?,
+            extra_desc: row.try_get(5)?,
+            context: row.try_get(6)?,
+            vartype: row.try_get(7)?,
+            source: row.try_get(8)?,
+            min_val: row.try_get(9)?,
+            max_val: row.try_get(10)?,
+            enumvals: row.try_get(11)?,
+            boot_val: row.try_get(12)?,
+            reset_val: row.try_get(13)?,
+            sourcefile: row.try_get(14)?,
+            sourceline: row.try_get(15)?,
+            pending_restart: row.try_get(16)?,
+        })
+    }
+}
+
 impl Setting {
-    pub async fn list(pool: &sqlx::PgPool) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as(
-            r"
-            SELECT
-                name,
-                setting,
-                unit,
-                category,
-                short_desc,
-                extra_desc,
-                context,
-                vartype,
-                source,
-                min_val,
-                max_val,
-                enumvals,
-                boot_val,
-                reset_val,
-                sourcefile,
-                sourceline,
-                pending_restart
-            FROM
-                pg_catalog.pg_settings
-            ",
-        )
-        .fetch_all(pool)
-        .await
+    pub fn list(client: &mut impl GenericClient) -> Result<Vec<Self>, postgres::Error> {
+        client
+            .query(SETTINGS_QUERY, &[])?
+            .iter()
+            .map(Self::try_from)
+            .collect()
     }
 
-    pub async fn get<N: AsRef<str>>(
+    pub fn get<N: AsRef<str>>(
         name: N,
-        pool: &sqlx::PgPool,
-    ) -> Result<Option<Self>, sqlx::Error> {
-        sqlx::query_as(
-            r"
-            SELECT
-                name,
-                setting,
-                unit,
-                category,
-                short_desc,
-                extra_desc,
-                context,
-                vartype,
-                source,
-                min_val,
-                max_val,
-                enumvals,
-                boot_val,
-                reset_val,
-                sourcefile,
-                sourceline,
-                pending_restart
-            FROM
-                pg_catalog.pg_settings
-            WHERE
-                name = $1
-            ",
-        )
-        .bind(name.as_ref())
-        .fetch_optional(pool)
-        .await
+        client: &mut impl GenericClient,
+    ) -> Result<Option<Self>, postgres::Error> {
+        client
+            .query_opt(
+                &format!("{SETTINGS_QUERY} WHERE name = $1"),
+                &[&name.as_ref()],
+            )?
+            .as_ref()
+            .map(Self::try_from)
+            .transpose()
     }
 }
 
@@ -151,32 +160,25 @@ impl Parameter<'_> {
     /// Get the current [`Value`] for this parameter.
     ///
     /// If you want the full/raw [`Setting`], use [`Setting::get`] instead.
-    pub async fn get(&self, pool: &sqlx::PgPool) -> Result<Option<Value>, sqlx::Error> {
-        Setting::get(self.0, pool)
-            .await?
-            .map(|setting| {
-                Value::try_from(&setting)
-                    .map_err(Into::into)
-                    .map_err(sqlx::Error::Decode)
-            })
+    pub fn get(&self, client: &mut impl GenericClient) -> Result<Option<Value>, ConfigError> {
+        Setting::get(self.0, client)?
+            .map(|setting| Value::try_from(&setting).map_err(ConfigError::SettingError))
             .transpose()
     }
 
     /// Set the current value for this parameter.
-    pub async fn set<V: Into<Value>>(
+    pub fn set<V: Into<Value>>(
         &self,
-        pool: &sqlx::PgPool,
+        client: &mut impl GenericClient,
         value: V,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<(), postgres::Error> {
         let value = value.into();
-        AlterSystem::Set(self, &value).apply(pool).await?;
-        Ok(())
+        AlterSystem::Set(self, &value).apply(client)
     }
 
     /// Reset the value for this parameter.
-    pub async fn reset(&self, pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
-        AlterSystem::Reset(self).apply(pool).await?;
-        Ok(())
+    pub fn reset(&self, client: &mut impl GenericClient) -> Result<(), postgres::Error> {
+        AlterSystem::Reset(self).apply(client)
     }
 }
 

@@ -1,7 +1,5 @@
 use std::fs;
 use std::io;
-use std::os::unix::prelude::OsStrExt;
-use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::process::ExitStatus;
 
@@ -10,7 +8,7 @@ use miette::{bail, IntoDiagnostic, Result, WrapErr};
 use crate::{args, ExitResult};
 
 use pgdo::{
-    cluster, coordinate, lock,
+    cluster,
     runtime::{
         self,
         constraint::Constraint,
@@ -77,52 +75,23 @@ pub(crate) fn ensure_database(cluster: &cluster::Cluster, database_name: &str) -
     Ok(())
 }
 
-const UUID_NS: uuid::Uuid = uuid::Uuid::from_u128(93875103436633470414348750305797058811);
-
-#[derive(thiserror::Error, miette::Diagnostic, Debug)]
-pub(crate) enum LockForError {
-    #[error("Could not canonicalize cluster directory ({1})")]
-    ClusterDirectoryError(#[source] std::io::Error, PathBuf),
-    #[error("Could not create UUID-based lock file (uuid = {1})")]
-    UuidLockError(#[source] std::io::Error, uuid::Uuid),
-}
-
-/// Provide an unlocked lock for the given directory.
-pub(crate) fn lock_for<P: AsRef<Path>>(
-    path: P,
-) -> Result<(PathBuf, lock::UnlockedFile), LockForError> {
-    let path = path.as_ref();
-    let path = path
-        .canonicalize()
-        .map_err(|err| LockForError::ClusterDirectoryError(err, path.into()))?;
-    let name = path.as_os_str().as_bytes();
-    let lock_uuid = uuid::Uuid::new_v5(&UUID_NS, name);
-    let lock = lock::UnlockedFile::try_from(&lock_uuid)
-        .map_err(|err| LockForError::UuidLockError(err, lock_uuid))?;
-    Ok((path, lock))
-}
-
-pub(crate) enum Runner {
-    RunAndStop,
-    RunAndDestroy,
-}
-
 /// Run an action on a cluster.
 ///
 /// This is the main entry point for most `pgdo` commands (though not all). It
-/// takes care of creating, locking, starting, stopping, and destroying the
-/// cluster, and running the given action.
+/// takes care of creating, starting, stopping, and destroying the cluster – via
+/// a [`cluster::Session`] – and running the given action.
 pub(crate) fn run<ACTION>(
-    runner: Runner,
     args::ClusterArgs { dir: cluster_dir }: args::ClusterArgs,
     args::ClusterModeArgs { mode: cluster_mode }: args::ClusterModeArgs,
     args::RuntimeArgs { fallback }: args::RuntimeArgs,
+    lifecycle: args::LifecycleArgs,
     action: ACTION,
 ) -> ExitResult
 where
-    ACTION: FnOnce(&cluster::Cluster) -> ExitResult + std::panic::UnwindSafe,
+    ACTION: FnOnce(&cluster::Cluster) -> ExitResult,
 {
-    // Attempt to create the cluster directory.
+    // Attempt to create the cluster directory. Unlike `Cluster::session`, do
+    // not create parent directories; a mistyped path should not create a tree.
     match fs::create_dir(&cluster_dir) {
         Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
         err @ Err(_) => err
@@ -132,14 +101,14 @@ where
         _ => (),
     }
 
-    let (datadir, lock) = lock_for(&cluster_dir)?;
     let strategy = determine_strategy(fallback)?;
-    let cluster = cluster::Cluster::new(datadir, strategy)?;
+    let session = cluster::Cluster::new(cluster_dir, strategy)?
+        .session(&[])?
+        .finish(lifecycle.finish());
 
     let act = || {
         if let Some(cluster_mode) = cluster_mode {
-            let rt = tokio::runtime::Runtime::new().into_diagnostic()?;
-            rt.block_on(set_cluster_mode(cluster_mode, &cluster))?;
+            set_cluster_mode(cluster_mode, &session)?;
         }
 
         // Ignore SIGINT, TERM, and HUP (with ctrlc feature "termination"). The
@@ -150,19 +119,25 @@ where
             .context("Could not set signal handler")?;
 
         // Finally, run the given action.
-        action(&cluster)
+        action(&session)
     };
 
-    use coordinate::{run_and_destroy, run_and_stop};
-    match runner {
-        Runner::RunAndStop => run_and_stop(&cluster, &[], lock, act),
-        Runner::RunAndDestroy => run_and_destroy(&cluster, &[], lock, act),
-    }?
+    // If the action panics, dropping `session` still ends it (and logs any
+    // error in doing so).
+    let result = act();
+    match (result, session.end()) {
+        (Ok(code), Ok(_)) => Ok(code),
+        (Ok(_), Err(err)) => Err(err).wrap_err("Could not end session with cluster"),
+        (Err(err), Ok(_)) => Err(err),
+        (Err(err), Err(end_err)) => {
+            log::error!("Could not end session with cluster: {end_err}");
+            Err(err)
+        }
+    }
 }
-
 /// Set the cluster's "mode", i.e. configure appropriate PostgreSQL settings,
 /// e.g. `fsync`, `full_page_writes`, etc. that need to be set early.
-async fn set_cluster_mode(
+fn set_cluster_mode(
     mode: args::ClusterMode,
     cluster: &cluster::Cluster,
 ) -> Result<(), cluster::ClusterError> {
@@ -172,24 +147,20 @@ async fn set_cluster_mode(
     static FULL_PAGE_WRITES: Parameter = Parameter("full_page_writes");
     static SYNCHRONOUS_COMMIT: Parameter = Parameter("synchronous_commit");
 
+    let mut client = cluster.connect(None)?;
     match mode {
         args::ClusterMode::Fast => {
-            let pool = cluster.pool(None)?;
-            FSYNC.set(&pool, false).await?;
-            FULL_PAGE_WRITES.set(&pool, false).await?;
-            SYNCHRONOUS_COMMIT.set(&pool, false).await?;
-            // TODO: Check `pg_file_settings` for errors before reloading.
-            config::reload(&pool).await?;
-            Ok(())
+            FSYNC.set(&mut client, false)?;
+            FULL_PAGE_WRITES.set(&mut client, false)?;
+            SYNCHRONOUS_COMMIT.set(&mut client, false)?;
         }
         args::ClusterMode::Slow => {
-            let pool = cluster.pool(None)?;
-            FSYNC.reset(&pool).await?;
-            FULL_PAGE_WRITES.reset(&pool).await?;
-            SYNCHRONOUS_COMMIT.reset(&pool).await?;
-            // TODO: Check `pg_file_settings` for errors before reloading.
-            config::reload(&pool).await?;
-            Ok(())
+            FSYNC.reset(&mut client)?;
+            FULL_PAGE_WRITES.reset(&mut client)?;
+            SYNCHRONOUS_COMMIT.reset(&mut client)?;
         }
     }
+    // TODO: Check `pg_file_settings` for errors before reloading.
+    config::reload(&mut client)?;
+    Ok(())
 }
