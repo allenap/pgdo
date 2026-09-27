@@ -32,7 +32,6 @@ use either::{Either, Left, Right};
 use nix::errno::Errno;
 use nix::fcntl::{flock, FlockArg};
 use nix::Result;
-use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct UnlockedFile(File);
@@ -40,6 +39,26 @@ pub struct UnlockedFile(File);
 pub struct LockedFileShared(File);
 #[derive(Debug)]
 pub struct LockedFileExclusive(File);
+
+// Allow access to the underlying file, e.g. to check its metadata. Do not use
+// this to change or remove locks.
+impl AsRef<File> for UnlockedFile {
+    fn as_ref(&self) -> &File {
+        &self.0
+    }
+}
+
+impl AsRef<File> for LockedFileShared {
+    fn as_ref(&self) -> &File {
+        &self.0
+    }
+}
+
+impl AsRef<File> for LockedFileExclusive {
+    fn as_ref(&self) -> &File {
+        &self.0
+    }
+}
 
 impl From<File> for UnlockedFile {
     fn from(file: File) -> Self {
@@ -64,18 +83,6 @@ impl TryFrom<&std::path::PathBuf> for UnlockedFile {
 
     fn try_from(path: &std::path::PathBuf) -> std::io::Result<Self> {
         Self::try_from(path.as_path())
-    }
-}
-
-impl TryFrom<&Uuid> for UnlockedFile {
-    type Error = std::io::Error;
-
-    fn try_from(uuid: &Uuid) -> std::io::Result<Self> {
-        let mut buffer = Uuid::encode_buffer();
-        let uuid = uuid.simple().encode_lower(&mut buffer);
-        let filename = ".pgdo.".to_owned() + uuid;
-        let path = std::env::temp_dir().join(filename);
-        UnlockedFile::try_from(&*path)
     }
 }
 
@@ -248,7 +255,7 @@ mod tests {
     fn file_try_lock_exclusive_does_not_block_on_existing_shared_lock() -> io::Result<()> {
         let lockdir = tempfile::tempdir()?;
         let lockfile = lockdir.path().join("lock");
-        let open_lock_file = || {
+        let open_lockfile = || {
             OpenOptions::new()
                 .append(true)
                 .create(true)
@@ -256,12 +263,9 @@ mod tests {
                 .map(UnlockedFile::from)
         };
 
-        let _lock_shared = open_lock_file()?.lock_shared()?;
+        let _lock_shared = open_lockfile()?.lock_shared()?;
 
-        assert!(matches!(
-            open_lock_file()?.try_lock_exclusive(),
-            Ok(Left(_))
-        ));
+        assert!(matches!(open_lockfile()?.try_lock_exclusive(), Ok(Left(_))));
 
         Ok(())
     }
@@ -270,7 +274,7 @@ mod tests {
     fn file_try_lock_exclusive_does_not_block_on_existing_exclusive_lock() -> io::Result<()> {
         let lockdir = tempfile::tempdir()?;
         let lockfile = lockdir.path().join("lock");
-        let open_lock_file = || {
+        let open_lockfile = || {
             OpenOptions::new()
                 .append(true)
                 .create(true)
@@ -278,12 +282,9 @@ mod tests {
                 .map(UnlockedFile::from)
         };
 
-        let _lock_exclusive = open_lock_file()?.lock_exclusive()?;
+        let _lock_exclusive = open_lockfile()?.lock_exclusive()?;
 
-        assert!(matches!(
-            open_lock_file()?.try_lock_exclusive(),
-            Ok(Left(_)),
-        ));
+        assert!(matches!(open_lockfile()?.try_lock_exclusive(), Ok(Left(_)),));
 
         Ok(())
     }

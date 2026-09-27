@@ -17,8 +17,17 @@
 //! ```
 //!
 //! Coordination uses [`flock(2)`](https://linux.die.net/man/2/flock) locks on
-//! a file: a shared lock while the session is held; an exclusive lock to create
-//! and start the cluster, and to stop or destroy it.
+//! the file `pgdo.lock` in the cluster's data directory: a shared lock while
+//! the session is held; an exclusive lock to create and start the cluster, and
+//! to stop or destroy it. Because the lock file lives in the data directory, it
+//! works for any process that can see that directory, whatever path it uses to
+//! get there, as long as `flock` works on the filesystem and all processes run
+//! on the same kernel.
+//!
+//! When a session destroys a cluster it removes the lock file too. Another
+//! process might be waiting on that lock file, or might create a new one
+//! meanwhile, so after taking any lock, a session checks that the file it has
+//! locked is still the file at `pgdo.lock`; if not, it tries again.
 //!
 //! Starting, ending, and dropping a session all block, sometimes for a while:
 //! they may wait for other processes to release locks, and they run `pg_ctl`.
@@ -26,9 +35,9 @@
 //! avoid that, start and end sessions within something like Tokio's
 //! `spawn_blocking`. See also [Blocking][`Cluster#blocking`].
 
-use std::os::unix::prelude::OsStrExt;
+use std::os::unix::fs::MetadataExt;
 use std::time::Duration;
-use std::{fs, ops};
+use std::{fs, io, ops};
 
 use either::Either::{Left, Right};
 use rand::Rng;
@@ -65,12 +74,14 @@ impl Cluster {
     /// The cluster's data directory is created if it does not exist, and the
     /// cluster's path is made absolute (canonicalized).
     pub fn session(mut self, options: Options<'_>) -> Result<Session, ClusterError> {
-        // The lock is named for the data directory's canonical path, so the
-        // directory must exist first. This is duplicative – `Cluster::create`
-        // also creates the data directory – but necessary.
+        // Refuse a directory that is neither a cluster nor empty before putting
+        // a lock file in it. `Cluster::create` checks again, under the lock.
+        if self.datadir.is_dir() && !super::exists(&self) {
+            self.check_datadir_empty()?;
+        }
         fs::create_dir_all(&self.datadir)?;
         self.datadir = self.datadir.canonicalize()?;
-        let lock = startup(lock_for(&self)?, &self, options)?;
+        let lock = startup(&self, options)?;
         Ok(Session { cluster: self, lock: Some(lock), finish: Finish::default() })
     }
 }
@@ -105,10 +116,16 @@ impl Session {
                 Ok(State::Unmodified)
             }
             // We have an exclusive lock, so we can stop or destroy the cluster.
-            // The lock is released when `lock` is dropped.
-            Right(_lock) => match self.finish {
+            // The lock is released when `lock` is dropped, which must happen
+            // only after everything else is done.
+            Right(lock) => match self.finish {
                 Finish::Stop => self.cluster.stop(),
-                Finish::Destroy => self.cluster.destroy(),
+                Finish::Destroy => {
+                    let state = self.cluster.destroy()?;
+                    remove_datadir(&self.cluster)?;
+                    drop(lock);
+                    Ok(state)
+                }
             },
         }
     }
@@ -135,25 +152,39 @@ impl ops::Deref for Session {
 
 // ----------------------------------------------------------------------------
 
-/// Namespace for `UUIDv5` lock names.
-#[allow(clippy::unreadable_literal)]
-const UUID_NS: uuid::Uuid = uuid::Uuid::from_u128(93875103436633470414348750305797058811);
+/// Open the cluster's lock file, creating it – and the data directory – if
+/// necessary.
+fn open_lockfile(cluster: &Cluster) -> Result<lock::UnlockedFile, ClusterError> {
+    let path = cluster.lockfile();
+    match lock::UnlockedFile::try_from(path.as_path()) {
+        // The data directory may have been removed by a session that destroyed
+        // the cluster.
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            fs::create_dir_all(&cluster.datadir)?;
+            Ok(lock::UnlockedFile::try_from(path.as_path())?)
+        }
+        result => Ok(result?),
+    }
+}
 
-/// The lock file for the given cluster, named for its data directory.
-fn lock_for(cluster: &Cluster) -> Result<lock::UnlockedFile, ClusterError> {
-    let lock_name = cluster.datadir.as_os_str().as_bytes();
-    let lock_uuid = uuid::Uuid::new_v5(&UUID_NS, lock_name);
-    Ok(lock::UnlockedFile::try_from(&lock_uuid)?)
+/// Is the locked file still the cluster's lock file? It may have been removed
+/// – and maybe replaced – by a session that destroyed the cluster.
+fn is_current<L: AsRef<fs::File>>(cluster: &Cluster, lock: &L) -> Result<bool, ClusterError> {
+    let locked = lock.as_ref().metadata()?;
+    match fs::metadata(cluster.lockfile()) {
+        Ok(current) => Ok(locked.dev() == current.dev() && locked.ino() == current.ino()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(err) => Err(err)?,
+    }
 }
 
 /// Obtain a shared lock on the cluster, creating and starting it if necessary.
 fn startup(
-    mut lock: lock::UnlockedFile,
     cluster: &Cluster,
     options: Options<'_>,
 ) -> Result<lock::LockedFileShared, ClusterError> {
     loop {
-        lock = match lock.try_lock_exclusive()? {
+        match open_lockfile(cluster)?.try_lock_exclusive()? {
             Left(lock) => {
                 // The cluster is locked elsewhere, shared or exclusively. We
                 // optimistically take a shared lock. If the other lock is also
@@ -161,6 +192,10 @@ fn startup(
                 // this will block until that lock is released (or changed to a
                 // shared lock).
                 let lock = lock.lock_shared()?;
+                if !is_current(cluster, &lock)? {
+                    // The lock file was removed while we waited; try again.
+                    continue;
+                }
                 // If obtaining the lock blocked, i.e. the lock elsewhere was
                 // exclusive, then the cluster may have been started by the
                 // process that held that exclusive lock. We should check.
@@ -171,18 +206,49 @@ fn startup(
                 // and 1000ms in an attempt to make sure that when there are
                 // many competing processes one of them rapidly acquires an
                 // exclusive lock and is able to create and start the cluster.
-                let lock = lock.unlock()?;
+                drop(lock);
                 let delay = 200 + (rand::rng().next_u32() % 800);
                 std::thread::sleep(Duration::from_millis(u64::from(delay)));
-                lock
             }
             Right(lock) => {
+                if !is_current(cluster, &lock)? {
+                    // The lock file was removed before we locked it; try again.
+                    continue;
+                }
                 // We have an exclusive lock, so try to start the cluster. If
                 // this fails, the lock is released when `lock` is dropped.
                 cluster.start(options)?;
-                // Once started, downgrade to a shared lock.
-                return Ok(lock.lock_shared()?);
+                // Once started, downgrade to a shared lock. `flock` does not do
+                // this atomically: it releases the exclusive lock then takes a
+                // shared lock. In between, another session could stop – or even
+                // destroy – the cluster, so check again.
+                let lock = lock.lock_shared()?;
+                if is_current(cluster, &lock)? && cluster.running()? {
+                    return Ok(lock);
+                }
             }
-        };
+        }
+    }
+}
+
+/// Remove the cluster's lock file and data directory. Call this only while
+/// holding an exclusive lock, after destroying the cluster.
+fn remove_datadir(cluster: &Cluster) -> Result<(), ClusterError> {
+    match fs::remove_file(cluster.lockfile()) {
+        Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err)?,
+        _ => (),
+    }
+    // Use `remove_dir`, not `remove_dir_all`: if another process has created
+    // something here in the meantime, e.g. a new lock file, leave it be.
+    match fs::remove_dir(&cluster.datadir) {
+        Err(err)
+            if matches!(
+                err.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::DirectoryNotEmpty
+            ) =>
+        {
+            Ok(())
+        }
+        result => Ok(result?),
     }
 }

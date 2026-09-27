@@ -80,6 +80,22 @@ $ pgdo exec pg_dump
 …
 ```
 
+## Clusters
+
+By default, `pgdo` creates and uses a cluster in a directory named `cluster`
+in the current directory; use `--datadir` or `PGDATA` to choose another. This is
+PostgreSQL's data directory. `pgdo` also keeps a few files of its own in there,
+all named `pgdo.*`, e.g. `pgdo.lock`, which coordinates `pgdo` processes using
+the cluster. `pgdo` will use an existing cluster, but will only create a new one
+in an empty directory.
+
+Many `pgdo` processes can use the same cluster at once. The cluster is started
+by the first, and stopped by the last.
+
+**Do not** share a data directory between a host and a container, or between
+containers, e.g. via a bind mount. Processes on different kernels, e.g. macOS
+and a Linux VM, cannot coordinate, and could corrupt the cluster.
+
 ## Contributing
 
 If you feel the urge to hack on this code, here's how to get started:

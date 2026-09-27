@@ -387,3 +387,142 @@ fn determine_superuser_role_names() -> TestResult {
     assert!(!superusers.is_empty());
     Ok(())
 }
+
+// ----------------------------------------------------------------------------
+// Creating and destroying clusters alongside pgdo's own files.
+
+fn default_cluster(datadir: &Path) -> Result<Cluster, ClusterError> {
+    Cluster::new(datadir, Strategy::default())
+}
+
+fn entries(dir: &Path) -> Vec<String> {
+    let mut names: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn cluster_create_in_directory_with_pgdo_files() -> TestResult {
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    std::fs::create_dir(&datadir)?;
+    std::fs::write(datadir.join("pgdo.lock"), "")?;
+    let cluster = default_cluster(&datadir)?;
+    assert_eq!(cluster.create()?, Modified);
+    assert!(exists(&cluster));
+    assert!(datadir.join("pgdo.lock").is_file());
+    assert!(!datadir.join("pgdo.init").exists());
+    assert!(!datadir.join("PG_VERSION.init").exists());
+    Ok(())
+}
+
+#[test]
+fn cluster_create_refuses_directory_with_other_files() -> TestResult {
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    std::fs::create_dir(&datadir)?;
+    std::fs::write(datadir.join("pgdo.lock"), "")?;
+    std::fs::write(datadir.join("important.txt"), "keep me")?;
+    let cluster = default_cluster(&datadir)?;
+    assert!(matches!(
+        cluster.create(),
+        Err(ClusterError::DataDirNotEmpty(dir, entries))
+            if dir == datadir && entries == vec!["important.txt"]
+    ));
+    // Nothing was changed.
+    assert_eq!(entries(&datadir), vec!["important.txt", "pgdo.lock"]);
+    Ok(())
+}
+
+#[test]
+fn cluster_create_resumes_interrupted_move() -> TestResult {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Make a cluster elsewhere to play the part of `initdb`'s output.
+    let tempdir = tempfile::tempdir()?;
+    let source = default_cluster(&tempdir.path().join("source"))?;
+    source.create()?;
+
+    // Arrange the data directory as if a move was interrupted: `PG_VERSION`
+    // has been moved to `PG_VERSION.init`, and some entries have been moved.
+    let datadir = tempdir.path().join("data");
+    std::fs::create_dir(&datadir)?;
+    std::fs::rename(&source.datadir, datadir.join("pgdo.init"))?;
+    std::fs::rename(
+        datadir.join("pgdo.init/PG_VERSION"),
+        datadir.join("PG_VERSION.init"),
+    )?;
+    for name in ["base", "global"] {
+        std::fs::rename(datadir.join("pgdo.init").join(name), datadir.join(name))?;
+    }
+
+    let cluster = default_cluster(&datadir)?;
+    assert!(!exists(&cluster));
+    assert_eq!(cluster.create()?, Modified);
+    assert!(exists(&cluster));
+    assert!(!datadir.join("pgdo.init").exists());
+    assert!(!datadir.join("PG_VERSION.init").exists());
+    let mode = std::fs::metadata(&datadir)?.permissions().mode() & 0o777;
+    assert_eq!(mode, 0o700);
+    // It's a working cluster.
+    cluster.start(&[])?;
+    assert!(cluster.databases()?.contains(&"postgres".to_owned()));
+    cluster.stop()?;
+    Ok(())
+}
+
+#[test]
+fn cluster_create_discards_interrupted_initdb() -> TestResult {
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    std::fs::create_dir_all(datadir.join("pgdo.init/base"))?;
+    std::fs::write(datadir.join("pgdo.init/junk"), "")?;
+    let cluster = default_cluster(&datadir)?;
+    assert_eq!(cluster.create()?, Modified);
+    assert!(exists(&cluster));
+    assert!(!datadir.join("junk").exists());
+    assert!(!datadir.join("pgdo.init").exists());
+    Ok(())
+}
+
+#[test]
+fn cluster_create_makes_data_directory_private() -> TestResult {
+    use std::os::unix::fs::PermissionsExt;
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    std::fs::create_dir(&datadir)?;
+    std::fs::set_permissions(&datadir, std::fs::Permissions::from_mode(0o755))?;
+    let cluster = default_cluster(&datadir)?;
+    cluster.create()?;
+    let mode = std::fs::metadata(&datadir)?.permissions().mode() & 0o777;
+    assert_eq!(mode, 0o700);
+    Ok(())
+}
+
+#[test]
+fn cluster_destroy_keeps_lockfile() -> TestResult {
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    std::fs::create_dir(&datadir)?;
+    std::fs::write(datadir.join("pgdo.lock"), "")?;
+    let cluster = default_cluster(&datadir)?;
+    cluster.start(&[])?;
+    assert_eq!(cluster.destroy()?, Modified);
+    assert_eq!(entries(&datadir), vec!["pgdo.lock"]);
+    Ok(())
+}
+
+#[test]
+fn cluster_destroy_removes_data_directory_without_pgdo_files() -> TestResult {
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = default_cluster(&datadir)?;
+    cluster.start(&[])?;
+    assert_eq!(cluster.destroy()?, Modified);
+    assert!(!datadir.exists());
+    assert_eq!(cluster.destroy()?, Unmodified);
+    Ok(())
+}
