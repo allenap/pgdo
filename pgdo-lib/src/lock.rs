@@ -3,9 +3,9 @@
 //! You must start with an [`UnlockedFile`].
 //!
 //! ```rust
-//! let lock_dir = tempfile::tempdir()?;
+//! let lockdir = tempfile::tempdir()?;
 //! # use pgdo::lock::UnlockedFile;
-//! let mut lock = UnlockedFile::try_from(lock_dir.path().join("foo").as_path())?;
+//! let mut lock = UnlockedFile::try_from(lockdir.path().join("foo").as_path())?;
 //! let lock = lock.lock_shared()?;
 //! let lock = lock.lock_exclusive()?;
 //! let lock = lock.unlock()?;
@@ -220,39 +220,39 @@ mod tests {
 
     #[test]
     fn file_lock_exclusive_takes_exclusive_flock() -> io::Result<()> {
-        let lock_dir = tempfile::tempdir()?;
-        let lock_filename = lock_dir.path().join("lock");
+        let lockdir = tempfile::tempdir()?;
+        let lockfile = lockdir.path().join("lock");
         let lock = OpenOptions::new()
             .append(true)
             .create(true)
-            .open(&lock_filename)
+            .open(&lockfile)
             .map(UnlockedFile::from)?;
 
-        assert_eq!(Ok(()), eventually(|| can_lock_exclusive(&lock_filename)));
-        assert_eq!(Ok(()), eventually(|| can_lock_shared(&lock_filename)));
+        assert_eq!(Ok(()), eventually(|| can_lock_exclusive(&lockfile)));
+        assert_eq!(Ok(()), eventually(|| can_lock_shared(&lockfile)));
 
         let lock = lock.lock_exclusive()?;
 
-        assert_ne!(Ok(()), can_lock_exclusive(&lock_filename));
-        assert_ne!(Ok(()), can_lock_shared(&lock_filename));
+        assert_ne!(Ok(()), can_lock_exclusive(&lockfile));
+        assert_ne!(Ok(()), can_lock_shared(&lockfile));
 
         lock.unlock()?;
 
-        assert_eq!(Ok(()), eventually(|| can_lock_exclusive(&lock_filename)));
-        assert_eq!(Ok(()), eventually(|| can_lock_shared(&lock_filename)));
+        assert_eq!(Ok(()), eventually(|| can_lock_exclusive(&lockfile)));
+        assert_eq!(Ok(()), eventually(|| can_lock_shared(&lockfile)));
 
         Ok(())
     }
 
     #[test]
     fn file_try_lock_exclusive_does_not_block_on_existing_shared_lock() -> io::Result<()> {
-        let lock_dir = tempfile::tempdir()?;
-        let lock_filename = lock_dir.path().join("lock");
+        let lockdir = tempfile::tempdir()?;
+        let lockfile = lockdir.path().join("lock");
         let open_lock_file = || {
             OpenOptions::new()
                 .append(true)
                 .create(true)
-                .open(&lock_filename)
+                .open(&lockfile)
                 .map(UnlockedFile::from)
         };
 
@@ -268,13 +268,13 @@ mod tests {
 
     #[test]
     fn file_try_lock_exclusive_does_not_block_on_existing_exclusive_lock() -> io::Result<()> {
-        let lock_dir = tempfile::tempdir()?;
-        let lock_filename = lock_dir.path().join("lock");
+        let lockdir = tempfile::tempdir()?;
+        let lockfile = lockdir.path().join("lock");
         let open_lock_file = || {
             OpenOptions::new()
                 .append(true)
                 .create(true)
-                .open(&lock_filename)
+                .open(&lockfile)
                 .map(UnlockedFile::from)
         };
 

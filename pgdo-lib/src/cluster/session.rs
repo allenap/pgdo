@@ -7,8 +7,8 @@
 //!
 //! ```rust
 //! # use pgdo::{cluster::Cluster, runtime::strategy::Strategy};
-//! let cluster_dir = tempfile::tempdir()?;
-//! let cluster = Cluster::new(cluster_dir.path().join("data"), Strategy::default())?;
+//! let tempdir = tempfile::tempdir()?;
+//! let cluster = Cluster::new(tempdir.path().join("data"), Strategy::default())?;
 //! let session = cluster.session(&[])?;
 //! assert!(session.running()?);
 //! let databases = session.databases()?;

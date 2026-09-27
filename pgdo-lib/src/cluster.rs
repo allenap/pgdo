@@ -115,6 +115,12 @@ pub struct Cluster {
     /// The data directory of the cluster.
     ///
     /// Corresponds to the `PGDATA` environment variable.
+    ///
+    /// This is also where the cluster's Unix-domain socket lives. Clusters
+    /// managed by pgdo listen **only** on a Unix-domain socket, not on TCP. To
+    /// connect with a client library, use this as the host, e.g. for SQLx use
+    /// `PgConnectOptions::new().socket(&cluster.datadir)`. See also
+    /// [`url`][`Self::url`].
     pub datadir: PathBuf,
     /// How to select the PostgreSQL installation to use with this cluster.
     pub strategy: Strategy,
@@ -161,7 +167,7 @@ impl Cluster {
     fn ctl(&self) -> Result<Command, ClusterError> {
         let mut command = self.runtime()?.execute("pg_ctl");
         command.env("PGDATA", &self.datadir);
-        command.env("PGHOST", self.socket_dir());
+        command.env("PGHOST", &self.datadir);
         Ok(command)
     }
 
@@ -263,7 +269,7 @@ impl Cluster {
         //  -c name=value -- set a configuration parameter.
         let options = {
             let mut arg: Vec<u8> = b"-h '' -k ".into();
-            arg.push_quoted(Sh, self.socket_dir());
+            arg.push_quoted(Sh, &self.datadir);
             for (parameter, value) in options {
                 arg.extend(b" -c ");
                 arg.push_quoted(Sh, &format!("{parameter}={value}"));
@@ -306,16 +312,6 @@ impl Cluster {
         bugs::retry_pg_ctl(&mut command, append_logs_to_stderr)
     }
 
-    /// The directory in which this cluster's Unix-domain socket lives.
-    ///
-    /// Clusters managed by pgdo listen **only** on a Unix-domain socket, not on
-    /// TCP. To connect with a client library, use this as the host, e.g. for
-    /// SQLx use `PgConnectOptions::new().socket(cluster.socket_dir())`. See also
-    /// [`url`][`Self::url`].
-    pub fn socket_dir(&self) -> &Path {
-        &self.datadir
-    }
-
     /// Connect to this cluster, as the current user, using pgdo's minimal
     /// internal [`client`].
     ///
@@ -323,7 +319,7 @@ impl Cluster {
     pub(crate) fn connect(&self, database: Option<&str>) -> Result<client::Client, ClusterError> {
         let user = crate::util::current_user()?;
         let database = database.unwrap_or(DATABASE_POSTGRES);
-        Ok(client::Client::connect(self.socket_dir(), &user, database)?)
+        Ok(client::Client::connect(&self.datadir, &user, database)?)
     }
 
     /// Return a URL for connecting to the given database in this cluster, e.g.
@@ -332,13 +328,13 @@ impl Cluster {
     /// The URL has no user; clients typically default to the current user.
     ///
     /// It is not possible to return a URL for a cluster when its
-    /// [`socket_dir`][`Self::socket_dir`] is not valid UTF-8, in which case
-    /// `Ok(None)` is returned.
+    /// [`datadir`][`Self::datadir`] is not valid UTF-8, in which case `Ok(None)`
+    /// is returned.
     pub fn url(&self, database: &str) -> Result<Option<url::Url>, url::ParseError> {
-        match self.socket_dir().to_str() {
-            Some(socket_dir) => url::Url::parse_with_params(
+        match self.datadir.to_str() {
+            Some(datadir) => url::Url::parse_with_params(
                 "postgresql://",
-                [("host", socket_dir), ("dbname", database)],
+                [("host", datadir), ("dbname", database)],
             )
             .map(Some),
             None => Ok(None),
@@ -377,7 +373,7 @@ impl Cluster {
 
         // Set a few standard PostgreSQL environment variables.
         command.env("PGDATA", &self.datadir);
-        command.env("PGHOST", self.socket_dir());
+        command.env("PGHOST", &self.datadir);
         command.env("PGDATABASE", database);
 
         // Set `DATABASE_URL` if `self.datadir` is valid UTF-8, otherwise ensure
@@ -505,8 +501,8 @@ pub fn exists<P: AsRef<Path>>(datadir: P) -> bool {
 pub fn version<P: AsRef<Path>>(
     datadir: P,
 ) -> Result<Option<version::PartialVersion>, ClusterError> {
-    let version_file = datadir.as_ref().join("PG_VERSION");
-    match std::fs::read_to_string(version_file) {
+    let versionfile = datadir.as_ref().join("PG_VERSION");
+    match std::fs::read_to_string(versionfile) {
         Ok(version) => Ok(Some(version.parse()?)),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err)?,
