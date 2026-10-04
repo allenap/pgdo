@@ -51,26 +51,19 @@ impl StrategyError {
 
 /// Determine the strategy to use for a cluster, given an optional constraint.
 pub(crate) fn determine_strategy(fallback: Option<Constraint>) -> Result<Strategy, StrategyError> {
-    // Unsupported runtimes are never discovered, so a constraint that asks for
-    // one can never be satisfied. Say so specifically.
-    if let Some(Constraint::Version(version)) = fallback {
-        if !runtime::is_supported(version) {
-            return Err(StrategyError::UnsupportedVersion(version));
-        }
-    }
     let strategy = runtime::strategy::Strategy::default();
-    let fallback: Option<_> = match fallback {
+    match fallback {
+        // Unsupported runtimes are never discovered, so a constraint that asks
+        // for one can never be satisfied. Say so specifically.
+        Some(Constraint::Version(version)) if !runtime::is_supported(version) => {
+            Err(StrategyError::UnsupportedVersion(version))
+        }
         Some(constraint) => match strategy.select(&constraint) {
-            Some(runtime) => Some(runtime),
-            None => return Err(StrategyError::ConstraintNotSatisfied(constraint)),
+            Some(runtime) => Ok(strategy.push_front(runtime)),
+            None => Err(StrategyError::ConstraintNotSatisfied(constraint)),
         },
-        None => None,
-    };
-    let strategy = match fallback {
-        Some(fallback) => strategy.push_front(fallback),
-        None => strategy,
-    };
-    Ok(strategy)
+        None => Ok(strategy),
+    }
 }
 
 /// Ensure that a given named database exists in a cluster.

@@ -522,53 +522,55 @@ fn start_or_join(
     if let Postmaster::Other(pid) = postmaster {
         // `pg_ctl` would think this unrelated process is our server, and
         // PostgreSQL would refuse to start.
-        return Err(ClusterError::StalePidFile { pid });
-    }
-    // If a server is running, claim it so that other kernels see that it is in
-    // use, then join it. If we can see it only via its socket, it is in another
-    // namespace, which the claim must say.
-    let current = owner::Record::current(&cluster.datadir)?;
-    let joining = if server_here(cluster, postmaster)? {
-        Some(current.clone())
-    } else if server_elsewhere(cluster)? {
-        Some(current.clone().with_unknown_namespace())
+        Err(ClusterError::StalePidFile { pid })
     } else {
-        None
-    };
-    if interrupted() {
-        Err(ClusterError::Interrupted)
-    } else if let Some(record) = joining {
-        if owner::claim(&ownerfile, &record)? {
-            let ownership = match verify(cluster, &lock)? {
-                Some(verified) => ownership(cluster, &verified)?,
-                None => return Ok(None),
-            };
-            downgrade(cluster, lock, &ownership, heartbeat(cluster))
+        // If a server is running, claim it so that other kernels see that it is
+        // in use, then join it. If we can see it only via its socket, it is in
+        // another namespace, which the claim must say.
+        let current = owner::Record::current(&cluster.datadir)?;
+        let joining = if server_here(cluster, postmaster)? {
+            Some(current.clone())
+        } else if server_elsewhere(cluster)? {
+            Some(current.clone().with_unknown_namespace())
         } else {
-            // Another process claimed it first – which can happen only from
-            // another kernel, where our lock means nothing.
+            None
+        };
+        if interrupted() {
+            Err(ClusterError::Interrupted)
+        } else if let Some(record) = joining {
+            if owner::claim(&ownerfile, &record)? {
+                let ownership = match verify(cluster, &lock)? {
+                    Some(verified) => ownership(cluster, &verified)?,
+                    None => return Ok(None),
+                };
+                downgrade(cluster, lock, &ownership, heartbeat(cluster))
+            } else {
+                // Another process claimed it first – which can happen only from
+                // another kernel, where our lock means nothing.
+                Ok(None)
+            }
+        } else if owner::claim(&ownerfile, &current)? {
+            // Start the heartbeat now: starting the cluster can take a while,
+            // e.g. during crash recovery.
+            let heartbeat = heartbeat(cluster);
+            match cluster.start(options) {
+                // Interrupted, e.g. by Ctrl-C, which also kills `pg_ctl`.
+                // Either way, do not leave a server running that no one is
+                // using.
+                Ok(_) | Err(_) if interrupted() => {
+                    abandon_start(cluster, heartbeat)?;
+                    Err(ClusterError::Interrupted)
+                }
+                Err(err) => {
+                    abandon_start(cluster, heartbeat)?;
+                    Err(err)
+                }
+                Ok(_) => downgrade(cluster, lock, &Ownership::SameNamespace, heartbeat),
+            }
+        } else {
+            // As above: another kernel claimed it first.
             Ok(None)
         }
-    } else if owner::claim(&ownerfile, &current)? {
-        // Start the heartbeat now: starting the cluster can take a while, e.g.
-        // during crash recovery.
-        let heartbeat = heartbeat(cluster);
-        match cluster.start(options) {
-            // Interrupted, e.g. by Ctrl-C, which also kills `pg_ctl`. Either
-            // way, do not leave a server running that no one is using.
-            Ok(_) | Err(_) if interrupted() => {
-                abandon_start(cluster, heartbeat)?;
-                Err(ClusterError::Interrupted)
-            }
-            Err(err) => {
-                abandon_start(cluster, heartbeat)?;
-                Err(err)
-            }
-            Ok(_) => downgrade(cluster, lock, &Ownership::SameNamespace, heartbeat),
-        }
-    } else {
-        // As above: another kernel claimed it first.
-        Ok(None)
     }
 }
 
@@ -634,74 +636,80 @@ fn startup(
     loop {
         if interrupted() {
             return Err(ClusterError::Interrupted);
-        }
-        match open_lockfile(cluster)?.try_lock_exclusive()? {
-            Left(lock) => {
-                // The cluster is locked elsewhere, shared or exclusively. We
-                // optimistically take a shared lock. If the other lock is also
-                // shared, this will not wait. If the other lock is exclusive,
-                // this will wait until that lock is released (or changed to a
-                // shared lock).
-                let lock = lock_shared(lock, interrupted)?;
-                let Some(verified) = verify(cluster, &lock)? else {
-                    // The lock file was removed while we waited; try again.
-                    continue;
-                };
-                // If obtaining the lock blocked, i.e. the lock elsewhere was
-                // exclusive, then the cluster may have been started by the
-                // process that held that exclusive lock. We should check.
-                let ownership = ownership(cluster, &verified)?;
-                if let Ownership::OtherKernel(found) = &ownership {
-                    // Taking over needs an exclusive lock. Release ours, back
-                    // off, and try again for one.
-                    refuse_other_kernel(found, takeover)?;
-                    drop(lock);
-                    backoff();
-                    continue;
-                } else if running(cluster, &ownership, &verified)? {
-                    return Ok((lock, heartbeat(cluster)));
-                } else {
-                    // Release all locks, back off, and try again.
-                    drop(lock);
-                    backoff();
-                    continue;
+        } else {
+            match open_lockfile(cluster)?.try_lock_exclusive()? {
+                Left(lock) => {
+                    // The cluster is locked elsewhere, shared or exclusively.
+                    // We optimistically take a shared lock. If the other lock
+                    // is also shared, this will not wait. If the other lock is
+                    // exclusive, this will wait until that lock is released (or
+                    // changed to a shared lock).
+                    let lock = lock_shared(lock, interrupted)?;
+                    let Some(verified) = verify(cluster, &lock)? else {
+                        // The lock file was removed while we waited; try again.
+                        continue;
+                    };
+                    // If obtaining the lock blocked, i.e. the lock elsewhere
+                    // was exclusive, then the cluster may have been started by
+                    // the process that held that exclusive lock. We should
+                    // check.
+                    let ownership = ownership(cluster, &verified)?;
+                    if let Ownership::OtherKernel(found) = &ownership {
+                        // Taking over needs an exclusive lock. Release ours,
+                        // back off, and try again for one.
+                        refuse_other_kernel(found, takeover)?;
+                        drop(lock);
+                        backoff();
+                        continue;
+                    } else if running(cluster, &ownership, &verified)? {
+                        return Ok((lock, heartbeat(cluster)));
+                    } else {
+                        // Release all locks, back off, and try again.
+                        drop(lock);
+                        backoff();
+                        continue;
+                    }
                 }
-            }
-            Right(lock) => {
-                let Some(verified) = verify(cluster, &lock)? else {
-                    // The lock file was removed before we locked it; try again.
-                    continue;
-                };
-                let ownerfile = cluster.ownerfile();
-                match ownership(cluster, &verified)? {
-                    Ownership::OtherKernel(found) => {
-                        refuse_other_kernel(&found, takeover)?;
-                        take_over(cluster, &found, interrupted)?;
+                Right(lock) => {
+                    let Some(verified) = verify(cluster, &lock)? else {
+                        // The lock file was removed before we locked it; try
+                        // again.
                         continue;
-                    }
-                    Ownership::Copy => {
-                        owner::release(&ownerfile)?;
-                        continue;
-                    }
-                    ownership @ (Ownership::SameNamespace | Ownership::SameKernel) => {
-                        if running(cluster, &ownership, &verified)? {
-                            // Use the running server.
-                            match downgrade(cluster, lock, &ownership, heartbeat(cluster))? {
-                                Some(joined) => return Ok(joined),
-                                None => continue,
-                            }
-                        } else {
-                            // The owner's server has gone, e.g. it crashed. Our
-                            // exclusive lock shows that no session on this
-                            // kernel is using the cluster, so we can take over.
+                    };
+                    let ownerfile = cluster.ownerfile();
+                    match ownership(cluster, &verified)? {
+                        Ownership::OtherKernel(found) => {
+                            refuse_other_kernel(&found, takeover)?;
+                            take_over(cluster, &found, interrupted)?;
+                            continue;
+                        }
+                        Ownership::Copy => {
                             owner::release(&ownerfile)?;
                             continue;
                         }
+                        ownership @ (Ownership::SameNamespace | Ownership::SameKernel) => {
+                            if running(cluster, &ownership, &verified)? {
+                                // Use the running server.
+                                match downgrade(cluster, lock, &ownership, heartbeat(cluster))? {
+                                    Some(joined) => return Ok(joined),
+                                    None => continue,
+                                }
+                            } else {
+                                // The owner's server has gone, e.g. it crashed.
+                                // Our exclusive lock shows that no session on
+                                // this kernel is using the cluster, so we can
+                                // take over.
+                                owner::release(&ownerfile)?;
+                                continue;
+                            }
+                        }
+                        Ownership::None => {
+                            match start_or_join(cluster, lock, options, interrupted)? {
+                                Some(started_or_joined) => return Ok(started_or_joined),
+                                None => continue,
+                            }
+                        }
                     }
-                    Ownership::None => match start_or_join(cluster, lock, options, interrupted)? {
-                        Some(started_or_joined) => return Ok(started_or_joined),
-                        None => continue,
-                    },
                 }
             }
         }
@@ -901,14 +909,16 @@ mod tests {
                 for i in 1.. {
                     if stop.load(std::sync::atomic::Ordering::Relaxed) {
                         break;
+                    } else {
+                        let file = std::fs::File::options()
+                            .write(true)
+                            .open(&ownerfile)
+                            .unwrap();
+                        file.set_modified(base + Duration::from_millis(i * 50))
+                            .unwrap();
+                        std::thread::sleep(Duration::from_millis(50));
+                        continue;
                     }
-                    let file = std::fs::File::options()
-                        .write(true)
-                        .open(&ownerfile)
-                        .unwrap();
-                    file.set_modified(base + Duration::from_millis(i * 50))
-                        .unwrap();
-                    std::thread::sleep(Duration::from_millis(50));
                 }
             })
         };
