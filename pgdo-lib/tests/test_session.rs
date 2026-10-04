@@ -198,6 +198,35 @@ fn session_refuses_non_empty_directory_without_leaving_lockfile() -> TestResult 
     Ok(())
 }
 
+/// A session must be able to finish a `Cluster::create` that was interrupted
+/// while moving files into place, despite the data directory not being empty.
+#[for_all_runtimes]
+#[test]
+fn session_finishes_interrupted_create() -> TestResult {
+    let setup = Setup::new()?;
+    // Make a cluster elsewhere to play the part of `initdb`'s output, then
+    // arrange it as if a move was interrupted.
+    let source = setup.datadir.with_file_name("source");
+    Cluster::new(&source, runtime.clone())?.create()?;
+    std::fs::create_dir(&setup.datadir)?;
+    std::fs::rename(&source, setup.datadir.join("pgdo.init"))?;
+    std::fs::rename(
+        setup.datadir.join("pgdo.init/PG_VERSION"),
+        setup.datadir.join("PG_VERSION.init"),
+    )?;
+    std::fs::rename(
+        setup.datadir.join("pgdo.init/base"),
+        setup.datadir.join("base"),
+    )?;
+
+    let session = setup.cluster(runtime)?.session(&[])?;
+    assert_eq!(session.status()?, ClusterStatus::Running);
+    assert!(!setup.datadir.join("pgdo.init").exists());
+    assert!(!setup.datadir.join("PG_VERSION.init").exists());
+    session.end()?;
+    Ok(())
+}
+
 /// Express `path` relative to `base` using `..` components. Both must be
 /// absolute.
 fn pathdiff(path: &std::path::Path, base: &std::path::Path) -> PathBuf {

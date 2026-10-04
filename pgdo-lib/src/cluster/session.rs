@@ -76,7 +76,9 @@ impl Cluster {
     pub fn session(mut self, options: Options<'_>) -> Result<Session, ClusterError> {
         // Refuse a directory that is neither a cluster nor empty before putting
         // a lock file in it. `Cluster::create` checks again, under the lock.
-        if self.datadir.is_dir() && !super::exists(&self) {
+        // Skip this if a `Cluster::create` was interrupted while moving files
+        // into place: it will finish the job.
+        if self.datadir.is_dir() && !super::exists(&self) && !self.create_interrupted() {
             self.check_datadir_empty()?;
         }
         fs::create_dir_all(&self.datadir)?;

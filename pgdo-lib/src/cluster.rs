@@ -329,6 +329,12 @@ impl Cluster {
         Ok(Modified)
     }
 
+    /// Was a [`create`][Self::create] interrupted while moving files into the
+    /// data directory? If so, calling `create` again will finish the job.
+    pub(crate) fn create_interrupted(&self) -> bool {
+        self.datadir.join(files::VERSION_INIT).exists()
+    }
+
     /// Check that the data directory contains nothing but pgdo's own files.
     fn check_datadir_empty(&self) -> Result<(), ClusterError> {
         let mut entries = fs::read_dir(&self.datadir)?
