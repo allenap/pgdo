@@ -111,16 +111,16 @@ impl Session {
         let Some(lock) = self.lock.take() else {
             return Ok(State::Unmodified);
         };
-        match lock.try_lock_exclusive()? {
+        match upgrade(lock)? {
             // The cluster is in use elsewhere. There's nothing more to do.
-            Left(lock) => {
-                lock.unlock()?;
-                Ok(State::Unmodified)
-            }
+            None => Ok(State::Unmodified),
+            // We may have unlocked and relocked; check that the lock file is
+            // still current, i.e. that no one destroyed the cluster meanwhile.
+            Some(lock) if !is_current(&self.cluster, &lock)? => Ok(State::Unmodified),
             // We have an exclusive lock, so we can stop or destroy the cluster.
             // The lock is released when `lock` is dropped, which must happen
             // only after everything else is done.
-            Right(lock) => match self.finish {
+            Some(lock) => match self.finish {
                 Finish::Stop => self.cluster.stop(),
                 Finish::Destroy => {
                     let state = self.cluster.destroy()?;
@@ -233,6 +233,23 @@ fn startup(
     }
 }
 
+/// Try to upgrade a shared lock to an exclusive lock, without blocking. Returns
+/// `None` if another process holds a lock, in which case ours is released.
+///
+/// `flock` does not convert locks atomically, and platforms differ when a
+/// conversion fails: Linux has then released the shared lock, but macOS keeps
+/// it. On macOS, two sessions ending at the same moment would each block the
+/// other's upgrade, and neither would stop the cluster. So unlock, and try once
+/// more: of two sessions doing this at once, the last to try will succeed.
+fn upgrade(
+    lock: lock::LockedFileShared,
+) -> Result<Option<lock::LockedFileExclusive>, ClusterError> {
+    match lock.try_lock_exclusive()? {
+        Right(lock) => Ok(Some(lock)),
+        Left(lock) => Ok(lock.unlock()?.try_lock_exclusive()?.right()),
+    }
+}
+
 /// Remove the cluster's lock file and data directory. Call this only while
 /// holding an exclusive lock, after destroying the cluster.
 fn remove_datadir(cluster: &Cluster) -> Result<(), ClusterError> {
@@ -252,5 +269,41 @@ fn remove_datadir(cluster: &Cluster) -> Result<(), ClusterError> {
             Ok(())
         }
         result => Ok(result?),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    /// Two sessions ending at the same moment must not both fail to upgrade
+    /// their locks, or neither would stop the cluster.
+    #[test]
+    fn upgrade_succeeds_for_one_of_two_sessions_ending_together() -> TestResult {
+        use std::sync::{Arc, Barrier};
+        let tempdir = tempfile::tempdir()?;
+        let path = tempdir.path().join("pgdo.lock");
+        for _ in 0..200 {
+            let barrier = Arc::new(Barrier::new(2));
+            let ending = [0, 1].map(|_| {
+                let lock = crate::lock::UnlockedFile::try_from(path.as_path())
+                    .and_then(|lock| Ok(lock.lock_shared()?));
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    let lock = lock.unwrap();
+                    barrier.wait();
+                    // Hold any exclusive lock until both have tried.
+                    let upgraded = super::upgrade(lock).unwrap();
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    upgraded.is_some()
+                })
+            });
+            let upgraded = ending.map(|thread| thread.join().unwrap());
+            assert!(
+                upgraded.contains(&true),
+                "neither session upgraded its lock"
+            );
+        }
+        Ok(())
     }
 }
