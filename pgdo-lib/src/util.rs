@@ -6,8 +6,8 @@ type PrependedPath = Result<OsString, env::JoinPathsError>;
 
 /// Prepend the given `dir` to the given `path`.
 ///
-/// If `dir` is already in `path` it is moved to first place. Note that this does
-/// *not* update `PATH` in the environment.
+/// If `dir` is already in `path` it is moved to first place. Note that this
+/// does *not* update `PATH` in the environment.
 pub(crate) fn prepend_to_path(dir: &Path, path: Option<OsString>) -> PrependedPath {
     Ok(match path {
         None => env::join_paths([dir])?,

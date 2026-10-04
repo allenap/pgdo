@@ -21,7 +21,7 @@ pub enum PartialVersion {
     /// [`checked`][`Self::checked`] for a way to guard against this.
     Pre10m(u32, u32),
     /// Pre-PostgreSQL 10, with major, point, and minor version numbers, e.g.
-    /// 9.6.17. It is an error to create this variant with a major number >=§ 10;
+    /// 9.6.17. It is an error to create this variant with a major number >= 10;
     /// see [`checked`][`Self::checked`] for a way to guard against this.
     Pre10mm(u32, u32, u32),
     /// PostgreSQL 10+, with major version number, e.g. 10. It is an error to

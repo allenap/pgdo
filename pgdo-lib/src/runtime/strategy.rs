@@ -57,8 +57,8 @@ impl StrategyLike for RuntimesOnPath {
         Box::new(
             env::split_paths(&self.0)
                 .filter(|bindir| bindir.join("pg_ctl").exists())
-                // Throw away runtimes that we can't determine the version for, and
-                // those that pgdo does not support.
+                // Throw away runtimes that we can't determine the version for,
+                // and those that pgdo does not support.
                 .filter_map(|bindir| Runtime::new(bindir).ok())
                 .filter(Runtime::is_supported),
         )
@@ -76,8 +76,8 @@ impl StrategyLike for RuntimesOnPathEnv {
                 .map(|path| {
                     env::split_paths(&path)
                         .filter(|bindir| bindir.join("pg_ctl").exists())
-                        // Throw away runtimes that we can't determine the version for, and
-                        // those that pgdo does not support.
+                        // Throw away runtimes that we can't determine the
+                        // version for, and those that pgdo does not support.
                         .filter_map(|bindir| Runtime::new(bindir).ok())
                         .filter(Runtime::is_supported)
                         .collect::<Vec<_>>()
@@ -159,8 +159,8 @@ impl StrategyLike for RuntimesOnPlatform {
         Box::new(
             Self::find()
                 .into_iter()
-                // Throw away runtimes that we can't determine the version for, and
-                // those that pgdo does not support.
+                // Throw away runtimes that we can't determine the version for,
+                // and those that pgdo does not support.
                 .filter_map(|bindir| Runtime::new(bindir).ok())
                 .filter(Runtime::is_supported),
         )
