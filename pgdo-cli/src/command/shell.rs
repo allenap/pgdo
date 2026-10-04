@@ -6,7 +6,7 @@ use crate::{args, runner};
 /// Start a psql shell, creating and starting the cluster as necessary
 /// (DEFAULT).
 #[derive(clap::Args)]
-#[clap(next_help_heading = Some("Options for shell"))]
+#[clap(long_about, next_help_heading = Some("Options for shell"))]
 pub struct Shell {
     #[clap(flatten)]
     pub cluster: args::ClusterArgs,
