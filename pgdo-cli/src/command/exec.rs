@@ -50,7 +50,7 @@ impl Exec {
             runner::check_exit(
                 cluster
                     .exec(Some(&database.name), command, &args)
-                    .context("Executing command in cluster failed")?,
+                    .context("executing command in cluster failed")?,
             )
         })
     }

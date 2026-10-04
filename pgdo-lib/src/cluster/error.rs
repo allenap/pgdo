@@ -4,10 +4,10 @@ use crate::{cluster, runtime, util, version};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClusterError {
-    #[error("Input/output error")]
+    #[error("input/output error")]
     IoError(#[from] io::Error),
     #[error(
-        "Cluster is PostgreSQL {0}, which is not supported; pgdo requires PostgreSQL {min} or later",
+        "cluster is PostgreSQL {0}, which is not supported; pgdo requires PostgreSQL {min} or later",
         min = runtime::MINIMUM_VERSION
     )]
     UnsupportedVersion(version::PartialVersion),
@@ -22,39 +22,39 @@ pub enum ClusterError {
     RuntimeNotFound(version::PartialVersion),
     #[error("PostgreSQL runtime not found")]
     RuntimeDefaultNotFound,
-    #[error("Runtime error")]
+    #[error("runtime error")]
     RuntimeError(#[from] runtime::RuntimeError),
     #[error(transparent)]
     ClientError(#[from] cluster::client::ClientError),
     #[error(transparent)]
     ConfigError(#[from] cluster::config::ConfigError),
-    #[error("Data directory {0:?} is not a PostgreSQL cluster, and is not empty: {entries}", entries = .1.join(", "))]
+    #[error("data directory {0:?} is not a PostgreSQL cluster, and is not empty: {entries}", entries = .1.join(", "))]
     DataDirNotEmpty(std::path::PathBuf, Vec<String>),
     #[error(
-        "Cluster is in use on another host or VM ({hostname}); last heartbeat {}",
+        "cluster is in use on another host or VM ({hostname}); last heartbeat {}",
         super::owner::ago(*age)
     )]
     InUseElsewhere { hostname: String, age: std::time::Duration },
     #[error(
-        "Cluster was last used on another host or VM ({hostname}) {}, and may still be running there",
+        "cluster was last used on another host or VM ({hostname}) {}, and may still be running there",
         super::owner::ago(*age)
     )]
     StaleElsewhere { hostname: String, age: std::time::Duration },
     #[error(
-        "Cluster's postmaster.pid names PID {pid}, which is not a PostgreSQL server for this cluster"
+        "cluster's postmaster.pid names PID {pid}, which is not a PostgreSQL server for this cluster"
     )]
     StalePidFile { pid: u32 },
-    #[error("Could not tell whether the cluster is running in another namespace: could not connect to {path}")]
+    #[error("could not tell whether the cluster is running in another namespace: could not connect to {path}")]
     ServerStateUnknown {
         path: std::path::PathBuf,
         #[source]
         source: io::Error,
     },
-    #[error("Interrupted while starting a session with the cluster")]
+    #[error("interrupted while starting a session with the cluster")]
     Interrupted,
-    #[error("Could not lock cluster")]
+    #[error("could not lock cluster")]
     LockError(#[from] nix::Error),
-    #[error("External command failed: {0:?}")]
+    #[error("external command failed: {0:?}")]
     CommandError(Output),
     #[error(transparent)]
     CurrentUserError(#[from] util::CurrentUserError),

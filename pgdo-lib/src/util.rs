@@ -21,11 +21,11 @@ pub(crate) fn prepend_to_path(dir: &Path, path: Option<OsString>) -> PrependedPa
 
 #[derive(thiserror::Error, Debug)]
 pub enum CurrentUserError {
-    #[error("User name in {0:?} environment variable cannot be decoded: {1:?}")]
+    #[error("user name in {0:?} environment variable cannot be decoded: {1:?}")]
     NotUnicode(&'static str, std::ffi::OsString),
-    #[error("System error")]
+    #[error("system error")]
     System(#[from] nix::Error),
-    #[error("User unknown")]
+    #[error("user unknown")]
     Unknown,
 }
 

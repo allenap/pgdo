@@ -32,7 +32,7 @@ impl Shell {
             runner::check_exit(
                 cluster
                     .shell(Some(&database.name))
-                    .context("Starting PostgreSQL shell in cluster failed")?,
+                    .context("starting PostgreSQL shell in cluster failed")?,
             )
         })
     }

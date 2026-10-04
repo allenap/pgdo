@@ -20,7 +20,7 @@ use pgdo::{
 /// Check the exit status of a process and return an appropriate exit code.
 pub(crate) fn check_exit(status: ExitStatus) -> ExitResult {
     match status.code() {
-        None => Err(anyhow!("Command terminated: {status}")),
+        None => Err(anyhow!("command terminated: {status}")),
         Some(code) => Ok(u8::try_from(code)
             .map(ExitCode::from)
             .unwrap_or(ExitCode::FAILURE)),
@@ -29,7 +29,7 @@ pub(crate) fn check_exit(status: ExitStatus) -> ExitResult {
 
 #[derive(thiserror::Error, Debug)]
 pub(crate) enum StrategyError {
-    #[error("No runtime matches constraint {0:?}")]
+    #[error("no runtime matches constraint {0:?}")]
     ConstraintNotSatisfied(runtime::constraint::Constraint),
     #[error(
         "PostgreSQL {0} is not supported; pgdo requires PostgreSQL {min} or later",
@@ -79,8 +79,8 @@ pub(crate) fn determine_strategy(fallback: Option<Constraint>) -> Result<Strateg
 pub(crate) fn ensure_database(cluster: &cluster::Cluster, database_name: &str) -> Result<()> {
     cluster
         .createdb(database_name)
-        .context("Could not create database")
-        .with_context(|| format!("Database: {database_name}"))?;
+        .context("could not create database")
+        .with_context(|| format!("database: {database_name}"))?;
     Ok(())
 }
 
@@ -104,8 +104,8 @@ where
     match fs::create_dir(&datadir) {
         Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
         err @ Err(_) => err
-            .context("Could not create cluster directory")
-            .with_context(|| format!("Cluster directory: {}", datadir.display()))?,
+            .context("could not create cluster directory")
+            .with_context(|| format!("cluster directory: {}", datadir.display()))?,
         _ => (),
     }
 
@@ -116,7 +116,7 @@ where
     // Once the session has started, a child process will receive the signal,
     // presumably terminate, then we'll tidy up.
     ctrlc::set_handler(pgdo::cluster::session::interrupt)
-        .context("Could not set signal handler")?;
+        .context("could not set signal handler")?;
 
     let strategy = determine_strategy(fallback)?;
     let session = cluster::Cluster::new(datadir, strategy)?
@@ -137,7 +137,7 @@ where
     let result = act();
     match (result, session.end()) {
         (Ok(code), Ok(_)) => Ok(code),
-        (Ok(_), Err(err)) => Err(err).context("Could not end session with cluster"),
+        (Ok(_), Err(err)) => Err(err).context("could not end session with cluster"),
         (Err(err), Ok(_)) => Err(err),
         (Err(err), Err(end_err)) => {
             log::error!("Could not end session with cluster: {end_err}");

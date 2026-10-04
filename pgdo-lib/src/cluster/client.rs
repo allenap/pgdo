@@ -67,13 +67,13 @@ pub(crate) const UNDEFINED_DATABASE: &str = "3D000";
 /// Error communicating with a cluster.
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
-    #[error("Could not communicate with cluster")]
+    #[error("could not communicate with cluster")]
     IoError(#[from] io::Error),
     #[error(transparent)]
     ServerError(Box<ServerError>),
-    #[error("Cluster requires {0} authentication, which pgdo does not support")]
+    #[error("cluster requires {0} authentication, which pgdo does not support")]
     AuthenticationError(&'static str),
-    #[error("Unexpected message from cluster: {0}")]
+    #[error("unexpected message from cluster: {0}")]
     ProtocolError(String),
 }
 
