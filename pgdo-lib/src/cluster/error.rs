@@ -25,7 +25,7 @@ pub enum ClusterError {
     #[error("runtime error")]
     RuntimeError(#[from] runtime::RuntimeError),
     #[error(transparent)]
-    ClientError(#[from] cluster::client::ClientError),
+    ClientError(#[from] cluster::ClientError),
     #[error(transparent)]
     ConfigError(#[from] cluster::config::ConfigError),
     #[error("data directory {0:?} is not a PostgreSQL cluster, and is not empty: {entries}", entries = .1.join(", "))]
@@ -67,7 +67,7 @@ impl ClusterError {
     /// into errors that this wraps too, e.g. a [`ClientError`] reported by the
     /// PostgreSQL server, which may include a hint.
     ///
-    /// [`ClientError`]: cluster::client::ClientError
+    /// [`ClientError`]: cluster::ClientError
     pub fn help(&self) -> Option<String> {
         match self {
             Self::UnsupportedVersion(_) => Some(

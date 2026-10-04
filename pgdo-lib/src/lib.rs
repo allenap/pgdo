@@ -11,7 +11,7 @@
 #![allow(clippy::redundant_else)]
 
 pub mod cluster;
-pub mod lock;
+mod lock;
 pub mod runtime;
 pub mod util;
 pub mod version;

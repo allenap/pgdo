@@ -1,6 +1,6 @@
 //! Create, start, introspect, stop, and destroy PostgreSQL clusters.
 
-pub mod client;
+mod client;
 pub mod config;
 pub mod session;
 
@@ -24,6 +24,7 @@ use crate::runtime::{
     Runtime,
 };
 use crate::version;
+pub use client::{ClientError, ServerError};
 pub use error::ClusterError;
 pub use session::{Finish, Session, Takeover};
 
@@ -130,9 +131,9 @@ impl fmt::Display for ClusterStatus {
 ///
 /// All methods here block. Most run external programs like `pg_ctl`, `initdb`,
 /// or `psql`, and block until those finish; the rest talk to the cluster over a
-/// socket with pgdo's [minimal client][`client`], and block on that I/O. All
-/// are safe to call from async code, but will block the calling thread; to
-/// avoid that, call them within something like Tokio's `spawn_blocking`.
+/// socket with pgdo's minimal internal client, and block on that I/O. All are
+/// safe to call from async code, but will block the calling thread; to avoid
+/// that, call them within something like Tokio's `spawn_blocking`.
 #[derive(Debug)]
 pub struct Cluster {
     /// The data directory of the cluster.
