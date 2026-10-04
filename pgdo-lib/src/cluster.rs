@@ -154,21 +154,21 @@ pub struct Cluster {
 /// alongside PostgreSQL's own.
 mod files {
     /// Used by [`Session`][super::Session] to coordinate processes.
-    pub const LOCK: &str = "pgdo.lock";
+    pub(super) const LOCK: &str = "pgdo.lock";
     /// Where [`Cluster::create`][super::Cluster::create] runs `initdb`, before
     /// moving the result into the data directory.
-    pub const INIT: &str = "pgdo.init";
+    pub(super) const INIT: &str = "pgdo.init";
     /// Marks an in-progress move from [`INIT`] into the data directory; see
     /// [`Cluster::create`][super::Cluster::create].
-    pub const VERSION_INIT: &str = "PG_VERSION.init";
+    pub(super) const VERSION_INIT: &str = "PG_VERSION.init";
     /// Records which kernel and namespace owns a running cluster; see the
     /// `owner` module.
-    pub const OWNER: &str = "pgdo.owner";
+    pub(super) const OWNER: &str = "pgdo.owner";
     /// PostgreSQL's version file; its presence marks a cluster.
-    pub const VERSION: &str = "PG_VERSION";
+    pub(super) const VERSION: &str = "PG_VERSION";
 
     /// Is the given name one of pgdo's own files?
-    pub fn is_pgdo(name: &std::ffi::OsStr) -> bool {
+    pub(super) fn is_pgdo(name: &std::ffi::OsStr) -> bool {
         match name.to_str() {
             Some(LOCK | OWNER | INIT | VERSION_INIT) => true,
             // Temporary files written while claiming ownership.
@@ -179,7 +179,7 @@ mod files {
 
     /// Is the given name one of the files that sessions use to coordinate?
     /// These must outlive the cluster itself; see `Session`.
-    pub fn is_session(name: &std::ffi::OsStr) -> bool {
+    pub(super) fn is_session(name: &std::ffi::OsStr) -> bool {
         matches!(name.to_str(), Some(LOCK | OWNER))
     }
 }
@@ -268,7 +268,7 @@ impl Cluster {
     }
 
     /// The lock file used by [`Session`] to coordinate processes.
-    pub(crate) fn lockfile(&self) -> PathBuf {
+    fn lockfile(&self) -> PathBuf {
         self.datadir.join(files::LOCK)
     }
 
@@ -360,7 +360,7 @@ impl Cluster {
 
     /// Was a [`create`][Self::create] interrupted while moving files into the
     /// data directory? If so, calling `create` again will finish the job.
-    pub(crate) fn create_interrupted(&self) -> bool {
+    fn create_interrupted(&self) -> bool {
         self.datadir.join(files::VERSION_INIT).exists()
     }
 
@@ -472,7 +472,7 @@ impl Cluster {
     /// internal [`client`].
     ///
     /// When the database is not specified, connects to [`DATABASE_POSTGRES`].
-    pub(crate) fn connect(&self, database: Option<&str>) -> Result<client::Client, ClusterError> {
+    fn connect(&self, database: Option<&str>) -> Result<client::Client, ClusterError> {
         let user = crate::util::current_user()?;
         let database = database.unwrap_or(DATABASE_POSTGRES);
         Ok(client::Client::connect(&self.datadir, &user, database)?)
@@ -806,7 +806,7 @@ mod logfile {
     ///   and reopened, this will not see new logs.
     /// - It will not detect if the log is truncated; again, this will not see
     ///   new logs.
-    pub struct LogFile {
+    pub(super) struct LogFile {
         path: PathBuf,
         file: Option<File>,
     }
@@ -869,7 +869,7 @@ mod bugs {
     /// See the [initial bug
     /// report](https://www.postgresql.org/message-id/CALL7chmzY3eXHA7zHnODUVGZLSvK3wYCSP0RmcDFHJY8f28Q3g@mail.gmail.com)
     /// and its thread for _much_ more detail.
-    pub fn retry_pg_ctl(
+    pub(super) fn retry_pg_ctl(
         command: &mut Command,
         mut supplement: impl FnMut(&mut Output) -> Result<(), ClusterError>,
     ) -> Result<State, ClusterError> {
