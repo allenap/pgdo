@@ -65,20 +65,32 @@ pub(crate) const DUPLICATE_DATABASE: &str = "42P04";
 pub(crate) const UNDEFINED_DATABASE: &str = "3D000";
 
 /// Error communicating with a cluster.
-#[derive(thiserror::Error, miette::Diagnostic, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ClientError {
     #[error("Could not communicate with cluster")]
     IoError(#[from] io::Error),
     #[error(transparent)]
-    #[diagnostic(transparent)]
     ServerError(Box<ServerError>),
     #[error("Cluster requires {0} authentication, which pgdo does not support")]
-    #[diagnostic(help(
-        "pgdo creates clusters with trust authentication; check `pg_hba.conf` in the cluster"
-    ))]
     AuthenticationError(&'static str),
     #[error("Unexpected message from cluster: {0}")]
     ProtocolError(String),
+}
+
+impl ClientError {
+    /// A suggestion for how to resolve this error, if there is one, e.g. a hint
+    /// from the PostgreSQL server.
+    pub fn help(&self) -> Option<String> {
+        match self {
+            Self::AuthenticationError(_) => Some(
+                "pgdo creates clusters with trust authentication; check `pg_hba.conf` in the \
+                 cluster."
+                    .into(),
+            ),
+            Self::ServerError(err) => err.hint.clone(),
+            Self::IoError(_) | Self::ProtocolError(_) => None,
+        }
+    }
 }
 
 impl From<ServerError> for ClientError {
@@ -102,14 +114,6 @@ pub struct ServerError {
 }
 
 impl std::error::Error for ServerError {}
-
-impl miette::Diagnostic for ServerError {
-    fn help<'a>(&'a self) -> Option<Box<dyn fmt::Display + 'a>> {
-        self.hint
-            .as_ref()
-            .map(|hint| Box::new(hint) as Box<dyn fmt::Display>)
-    }
-}
 
 impl fmt::Display for ServerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

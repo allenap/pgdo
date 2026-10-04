@@ -9,7 +9,7 @@ trait AsSql {
 }
 
 /// Error understanding a configuration setting.
-#[derive(thiserror::Error, miette::Diagnostic, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum ConfigError {
     #[error("Could not understand setting: {0}")]
     SettingError(String),

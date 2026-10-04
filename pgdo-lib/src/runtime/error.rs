@@ -1,6 +1,6 @@
 use crate::version;
 
-#[derive(thiserror::Error, miette::Diagnostic, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum RuntimeError {
     #[error("Input/output error")]
     IoError(#[from] std::io::Error),

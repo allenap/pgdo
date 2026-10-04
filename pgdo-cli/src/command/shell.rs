@@ -1,4 +1,4 @@
-use miette::WrapErr;
+use anyhow::Context;
 
 use super::ExitResult;
 use crate::{args, runner};
@@ -32,7 +32,7 @@ impl Shell {
             runner::check_exit(
                 cluster
                     .shell(Some(&database.name))
-                    .wrap_err("Starting PostgreSQL shell in cluster failed")?,
+                    .context("Starting PostgreSQL shell in cluster failed")?,
             )
         })
     }

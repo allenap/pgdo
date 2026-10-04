@@ -5,13 +5,23 @@ mod command;
 mod runner;
 
 use std::io::{stdout, IsTerminal};
+use std::process::ExitCode;
 
 use clap::Parser;
-use miette::IntoDiagnostic;
 
-pub(crate) type ExitResult = miette::Result<std::process::ExitCode>;
+pub(crate) type ExitResult = anyhow::Result<ExitCode>;
 
-fn main() -> ExitResult {
+fn main() -> ExitCode {
+    match run() {
+        Ok(code) => code,
+        Err(err) => {
+            report(&err);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> ExitResult {
     // Configure logging. Not using local timestamps because `simple_logger`
     // panics when emitting log messages from within a Tokio runtime context:
     // https://github.com/borntyping/rust-simple_logger/issues/84
@@ -19,12 +29,46 @@ fn main() -> ExitResult {
         .with_level(log::LevelFilter::Warn)
         .with_colors(stdout().is_terminal())
         .env()
-        .init()
-        .into_diagnostic()?;
+        .init()?;
     // Parse command-line arguments.
     let Options { command, default } = Options::parse();
     // Use the default command when none has been specified.
     command.unwrap_or_else(|| default.into()).invoke()
+}
+
+/// Print an error, what caused it, and – if we know – what to do about it.
+fn report(err: &anyhow::Error) {
+    eprintln!("Error: {err}");
+    let mut causes = err.chain().skip(1).peekable();
+    if causes.peek().is_some() {
+        eprintln!("Caused by:");
+        for cause in causes {
+            eprintln!("  - {cause}");
+        }
+    }
+    if let Some(help) = help(err) {
+        eprintln!("Help: {help}");
+    }
+}
+
+/// Help for an error: from the first error in its chain that offers any.
+fn help(err: &anyhow::Error) -> Option<String> {
+    use pgdo::cluster::{client::ClientError, ClusterError};
+    err.chain().find_map(|cause| {
+        cause
+            .downcast_ref::<ClusterError>()
+            .and_then(ClusterError::help)
+            .or_else(|| {
+                cause
+                    .downcast_ref::<ClientError>()
+                    .and_then(ClientError::help)
+            })
+            .or_else(|| {
+                cause
+                    .downcast_ref::<runner::StrategyError>()
+                    .map(|err| err.help().to_owned())
+            })
+    })
 }
 
 /// Work with ephemeral PostgreSQL clusters.
