@@ -101,22 +101,25 @@ where
         _ => (),
     }
 
+    // Handle SIGINT, TERM, and HUP (with ctrlc feature "termination") rather
+    // than exiting. While starting the session, ask it to give up; it will tidy
+    // up – e.g. stop a server it started – and fail with an error. Exiting
+    // instead could leave a server running and claimed, with no one to stop it.
+    // Once the session has started, a child process will receive the signal,
+    // presumably terminate, then we'll tidy up.
+    ctrlc::set_handler(pgdo::cluster::session::interrupt)
+        .into_diagnostic()
+        .context("Could not set signal handler")?;
+
     let strategy = determine_strategy(fallback)?;
     let session = cluster::Cluster::new(datadir, strategy)?
-        .session(&[])?
+        .session_with_takeover(&[], lifecycle.takeover())?
         .finish(lifecycle.finish());
 
     let act = || {
         if let Some(cluster_mode) = cluster_mode {
             set_cluster_mode(cluster_mode, &session)?;
         }
-
-        // Ignore SIGINT, TERM, and HUP (with ctrlc feature "termination"). The
-        // child process will receive the signal, presumably terminate, then
-        // we'll tidy up.
-        ctrlc::set_handler(|| ())
-            .into_diagnostic()
-            .context("Could not set signal handler")?;
 
         // Finally, run the given action.
         action(&session)

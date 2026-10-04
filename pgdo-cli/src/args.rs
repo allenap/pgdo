@@ -66,9 +66,25 @@ pub struct LifecycleArgs {
     /// DIRECTORY. The default is to NOT destroy the cluster.
     #[clap(long = "destroy", display_order = 100)]
     pub destroy: bool,
+
+    /// Take over a cluster last used on another host or VM, if it shows no
+    /// signs of use there when watched for 30 seconds. DANGER: If it is in fact
+    /// still running there, this WILL CORRUPT THE CLUSTER. The default is to
+    /// refuse.
+    #[clap(long = "force", display_order = 101)]
+    pub force: bool,
 }
 
 impl LifecycleArgs {
+    /// Whether to take over a cluster owned by another kernel.
+    pub fn takeover(&self) -> pgdo::cluster::Takeover {
+        if self.force {
+            pgdo::cluster::Takeover::IfStale
+        } else {
+            pgdo::cluster::Takeover::Never
+        }
+    }
+
     /// What to do with the cluster when finished with it.
     pub fn finish(&self) -> pgdo::cluster::Finish {
         if self.destroy {

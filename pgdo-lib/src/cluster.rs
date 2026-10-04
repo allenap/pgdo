@@ -5,10 +5,13 @@ pub mod config;
 pub mod session;
 
 mod error;
+mod owner;
+mod postmaster;
 
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Read, Write};
 use std::os::unix::prelude::OsStringExt;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output};
 use std::{fmt, fs};
@@ -22,7 +25,7 @@ use crate::runtime::{
 };
 use crate::version;
 pub use error::ClusterError;
-pub use session::{Finish, Session};
+pub use session::{Finish, Session, Takeover};
 
 /// The outcome of an action on a cluster.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -149,14 +152,20 @@ mod files {
     /// Marks an in-progress move from [`INIT`] into the data directory; see
     /// [`Cluster::create`][super::Cluster::create].
     pub const VERSION_INIT: &str = "PG_VERSION.init";
-    /// Reserved for recording which process owns a running cluster.
+    /// Records which kernel and namespace owns a running cluster; see the
+    /// `owner` module.
     pub const OWNER: &str = "pgdo.owner";
     /// PostgreSQL's version file; its presence marks a cluster.
     pub const VERSION: &str = "PG_VERSION";
 
     /// Is the given name one of pgdo's own files?
     pub fn is_pgdo(name: &std::ffi::OsStr) -> bool {
-        matches!(name.to_str(), Some(LOCK | OWNER | INIT | VERSION_INIT))
+        match name.to_str() {
+            Some(LOCK | OWNER | INIT | VERSION_INIT) => true,
+            // Temporary files written while claiming ownership.
+            Some(name) => name.starts_with("pgdo.owner."),
+            None => false,
+        }
     }
 
     /// Is the given name one of the files that sessions use to coordinate?
@@ -248,6 +257,11 @@ impl Cluster {
     /// The lock file used by [`Session`] to coordinate processes.
     pub(crate) fn lockfile(&self) -> PathBuf {
         self.datadir.join(files::LOCK)
+    }
+
+    /// The file recording which kernel and namespace owns the running cluster.
+    fn ownerfile(&self) -> PathBuf {
+        self.datadir.join(files::OWNER)
     }
 
     /// Return the path to the PID file used in this cluster.
@@ -570,8 +584,12 @@ impl Cluster {
         // pg_ctl options:
         //  -w -- wait for shutdown to complete.
         //  -m <mode> -- shutdown mode.
+        // Run `pg_ctl` in its own process group, so that it does not receive
+        // signals sent from the terminal, e.g. SIGINT from Ctrl-C: interrupting
+        // it would leave the server stopping, or still running.
         let output = self
             .ctl()?
+            .process_group(0)
             .arg("stop")
             .arg("-s")
             .arg("-w")
@@ -595,6 +613,13 @@ impl Cluster {
     /// safely – and the data directory too.
     pub fn destroy(&self) -> Result<State, ClusterError> {
         self.stop()?;
+        self.remove()
+    }
+
+    /// Remove the cluster's files, as [`destroy`][Self::destroy] does, but
+    /// without stopping it first. The caller must know that no server is
+    /// running.
+    fn remove(&self) -> Result<State, ClusterError> {
         let entries = match fs::read_dir(&self.datadir) {
             Ok(entries) => entries,
             Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Unmodified),

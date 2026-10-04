@@ -93,9 +93,28 @@ in an empty directory.
 Many `pgdo` processes can use the same cluster at once. The cluster is started
 by the first, and stopped by the last.
 
-**Do not** share a data directory between a host and a container, or between
-containers, e.g. via a bind mount. Processes on different kernels, e.g. macOS
-and a Linux VM, cannot coordinate, and could corrupt the cluster.
+### Sharing a cluster with containers and VMs
+
+A data directory can be shared via a bind mount, e.g. with a container. `pgdo`
+records which host and namespace started the server in `pgdo.owner`, and keeps
+that file up to date while the cluster is in use:
+
+- **Same kernel**, e.g. a Linux host and its containers, or containers on the
+  same host: `pgdo` processes coordinate, and share one running server via its
+  Unix-domain socket. Only a process in the namespace that started the server
+  can stop it, so if the last process to finish is elsewhere, the server keeps
+  running until a process in its own namespace next uses it and finishes.
+
+- **Different kernels**, e.g. macOS and a Linux VM: processes cannot share a
+  server. `pgdo` refuses to use a cluster in use on another kernel, even if it
+  was last used there a while ago: it cannot tell if the server there is still
+  running, e.g. if `pgdo` was killed. Use `--force` to take it over if you are
+  **sure** it is not; if it is still running, this will corrupt the cluster.
+  Before taking over, `pgdo` watches `pgdo.owner` for 30 seconds, and refuses
+  if it sees any sign of life.
+
+Note that on macOS with Colima, PostgreSQL in a container cannot create its
+Unix-domain socket in a bind-mounted directory, so cannot run a cluster there.
 
 ## Contributing
 

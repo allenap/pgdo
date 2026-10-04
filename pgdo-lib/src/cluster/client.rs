@@ -29,6 +29,20 @@ use postgres_protocol::message::{backend::Message, frontend};
 /// The port that pgdo's clusters use. This determines the name of the socket.
 const PORT: u16 = 5432;
 
+/// The path to the Unix-domain socket of a cluster listening in `socketdir`.
+fn socket_path(socketdir: &Path) -> std::path::PathBuf {
+    socketdir.join(format!(".s.PGSQL.{PORT}"))
+}
+
+/// Does a server accept connections on the Unix-domain socket in `socketdir`?
+///
+/// This works across PID namespaces on the same kernel, where PostgreSQL's own
+/// check – signalling the PID in `postmaster.pid` – does not. It does not work
+/// across kernels, e.g. from macOS into a Linux VM.
+pub(super) fn accepts_connections(socketdir: &Path) -> bool {
+    UnixStream::connect(socket_path(socketdir)).is_ok()
+}
+
 /// SQLSTATE for "duplicate database".
 pub(crate) const DUPLICATE_DATABASE: &str = "42P04";
 /// SQLSTATE for "undefined database" (a.k.a. "invalid catalog name").
@@ -145,7 +159,7 @@ impl Client {
     /// Connect to the cluster listening in `socketdir`, with trust
     /// authentication.
     pub fn connect(socketdir: &Path, user: &str, database: &str) -> Result<Self, ClientError> {
-        let stream = UnixStream::connect(socketdir.join(format!(".s.PGSQL.{PORT}")))?;
+        let stream = UnixStream::connect(socket_path(socketdir))?;
         let mut client = Client { stream, buf: BytesMut::new() };
 
         let mut message = BytesMut::new();

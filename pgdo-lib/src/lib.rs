@@ -5,6 +5,7 @@
 #![allow(clippy::match_same_arms)]
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::module_name_repetitions)]
+#![allow(clippy::needless_continue)]
 #![allow(clippy::must_use_candidate)]
 #![allow(clippy::redundant_else)]
 

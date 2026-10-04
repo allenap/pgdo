@@ -38,6 +38,34 @@ pub enum ClusterError {
         "pgdo creates clusters only in empty directories (pgdo's own `pgdo.*` files excepted)"
     ))]
     DataDirNotEmpty(std::path::PathBuf, Vec<String>),
+    #[error(
+        "Cluster is in use on another host or VM ({hostname}); last heartbeat {}",
+        super::owner::ago(*age)
+    )]
+    #[diagnostic(help(
+        "pgdo cannot share a cluster between kernels, e.g. between macOS and a Linux VM. \
+         Use the cluster from there, or stop using it there first."
+    ))]
+    InUseElsewhere { hostname: String, age: std::time::Duration },
+    #[error(
+        "Cluster was last used on another host or VM ({hostname}) {}, and may still be running there",
+        super::owner::ago(*age)
+    )]
+    #[diagnostic(help(
+        "If you are sure that nothing on {hostname} is using the cluster, take it over with \
+         `--force` (or `Takeover::IfStale`)."
+    ))]
+    StaleElsewhere { hostname: String, age: std::time::Duration },
+    #[error(
+        "Cluster's postmaster.pid names PID {pid}, which is not a PostgreSQL server for this cluster"
+    )]
+    #[diagnostic(help(
+        "Another process now has that PID. If you are sure that no PostgreSQL server is using \
+         this data directory, remove postmaster.pid."
+    ))]
+    StalePidFile { pid: u32 },
+    #[error("Interrupted while starting a session with the cluster")]
+    Interrupted,
     #[error("Could not lock cluster")]
     LockError(#[from] nix::Error),
     #[error("External command failed: {0:?}")]
