@@ -3,7 +3,7 @@ use std::io;
 use std::process::ExitCode;
 use std::process::ExitStatus;
 
-use miette::{bail, IntoDiagnostic, Result, WrapErr};
+use miette::{miette, IntoDiagnostic, Result, WrapErr};
 
 use crate::{args, ExitResult};
 
@@ -20,7 +20,7 @@ use pgdo::{
 /// Check the exit status of a process and return an appropriate exit code.
 pub(crate) fn check_exit(status: ExitStatus) -> ExitResult {
     match status.code() {
-        None => bail!("Command terminated: {status}"),
+        None => Err(miette!("Command terminated: {status}")),
         Some(code) => Ok(u8::try_from(code)
             .map(ExitCode::from)
             .unwrap_or(ExitCode::FAILURE)),
