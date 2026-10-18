@@ -243,7 +243,11 @@ impl Cluster {
     /// not running", "missing", and "don't know". The latter results in
     /// [`ClusterError`].
     pub fn status(&self) -> Result<ClusterStatus, ClusterError> {
-        let output = self.ctl()?.arg("status").output()?;
+        // Run `pg_ctl` in its own process group, so that it does not receive
+        // signals sent from the terminal, e.g. SIGINT from Ctrl-C. A session
+        // checks the status as it ends, while stopping the cluster, and as it
+        // abandons a start; interrupting it then would leave the server running.
+        let output = self.ctl()?.process_group(0).arg("status").output()?;
         // See https://www.postgresql.org/docs/current/app-pg-ctl.html for the
         // meaning of these exit codes. We check for specific codes to avoid
         // masking errors from insufficient permissions or missing executables,
