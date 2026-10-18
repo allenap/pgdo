@@ -1,7 +1,7 @@
 use std::fmt;
 
 /// Error parsing a PostgreSQL version number.
-#[derive(thiserror::Error, miette::Diagnostic, Debug, PartialEq)]
+#[derive(thiserror::Error, Debug, PartialEq)]
 pub enum VersionError {
     BadlyFormed { text: Option<String> },
     NotFound { text: Option<String> },

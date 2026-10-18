@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 
-use miette::WrapErr;
+use anyhow::Context;
 
 use super::ExitResult;
 use crate::{args, runner};
@@ -50,7 +50,7 @@ impl Exec {
             runner::check_exit(
                 cluster
                     .exec(Some(&database.name), command, &args)
-                    .wrap_err("Executing command in cluster failed")?,
+                    .context("Executing command in cluster failed")?,
             )
         })
     }

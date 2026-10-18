@@ -3,7 +3,7 @@ use std::io;
 use std::process::ExitCode;
 use std::process::ExitStatus;
 
-use miette::{miette, IntoDiagnostic, Result, WrapErr};
+use anyhow::{anyhow, Context, Result};
 
 use crate::{args, ExitResult};
 
@@ -20,24 +20,33 @@ use pgdo::{
 /// Check the exit status of a process and return an appropriate exit code.
 pub(crate) fn check_exit(status: ExitStatus) -> ExitResult {
     match status.code() {
-        None => Err(miette!("Command terminated: {status}")),
+        None => Err(anyhow!("Command terminated: {status}")),
         Some(code) => Ok(u8::try_from(code)
             .map(ExitCode::from)
             .unwrap_or(ExitCode::FAILURE)),
     }
 }
 
-#[derive(thiserror::Error, miette::Diagnostic, Debug)]
+#[derive(thiserror::Error, Debug)]
 pub(crate) enum StrategyError {
     #[error("No runtime matches constraint {0:?}")]
-    #[diagnostic(help("Use `runtimes` to see available runtimes"))]
     ConstraintNotSatisfied(runtime::constraint::Constraint),
     #[error(
         "PostgreSQL {0} is not supported; pgdo requires PostgreSQL {min} or later",
         min = runtime::MINIMUM_VERSION
     )]
-    #[diagnostic(help("Use `runtimes` to see available runtimes"))]
     UnsupportedVersion(PartialVersion),
+}
+
+impl StrategyError {
+    /// A suggestion for how to resolve this error.
+    pub(crate) fn help(&self) -> &'static str {
+        match self {
+            Self::ConstraintNotSatisfied(_) | Self::UnsupportedVersion(_) => {
+                "Use `runtimes` to see available runtimes."
+            }
+        }
+    }
 }
 
 /// Determine the strategy to use for a cluster, given an optional constraint.
@@ -70,8 +79,8 @@ pub(crate) fn determine_strategy(fallback: Option<Constraint>) -> Result<Strateg
 pub(crate) fn ensure_database(cluster: &cluster::Cluster, database_name: &str) -> Result<()> {
     cluster
         .createdb(database_name)
-        .wrap_err_with(|| "Could not create database")
-        .wrap_err_with(|| format!("Database: {database_name}"))?;
+        .context("Could not create database")
+        .with_context(|| format!("Database: {database_name}"))?;
     Ok(())
 }
 
@@ -95,9 +104,8 @@ where
     match fs::create_dir(&datadir) {
         Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
         err @ Err(_) => err
-            .into_diagnostic()
-            .wrap_err_with(|| "Could not create cluster directory")
-            .wrap_err_with(|| format!("Cluster directory: {}", datadir.display()))?,
+            .context("Could not create cluster directory")
+            .with_context(|| format!("Cluster directory: {}", datadir.display()))?,
         _ => (),
     }
 
@@ -108,7 +116,6 @@ where
     // Once the session has started, a child process will receive the signal,
     // presumably terminate, then we'll tidy up.
     ctrlc::set_handler(pgdo::cluster::session::interrupt)
-        .into_diagnostic()
         .context("Could not set signal handler")?;
 
     let strategy = determine_strategy(fallback)?;
@@ -130,7 +137,7 @@ where
     let result = act();
     match (result, session.end()) {
         (Ok(code), Ok(_)) => Ok(code),
-        (Ok(_), Err(err)) => Err(err).wrap_err("Could not end session with cluster"),
+        (Ok(_), Err(err)) => Err(err).context("Could not end session with cluster"),
         (Err(err), Ok(_)) => Err(err),
         (Err(err), Err(end_err)) => {
             log::error!("Could not end session with cluster: {end_err}");
