@@ -26,8 +26,7 @@ use bytes::BytesMut;
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::message::{backend::Message, frontend};
 
-/// The port that pgdo's clusters use. This determines the name of the socket.
-const PORT: u16 = 5432;
+use super::PORT;
 
 /// The path to the Unix-domain socket of a cluster listening in `socketdir`.
 fn socket_path(socketdir: &Path) -> std::path::PathBuf {

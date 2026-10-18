@@ -82,6 +82,15 @@ pub const DATABASE_TEMPLATE1: &str = "template1";
 /// possible.
 pub const DATABASE_POSTGRES: &str = "postgres";
 
+/// The port that pgdo's clusters listen on. They listen only on a Unix-domain
+/// socket in the data directory, so this does not conflict with any other
+/// server; it determines only the socket's name, `.s.PGSQL.5432`.
+///
+/// pgdo passes it explicitly – when starting a server, and to commands run
+/// against the cluster – so that `PGPORT` in the environment, or a `port`
+/// setting in `postgresql.conf`, cannot move the socket.
+pub const PORT: u16 = 5432;
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ClusterStatus {
     Running,
@@ -403,10 +412,12 @@ impl Cluster {
         // likely to be `sh`. Here's what they mean:
         //  -h <arg> -- host name; empty arg means Unix socket only.
         //  -k -- socket directory.
+        //  -p -- port, which determines the socket's name.
         //  -c name=value -- set a configuration parameter.
         let options = {
             let mut arg: Vec<u8> = b"-h '' -k ".into();
             arg.push_quoted(Sh, &self.datadir);
+            arg.extend(format!(" -p {PORT}").as_bytes());
             for (parameter, value) in options {
                 arg.extend(b" -c ");
                 arg.push_quoted(Sh, &format!("{parameter}={value}"));
@@ -460,7 +471,7 @@ impl Cluster {
     }
 
     /// Return a URL for connecting to the given database in this cluster, e.g.
-    /// `postgresql://?host=%2Fpath%2Fto%2Fcluster&dbname=postgres`.
+    /// `postgresql://?host=%2Fpath%2Fto%2Fcluster&port=5432&dbname=postgres`.
     ///
     /// The URL has no user; clients typically default to the current user.
     ///
@@ -471,7 +482,11 @@ impl Cluster {
         match self.datadir.to_str() {
             Some(datadir) => url::Url::parse_with_params(
                 "postgresql://",
-                [("host", datadir), ("dbname", database)],
+                [
+                    ("host", datadir),
+                    ("port", &PORT.to_string()),
+                    ("dbname", database),
+                ],
             )
             .map(Some),
             None => Ok(None),
@@ -511,6 +526,7 @@ impl Cluster {
         // Set a few standard PostgreSQL environment variables.
         command.env("PGDATA", &self.datadir);
         command.env("PGHOST", &self.datadir);
+        command.env("PGPORT", PORT.to_string());
         command.env("PGDATABASE", database);
 
         // Set `DATABASE_URL` if `self.datadir` is valid UTF-8, otherwise ensure

@@ -260,9 +260,36 @@ fn cluster_exec_sets_environment() -> TestResult {
         env.get("PGHOST").map(PathBuf::from).as_ref(),
         Some(&cluster.datadir)
     );
+    assert_eq!(env.get("PGPORT"), Some("5432").as_ref());
     assert_eq!(env.get("PGDATABASE"), Some("postgres").as_ref());
     assert!(matches!(env.get("DATABASE_URL"), Some(url) if url.starts_with("postgresql://")));
     cluster.stop()?;
+    Ok(())
+}
+
+/// A `port` setting in the cluster's configuration – or `PGPORT` in the
+/// environment, which works the same way – must not move the socket: pgdo, and
+/// sessions in other namespaces, look for it by the name [`pgdo::cluster::PORT`]
+/// gives it.
+#[for_all_runtimes]
+#[test]
+fn cluster_start_ignores_configured_port() -> TestResult {
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("data");
+    let cluster = Cluster::new(&datadir, runtime)?;
+    cluster.create()?;
+    let mut conf = std::fs::OpenOptions::new()
+        .append(true)
+        .open(datadir.join("postgresql.conf"))?;
+    std::io::Write::write_all(&mut conf, b"port = 5433\n")?;
+    cluster.start(&[])?;
+    let sockets = (
+        datadir.join(".s.PGSQL.5432").exists(),
+        datadir.join(".s.PGSQL.5433").exists(),
+    );
+    // Stop before asserting, so that a failure does not leave a server running.
+    cluster.stop()?;
+    assert_eq!(sockets, (true, false));
     Ok(())
 }
 
