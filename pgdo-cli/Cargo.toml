@@ -17,9 +17,9 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "=1.0.104"
-clap = { version = "=4.6.1", features = ["derive", "env"] }
+clap = { version = "=4.6.7", features = ["derive", "env"] }
 ctrlc = { version = "=3.5.2", features = ["termination"] }
-log = "=0.4.33"
+log = "=0.4.34"
 pgdo-lib = { version = "=0.7.0", path = "../pgdo-lib" }
 simple_logger = "=5.2.0"
-thiserror = "=2.0.18"
+thiserror = "=2.0.21"
