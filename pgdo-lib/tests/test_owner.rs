@@ -48,6 +48,13 @@ impl Setup {
         Ok(())
     }
 
+    fn remove_owner(&self) -> TestResult {
+        match std::fs::remove_file(self.ownerfile()) {
+            Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(err.into()),
+            _ => Ok(()),
+        }
+    }
+
     fn backdate_owner(&self, by: Duration) -> TestResult {
         let file = std::fs::File::options()
             .write(true)
@@ -226,10 +233,10 @@ fn session_refuses_unintelligible_owner_file() -> TestResult {
 struct Bystander(std::process::Child);
 
 impl Bystander {
-    fn spawn() -> TestResult<Self> {
+    fn spawn(dir: &Path) -> TestResult<Self> {
         let child = std::process::Command::new("sleep")
             .arg("60")
-            .current_dir("/")
+            .current_dir(dir)
             .spawn()?;
         Ok(Self(child))
     }
@@ -364,21 +371,29 @@ fn in_other_namespace(datadir: &Path, f: impl FnOnce() -> TestResult) -> TestRes
 fn session_does_not_signal_unrelated_process_named_in_postmaster_pid() -> TestResult {
     let setup = Setup::new()?;
     let ours = setup.our_owner()?;
+    // A process elsewhere.
+    does_not_signal_bystander(&setup, &ours, Bystander::spawn(Path::new("/"))?)?;
+    // A process in the data directory, e.g. a shell, or `tail -f` on the log.
+    // Every process of a real server also runs there.
+    does_not_signal_bystander(&setup, &ours, Bystander::spawn(&setup.datadir)?)
+}
+
+fn does_not_signal_bystander(setup: &Setup, ours: &str, mut bystander: Bystander) -> TestResult {
     let pidfile = setup.datadir.join("postmaster.pid");
-    let mut bystander = Bystander::spawn()?;
     std::fs::write(
         &pidfile,
         format!("{}\n{}\n", bystander.pid(), setup.datadir.display()),
     )?;
 
     // With no owner file.
+    setup.remove_owner()?;
     assert!(matches!(
         setup.cluster()?.session(&[]),
         Err(ClusterError::StalePidFile { pid }) if pid == bystander.pid()
     ));
     // With an owner file from a namespace whose server has gone, e.g. a
     // container that was killed, whose server's PID has been reused.
-    setup.write_owner(&other_namespace(&ours))?;
+    setup.write_owner(&other_namespace(ours))?;
     assert!(matches!(
         setup.cluster()?.session(&[]),
         Err(ClusterError::StalePidFile { pid }) if pid == bystander.pid()

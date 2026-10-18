@@ -372,7 +372,8 @@ fn server_here(cluster: &Cluster, postmaster: Postmaster) -> Result<bool, Cluste
     match postmaster {
         Postmaster::Running(_) => Ok(true),
         Postmaster::Absent | Postmaster::Dead(_) | Postmaster::Other(_) => Ok(false),
-        // We cannot check the PID, so fall back to `pg_ctl status`.
+        // We cannot check the PID on this platform, so fall back to `pg_ctl
+        // status`, which trusts it.
         Postmaster::Unknown(_) => cluster.running(),
     }
 }

@@ -73,16 +73,23 @@ pub(super) fn read(datadir: &Path) -> io::Result<Option<PidFile>> {
 
 /// Check the PID in the `postmaster.pid` file in `datadir`.
 pub(super) fn check(datadir: &Path) -> io::Result<Postmaster> {
-    let Some(PidFile { pid, .. }) = read(datadir)? else {
-        return Ok(Postmaster::Absent);
-    };
-    let datadir = fs::metadata(datadir)?;
-    Ok(match cwd_is(pid, (datadir.dev(), datadir.ino()))? {
-        Some(true) => Postmaster::Running(pid),
-        Some(false) => Postmaster::Other(pid),
-        None => Postmaster::Unknown(pid),
+    match read(datadir)? {
+        None => Ok(Postmaster::Absent),
+        Some(PidFile { pid, .. }) => {
+            let datadir = fs::metadata(datadir)?;
+            let datadir = (datadir.dev(), datadir.ino());
+            Ok(match see(pid)? {
+                Some(Seen::Process { cwd, name }) if cwd == datadir && is_postgres(&name) => {
+                    Postmaster::Running(pid)
+                }
+                // pgdo's servers run as the current user, so we can inspect
+                // them. One that we cannot inspect is not ours.
+                Some(Seen::Process { .. } | Seen::Hidden | Seen::Gone) => Postmaster::Other(pid),
+                None => Postmaster::Unknown(pid),
+            }
+            .or_dead_if(!exists(pid)))
+        }
     }
-    .or_dead_if(!exists(pid)))
 }
 
 impl Postmaster {
@@ -94,92 +101,168 @@ impl Postmaster {
     }
 }
 
+/// Is this the name of a PostgreSQL server process? `postmaster` is an old name
+/// for `postgres`, which some installations still provide.
+fn is_postgres(name: &str) -> bool {
+    matches!(name, "postgres" | "postmaster")
+}
+
 /// Does a process with this PID exist? A process that exists but belongs to
 /// another user counts.
 fn exists(pid: u32) -> bool {
     use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
-    let Ok(pid) = i32::try_from(pid) else {
-        return false;
-    };
-    !matches!(kill(Pid::from_raw(pid), None), Err(Errno::ESRCH))
-}
-
-/// Is the working directory of the process with this PID the directory with
-/// the given device and inode numbers? `None` if we cannot tell, e.g. because
-/// the process belongs to another user. `Some(false)` if there is no such
-/// process.
-#[cfg(target_os = "linux")]
-pub(super) fn cwd_is(pid: u32, (dir_dev, dir_ino): (u64, u64)) -> io::Result<Option<bool>> {
-    match fs::metadata(format!("/proc/{pid}/cwd")) {
-        Ok(cwd) => Ok(Some(cwd.dev() == dir_dev && cwd.ino() == dir_ino)),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Some(false)),
-        Err(err) if err.kind() == io::ErrorKind::PermissionDenied => Ok(None),
-        Err(err) => Err(err),
+    if let Ok(pid) = i32::try_from(pid) {
+        !matches!(kill(Pid::from_raw(pid), None), Err(Errno::ESRCH))
+    } else {
+        false
     }
 }
 
-/// Is the working directory of the process with this PID the directory with
-/// the given device and inode numbers? `None` if we cannot tell, e.g. because
-/// the process belongs to another user. `Some(false)` if there is no such
-/// process.
+/// What we can see of a process.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Seen {
+    /// There is no such process, as far as we can see.
+    Gone,
+    /// The process exists, but we may not inspect it, e.g. because it belongs
+    /// to another user.
+    Hidden,
+    /// The process's working directory, as device and inode numbers, and its
+    /// name, i.e. that of the program it runs.
+    ///
+    /// Every process of a PostgreSQL server runs with the data directory as its
+    /// working directory, but so might any other process, e.g. a shell, or an
+    /// editor. The name tells them apart: `postmaster.pid` can name a process
+    /// other than its server only when it is stale, and the PID reused.
+    Process { cwd: (u64, u64), name: String },
+}
+
+/// Look at the process with this PID. `None` if this platform is not supported,
+/// so we cannot tell.
+#[cfg(target_os = "linux")]
+fn see(pid: u32) -> io::Result<Option<Seen>> {
+    let proc = |name: &str| format!("/proc/{pid}/{name}");
+    let seen = |err: io::Error| match err.kind() {
+        io::ErrorKind::NotFound => Ok(Seen::Gone),
+        io::ErrorKind::PermissionDenied => Ok(Seen::Hidden),
+        _ => Err(err),
+    };
+    let seen = match fs::metadata(proc("cwd")) {
+        Ok(cwd) => match fs::read_to_string(proc("comm")) {
+            Ok(name) => Seen::Process {
+                cwd: (cwd.dev(), cwd.ino()),
+                name: name.trim_end_matches('\n').to_owned(),
+            },
+            Err(err) => seen(err)?,
+        },
+        Err(err) => seen(err)?,
+    };
+    Ok(Some(seen))
+}
+
+/// Look at the process with this PID. `None` if this platform is not supported,
+/// so we cannot tell.
 #[cfg(target_os = "macos")]
-pub(super) fn cwd_is(pid: u32, (dir_dev, dir_ino): (u64, u64)) -> io::Result<Option<bool>> {
+fn see(pid: u32) -> io::Result<Option<Seen>> {
+    use nix::libc;
+    let seen = match i32::try_from(pid) {
+        Err(_) => Seen::Gone,
+        Ok(pid) => {
+            let vnodes =
+                proc_pidinfo::<libc::proc_vnodepathinfo>(pid, libc::PROC_PIDVNODEPATHINFO)?;
+            let bsdinfo = proc_pidinfo::<libc::proc_bsdinfo>(pid, libc::PROC_PIDTBSDINFO)?;
+            match (vnodes, bsdinfo) {
+                (Ok(vnodes), Ok(bsdinfo)) => {
+                    let cwd = vnodes.pvi_cdir.vip_vi.vi_stat;
+                    let dev = u64::from(cwd.vst_dev);
+                    let name = bsdinfo
+                        .pbi_comm
+                        .iter()
+                        .take_while(|&&c| c != 0)
+                        .map(|&c| c.cast_unsigned())
+                        .collect::<Vec<u8>>();
+                    Seen::Process {
+                        cwd: (dev, cwd.vst_ino),
+                        name: String::from_utf8_lossy(&name).into_owned(),
+                    }
+                }
+                (Err(seen), _) | (_, Err(seen)) => seen,
+            }
+        }
+    };
+    Ok(Some(seen))
+}
+
+/// Call `proc_pidinfo` for the given flavour of information, `T`. Returns what
+/// we can see instead if there is no such process, or we may not inspect it.
+#[cfg(target_os = "macos")]
+fn proc_pidinfo<T>(pid: i32, flavor: i32) -> io::Result<Result<T, Seen>> {
     use nix::{errno::Errno, libc};
-    let Ok(pid) = i32::try_from(pid) else {
-        return Ok(Some(false));
-    };
-    let mut vnodes = std::mem::MaybeUninit::<libc::proc_vnodepathinfo>::zeroed();
-    let size = i32::try_from(std::mem::size_of::<libc::proc_vnodepathinfo>())
-        .expect("proc_vnodepathinfo is small");
-    // SAFETY: `vnodes` is a writable buffer of `size` bytes, which is what
-    // `proc_pidinfo` expects for `PROC_PIDVNODEPATHINFO`.
-    let written = unsafe {
-        libc::proc_pidinfo(
-            pid,
-            libc::PROC_PIDVNODEPATHINFO,
-            0,
-            vnodes.as_mut_ptr().cast(),
-            size,
-        )
-    };
+    let mut info = std::mem::MaybeUninit::<T>::zeroed();
+    let size = i32::try_from(std::mem::size_of::<T>()).expect("proc_pidinfo structures are small");
+    // SAFETY: `info` is a writable buffer of `size` bytes, which is what
+    // `proc_pidinfo` expects for the flavours we use.
+    let written = unsafe { libc::proc_pidinfo(pid, flavor, 0, info.as_mut_ptr().cast(), size) };
     if written == size {
         // SAFETY: `proc_pidinfo` filled in the whole structure.
-        let vnodes = unsafe { vnodes.assume_init() };
-        let cwd = vnodes.pvi_cdir.vip_vi.vi_stat;
-        Ok(Some(
-            u64::from(cwd.vst_dev) == dir_dev && cwd.vst_ino == dir_ino,
-        ))
+        Ok(Ok(unsafe { info.assume_init() }))
     } else {
         match Errno::last() {
-            Errno::ESRCH => Ok(Some(false)),
-            Errno::EPERM | Errno::EACCES => Ok(None),
+            Errno::ESRCH => Ok(Err(Seen::Gone)),
+            Errno::EPERM | Errno::EACCES => Ok(Err(Seen::Hidden)),
             errno => Err(errno.into()),
         }
     }
 }
 
-/// Is the working directory of the process with this PID the given directory?
-/// Not supported on this platform, so we cannot tell.
+/// Look at the process with this PID. Not supported on this platform, so we
+/// cannot tell.
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-pub(super) fn cwd_is(_pid: u32, _dir: (u64, u64)) -> io::Result<Option<bool>> {
+fn see(_pid: u32) -> io::Result<Option<Seen>> {
     Ok(None)
 }
 
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::MetadataExt;
+    use std::path::Path;
     use std::process::{Child, Command};
 
-    use super::{check, cwd_is, Postmaster};
+    use super::{check, read, see, PidFile, Postmaster, Seen};
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    const SUPPORTED: bool = cfg!(any(target_os = "linux", target_os = "macos"));
 
     /// A child process sleeping in the given directory, killed when dropped.
     struct Sleeper(Child);
 
     impl Sleeper {
-        fn spawn(dir: &std::path::Path) -> std::io::Result<Self> {
-            Command::new("sleep")
+        fn spawn(dir: &Path) -> std::io::Result<Self> {
+            Self::spawn_program("sleep".as_ref(), dir)
+        }
+
+        /// Run a process called `postgres`, so that it looks like a PostgreSQL
+        /// server: a copy of this test program, in `bindir`, that runs only
+        /// [`sleep_as_postgres`]. (A copy of, or symlink to, `sleep` would not
+        /// do: macOS kills copies of its system programs, and names a process
+        /// after the target of a symlink.)
+        fn spawn_as_postgres(bindir: &Path, dir: &Path) -> std::io::Result<Self> {
+            let postgres = bindir.join("postgres");
+            if !postgres.exists() {
+                std::fs::copy(std::env::current_exe()?, &postgres)?;
+            }
+            Command::new(postgres)
+                .args(["--exact", "--include-ignored", "--test-threads=1"])
+                .arg("cluster::postmaster::tests::sleep_as_postgres")
+                .env(SLEEP_AS_POSTGRES, "1")
+                .current_dir(dir)
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .map(Self)
+        }
+
+        fn spawn_program(program: &Path, dir: &Path) -> std::io::Result<Self> {
+            Command::new(program)
                 .arg("60")
                 .current_dir(dir)
                 .spawn()
@@ -198,70 +281,114 @@ mod tests {
         }
     }
 
-    fn id(dir: &std::path::Path) -> std::io::Result<(u64, u64)> {
+    const SLEEP_AS_POSTGRES: &str = "PGDO_TEST_SLEEP_AS_POSTGRES";
+
+    /// Not a test: [`Sleeper::spawn_as_postgres`] runs this in a copy of this
+    /// test program.
+    #[test]
+    #[ignore = "run by Sleeper::spawn_as_postgres"]
+    fn sleep_as_postgres() {
+        if std::env::var_os(SLEEP_AS_POSTGRES).is_some() {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+        }
+    }
+
+    fn id(dir: &Path) -> std::io::Result<(u64, u64)> {
         let metadata = std::fs::metadata(dir)?;
         Ok((metadata.dev(), metadata.ino()))
     }
 
     #[test]
-    fn cwd_is_recognises_working_directory_of_process() -> TestResult {
+    fn see_reports_working_directory_and_name_of_process() -> TestResult {
         let here = tempfile::tempdir()?;
-        let elsewhere = tempfile::tempdir()?;
         let sleeper = Sleeper::spawn(here.path())?;
-        if cfg!(any(target_os = "linux", target_os = "macos")) {
-            assert_eq!(cwd_is(sleeper.pid(), id(here.path())?)?, Some(true));
-            assert_eq!(cwd_is(sleeper.pid(), id(elsewhere.path())?)?, Some(false));
+        if SUPPORTED {
+            assert_eq!(
+                see(sleeper.pid())?,
+                Some(Seen::Process { cwd: id(here.path())?, name: "sleep".into() })
+            );
         } else {
-            assert_eq!(cwd_is(sleeper.pid(), id(here.path())?)?, None);
+            assert_eq!(see(sleeper.pid())?, None);
         }
         Ok(())
     }
 
     #[test]
-    fn cwd_is_reports_missing_process() -> TestResult {
-        let here = tempfile::tempdir()?;
+    fn see_reports_missing_process() -> TestResult {
         let pid = {
             let mut child = Command::new("true").spawn()?;
             child.wait()?;
             child.id()
         };
-        if cfg!(any(target_os = "linux", target_os = "macos")) {
-            assert_eq!(cwd_is(pid, id(here.path())?)?, Some(false));
+        if SUPPORTED {
+            assert_eq!(see(pid)?, Some(Seen::Gone));
         }
         Ok(())
     }
 
     #[test]
-    fn cwd_is_cannot_tell_for_processes_it_cannot_inspect() -> TestResult {
+    fn see_cannot_inspect_processes_of_other_users() -> TestResult {
         // PID 1 – init, systemd, launchd – belongs to root. Unless we are root,
-        // we cannot inspect it; if we are root, it is not in this directory.
-        let here = tempfile::tempdir()?;
-        let result = cwd_is(1, id(here.path())?)?;
-        assert!(matches!(result, None | Some(false)), "{result:?}");
+        // we cannot inspect it.
+        let result = see(1)?;
+        if SUPPORTED {
+            assert!(
+                matches!(result, Some(Seen::Hidden | Seen::Process { .. })),
+                "{result:?}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn read_returns_pid_and_port() -> TestResult {
+        let datadir = tempfile::tempdir()?;
+        let pidfile = datadir.path().join("postmaster.pid");
+        assert_eq!(read(datadir.path())?, None);
+        std::fs::write(&pidfile, "123\n/some/where\n1700000000\n5433\n/tmp\n")?;
+        assert_eq!(
+            read(datadir.path())?,
+            Some(PidFile { pid: 123, port: Some(5433) })
+        );
+        // A server writes the file in stages as it starts.
+        std::fs::write(&pidfile, "123\n")?;
+        assert_eq!(
+            read(datadir.path())?,
+            Some(PidFile { pid: 123, port: None })
+        );
         Ok(())
     }
 
     #[test]
     fn check_classifies_postmaster_pid() -> TestResult {
         let datadir = tempfile::tempdir()?;
+        let bindir = tempfile::tempdir()?;
         let pidfile = datadir.path().join("postmaster.pid");
         assert_eq!(check(datadir.path())?, Postmaster::Absent);
 
-        // A process running in the data directory, like a real server.
-        let server = Sleeper::spawn(datadir.path())?;
+        // A `postgres` process running in the data directory, like a server.
+        let server = Sleeper::spawn_as_postgres(bindir.path(), datadir.path())?;
         std::fs::write(
             &pidfile,
             format!("{}\n{}\n", server.pid(), datadir.path().display()),
         )?;
-        if cfg!(any(target_os = "linux", target_os = "macos")) {
+        if SUPPORTED {
             assert_eq!(check(datadir.path())?, Postmaster::Running(server.pid()));
+        }
+
+        // Another program running in the data directory, e.g. a shell, with a
+        // reused PID.
+        let shell = Sleeper::spawn(datadir.path())?;
+        std::fs::write(&pidfile, format!("{}\n", shell.pid()))?;
+        if SUPPORTED {
+            assert_eq!(check(datadir.path())?, Postmaster::Other(shell.pid()));
         }
 
         // A process elsewhere, e.g. a reused PID.
         let elsewhere = tempfile::tempdir()?;
-        let other = Sleeper::spawn(elsewhere.path())?;
+        let other = Sleeper::spawn_as_postgres(bindir.path(), elsewhere.path())?;
         std::fs::write(&pidfile, format!("{}\n", other.pid()))?;
-        if cfg!(any(target_os = "linux", target_os = "macos")) {
+        if SUPPORTED {
             assert_eq!(check(datadir.path())?, Postmaster::Other(other.pid()));
         }
 
@@ -272,7 +399,7 @@ mod tests {
 
         // Single-user mode: the PID is negated.
         std::fs::write(&pidfile, format!("-{}\n", server.pid()))?;
-        if cfg!(any(target_os = "linux", target_os = "macos")) {
+        if SUPPORTED {
             assert_eq!(check(datadir.path())?, Postmaster::Running(server.pid()));
         }
 
