@@ -144,7 +144,7 @@ pub(super) enum Relation {
 
 /// The contents of an owner file.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Owner {
+pub(super) struct Record {
     fingerprint: Fingerprint,
     /// `false` if this records a server whose namespace is not known, e.g. one
     /// that a session joined via its Unix-domain socket. Such a server is in
@@ -157,7 +157,7 @@ pub(super) struct Owner {
     datadir: (u64, u64),
 }
 
-impl Owner {
+impl Record {
     /// An owner record for the current process and the given data directory.
     pub(super) fn current(datadir: &Path) -> io::Result<Self> {
         let metadata = fs::metadata(datadir)?;
@@ -173,7 +173,7 @@ impl Owner {
     }
 
     /// This owner record, but for a server in an unknown namespace on this
-    /// kernel; see [`Owner::namespace_known`].
+    /// kernel; see [`Record::namespace_known`].
     pub(super) fn with_unknown_namespace(mut self) -> Self {
         self.namespace_known = false;
         self.fingerprint.pid_ns = None;
@@ -183,7 +183,7 @@ impl Owner {
 
     /// How does this owner relate to `current`, the owner record for the
     /// current process?
-    pub(super) fn relation(&self, current: &Owner) -> Relation {
+    pub(super) fn relation(&self, current: &Record) -> Relation {
         let (ours, theirs) = (&current.fingerprint, &self.fingerprint);
         match (&ours.boot_id, &theirs.boot_id) {
             (Some(ours_id), Some(theirs_id)) if ours_id == theirs_id => {
@@ -273,7 +273,7 @@ impl Owner {
 /// An owner file as found on disk.
 #[derive(Debug)]
 pub(super) struct Found {
-    pub(super) owner: Owner,
+    pub(super) record: Record,
     /// Time since the last heartbeat. Zero if the file's modification time is
     /// in the future, e.g. because of clock skew between host and VM.
     pub(super) age: Duration,
@@ -306,11 +306,11 @@ pub(super) fn read(path: &Path) -> io::Result<Option<Found>> {
         let modified = file.metadata()?.modified()?;
         let mut text = String::new();
         io::Read::read_to_string(&mut file, &mut text)?;
-        if let Some(owner) = Owner::parse(&text) {
+        if let Some(record) = Record::parse(&text) {
             let age = SystemTime::now()
                 .duration_since(modified)
                 .unwrap_or_default();
-            return Ok(Some(Found { owner, age }));
+            return Ok(Some(Found { record, age }));
         }
         if attempt < ATTEMPTS {
             std::thread::sleep(Duration::from_millis(100));
@@ -398,20 +398,20 @@ pub(super) fn observe(
 /// random hex digits, because processes on other kernels may be doing the same
 /// – which is then linked into place. `link` fails if the destination exists,
 /// making this an atomic claim, and readers never see a partially written file.
-pub(super) fn claim(path: &Path, owner: &Owner) -> io::Result<bool> {
-    claim_via(path, owner, std::iter::repeat_with(|| temp_path(path)))
+pub(super) fn claim(path: &Path, record: &Record) -> io::Result<bool> {
+    claim_via(path, record, std::iter::repeat_with(|| temp_path(path)))
 }
 
 /// Like [`claim`], but trying the given temporary file names in turn.
 fn claim_via(
     path: &Path,
-    owner: &Owner,
+    record: &Record,
     temps: impl IntoIterator<Item = PathBuf>,
 ) -> io::Result<bool> {
     let (temp, mut file) = create_temp(temps)?;
     // From here on, `temp` is ours, so we must remove it, come what may.
     let result = (|| {
-        file.write_all(owner.serialize().as_bytes())?;
+        file.write_all(record.serialize().as_bytes())?;
         file.sync_all()?;
         match fs::hard_link(&temp, path) {
             Ok(()) => Ok(true),
@@ -530,8 +530,8 @@ impl Drop for Heartbeat {
 mod tests {
     use super::*;
 
-    fn owner(boot_id: &str, pid_ns: u64, datadir: (u64, u64)) -> Owner {
-        Owner {
+    fn record(boot_id: &str, pid_ns: u64, datadir: (u64, u64)) -> Record {
+        Record {
             fingerprint: Fingerprint {
                 boot_id: Some(boot_id.into()),
                 pid_ns: Some(pid_ns),
@@ -555,26 +555,26 @@ mod tests {
 
     #[test]
     fn serialize_and_parse_round_trip() {
-        let owner = owner("boot", 42, (1, 2));
-        assert_eq!(Owner::parse(&owner.serialize()), Some(owner));
-        let mut owner = Owner::current(Path::new("/")).unwrap();
-        owner.fingerprint.pid_ns = None;
-        owner.fingerprint.boot_id = None;
-        assert_eq!(Owner::parse(&owner.serialize()), Some(owner));
+        let record = record("boot", 42, (1, 2));
+        assert_eq!(Record::parse(&record.serialize()), Some(record));
+        let mut record = Record::current(Path::new("/")).unwrap();
+        record.fingerprint.pid_ns = None;
+        record.fingerprint.boot_id = None;
+        assert_eq!(Record::parse(&record.serialize()), Some(record));
     }
 
     #[test]
     fn serialize_and_parse_round_trip_with_unknown_namespace() {
-        let joined = owner("boot", 42, (1, 2)).with_unknown_namespace();
+        let joined = record("boot", 42, (1, 2)).with_unknown_namespace();
         assert!(joined.serialize().contains("namespace=unknown\n"));
-        assert_eq!(Owner::parse(&joined.serialize()), Some(joined));
-        let text = owner("boot", 42, (1, 2)).serialize() + "namespace=bogus\n";
-        assert_eq!(Owner::parse(&text), None);
+        assert_eq!(Record::parse(&joined.serialize()), Some(joined));
+        let text = record("boot", 42, (1, 2)).serialize() + "namespace=bogus\n";
+        assert_eq!(Record::parse(&text), None);
     }
 
     #[test]
     fn relation_with_unknown_namespace_is_never_same_namespace() {
-        let current = owner("boot", 42, (1, 2));
+        let current = record("boot", 42, (1, 2));
         let joined = current.clone().with_unknown_namespace();
         assert_eq!(joined.relation(&current), Relation::SameKernel);
         assert_eq!(joined.relation(&joined), Relation::SameKernel);
@@ -602,38 +602,41 @@ mod tests {
 
     #[test]
     fn parse_rejects_malformed_or_unknown_versions() {
-        assert_eq!(Owner::parse(""), None);
-        assert_eq!(Owner::parse("version=1\nhostname=x\n"), None);
-        assert_eq!(Owner::parse("garbage"), None);
-        let text = owner("boot", 42, (1, 2))
+        assert_eq!(Record::parse(""), None);
+        assert_eq!(Record::parse("version=1\nhostname=x\n"), None);
+        assert_eq!(Record::parse("garbage"), None);
+        let text = record("boot", 42, (1, 2))
             .serialize()
             .replace("version=1", "version=2");
-        assert_eq!(Owner::parse(&text), None);
+        assert_eq!(Record::parse(&text), None);
     }
 
     #[test]
     fn relation() {
-        let current = owner("boot", 42, (1, 2));
+        let current = record("boot", 42, (1, 2));
         assert_eq!(
-            owner("boot", 42, (1, 2)).relation(&current),
+            record("boot", 42, (1, 2)).relation(&current),
             Relation::SameNamespace
         );
         assert_eq!(
-            owner("boot", 43, (1, 2)).relation(&current),
+            record("boot", 43, (1, 2)).relation(&current),
             Relation::SameKernel
         );
-        assert_eq!(owner("boot", 42, (1, 3)).relation(&current), Relation::Copy);
         assert_eq!(
-            owner("other", 42, (1, 2)).relation(&current),
+            record("boot", 42, (1, 3)).relation(&current),
+            Relation::Copy
+        );
+        assert_eq!(
+            record("other", 42, (1, 2)).relation(&current),
             Relation::OtherKernel
         );
         // Across kernels, device and inode numbers are not comparable.
         assert_eq!(
-            owner("other", 42, (9, 9)).relation(&current),
+            record("other", 42, (9, 9)).relation(&current),
             Relation::OtherKernel
         );
         // An unknown kernel is treated as another kernel.
-        let mut unknown = owner("boot", 42, (1, 2));
+        let mut unknown = record("boot", 42, (1, 2));
         unknown.fingerprint.boot_id = None;
         assert_eq!(unknown.relation(&current), Relation::OtherKernel);
     }
@@ -642,13 +645,13 @@ mod tests {
     fn claim_is_exclusive_and_read_reports_age() -> io::Result<()> {
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("pgdo.owner");
-        let first = owner("boot", 1, (1, 2));
+        let first = record("boot", 1, (1, 2));
         assert!(claim(&path, &first)?);
-        assert!(!claim(&path, &owner("boot", 2, (1, 2)))?);
+        assert!(!claim(&path, &record("boot", 2, (1, 2)))?);
         // Temporary files are cleaned up.
         assert_eq!(fs::read_dir(dir.path())?.count(), 1);
         let found = read(&path)?.expect("owner file missing");
-        assert_eq!(found.owner, first);
+        assert_eq!(found.record, first);
         assert!(found.is_fresh());
         // Backdate the file: stale.
         let file = fs::File::options().write(true).open(&path)?;
@@ -671,9 +674,9 @@ mod tests {
         let theirs = dir.path().join("pgdo.owner.theirs");
         fs::write(&theirs, "theirs")?;
         let ours = dir.path().join("pgdo.owner.ours");
-        let owner = owner("boot", 1, (1, 2));
-        assert!(claim_via(&path, &owner, [theirs.clone(), ours.clone()])?);
-        assert_eq!(read(&path)?.expect("owner file missing").owner, owner);
+        let record = record("boot", 1, (1, 2));
+        assert!(claim_via(&path, &record, [theirs.clone(), ours.clone()])?);
+        assert_eq!(read(&path)?.expect("owner file missing").record, record);
         // Their temporary file is untouched; ours is gone.
         assert_eq!(fs::read_to_string(&theirs)?, "theirs");
         assert!(!ours.exists());
@@ -686,8 +689,8 @@ mod tests {
         let path = dir.path().join("pgdo.owner");
         let taken = dir.path().join("pgdo.owner.taken");
         fs::write(&taken, "taken")?;
-        let owner = owner("boot", 1, (1, 2));
-        let err = claim_via(&path, &owner, std::iter::repeat(taken.clone())).unwrap_err();
+        let record = record("boot", 1, (1, 2));
+        let err = claim_via(&path, &record, std::iter::repeat(taken.clone())).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::AlreadyExists);
         assert!(!path.exists());
         assert_eq!(fs::read_to_string(&taken)?, "taken");

@@ -334,8 +334,8 @@ fn ownership(cluster: &Cluster, _: &Verified<'_>) -> Result<Ownership, ClusterEr
     let Some(found) = owner::read(&cluster.ownerfile())? else {
         return Ok(Ownership::None);
     };
-    let current = owner::Owner::current(&cluster.datadir)?;
-    Ok(match found.owner.relation(&current) {
+    let current = owner::Record::current(&cluster.datadir)?;
+    Ok(match found.record.relation(&current) {
         Relation::Copy => Ownership::Copy,
         Relation::SameNamespace => Ownership::SameNamespace,
         Relation::SameKernel => Ownership::SameKernel,
@@ -423,7 +423,7 @@ fn stop(cluster: &Cluster) -> Result<State, ClusterError> {
 /// Refuse to use a cluster owned by another kernel, unless taking over is
 /// allowed. Whether to take over is then decided by observing the owner file.
 fn refuse_other_kernel(found: &owner::Found, takeover: Takeover) -> Result<(), ClusterError> {
-    let (hostname, age) = (found.owner.hostname.clone(), found.age);
+    let (hostname, age) = (found.record.hostname.clone(), found.age);
     match takeover {
         Takeover::IfStale => Ok(()),
         Takeover::Never if found.is_fresh() => Err(ClusterError::InUseElsewhere { hostname, age }),
@@ -482,7 +482,7 @@ fn take_over(
     // Its owner's clock may disagree with ours, or its owner may be slow, so
     // watch for heartbeats before taking over, whatever the owner file's age.
     let ownerfile = cluster.ownerfile();
-    let hostname = &found.owner.hostname;
+    let hostname = &found.record.hostname;
     log::warn!(
         "Checking that cluster {} is no longer in use on {hostname}; this takes {}s.",
         cluster.datadir.display(),
@@ -527,7 +527,7 @@ fn start_or_join(
     // If a server is running, claim it so that other kernels see that it is in
     // use, then join it. If we can see it only via its socket, it is in another
     // namespace, which the claim must say.
-    let current = owner::Owner::current(&cluster.datadir)?;
+    let current = owner::Record::current(&cluster.datadir)?;
     let joining = if server_here(cluster, postmaster)? {
         Some(current.clone())
     } else if server_elsewhere(cluster)? {
@@ -537,8 +537,8 @@ fn start_or_join(
     };
     if interrupted() {
         Err(ClusterError::Interrupted)
-    } else if let Some(owner) = joining {
-        if owner::claim(&ownerfile, &owner)? {
+    } else if let Some(record) = joining {
+        if owner::claim(&ownerfile, &record)? {
             let ownership = match verify(cluster, &lock)? {
                 Some(verified) => ownership(cluster, &verified)?,
                 None => return Ok(None),
@@ -786,8 +786,8 @@ mod tests {
         let session = Cluster::new(&datadir, Strategy::default())?
             .session_with_takeover(&[], Takeover::IfStale)?;
         assert_eq!(session.status()?, ClusterStatus::Running);
-        let owner = std::fs::read_to_string(datadir.join("pgdo.owner"))?;
-        assert!(!owner.contains("some-other-kernel"));
+        let record = std::fs::read_to_string(datadir.join("pgdo.owner"))?;
+        assert!(!record.contains("some-other-kernel"));
         assert_eq!(session.end()?, State::Modified);
         Ok(())
     }
