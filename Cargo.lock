@@ -790,7 +790,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pgdo-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -803,7 +803,7 @@ dependencies = [
 
 [[package]]
 name = "pgdo-lib"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "backoff",
  "bytes",
@@ -828,7 +828,7 @@ dependencies = [
 
 [[package]]
 name = "pgdo-test"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "ctor",
  "log",
@@ -839,7 +839,7 @@ dependencies = [
 
 [[package]]
 name = "pgdo-test-macros"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "pgdo-lib",
  "quote",
