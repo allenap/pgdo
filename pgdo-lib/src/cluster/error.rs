@@ -64,6 +64,16 @@ pub enum ClusterError {
          this data directory, remove postmaster.pid."
     ))]
     StalePidFile { pid: u32 },
+    #[error("Could not tell whether the cluster is running in another namespace: could not connect to {path}")]
+    #[diagnostic(help(
+        "If the socket's path is too long for this platform (103 bytes on macOS, 107 on Linux), \
+         use a data directory with a shorter path."
+    ))]
+    ServerStateUnknown {
+        path: std::path::PathBuf,
+        #[source]
+        source: io::Error,
+    },
     #[error("Interrupted while starting a session with the cluster")]
     Interrupted,
     #[error("Could not lock cluster")]

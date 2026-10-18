@@ -28,18 +28,35 @@ use postgres_protocol::message::{backend::Message, frontend};
 
 use super::PORT;
 
-/// The path to the Unix-domain socket of a cluster listening in `socketdir`.
-fn socket_path(socketdir: &Path) -> std::path::PathBuf {
-    socketdir.join(format!(".s.PGSQL.{PORT}"))
+/// The path to the Unix-domain socket of a server listening on `port` in
+/// `socketdir`.
+pub(super) fn socket_path(socketdir: &Path, port: u16) -> std::path::PathBuf {
+    socketdir.join(format!(".s.PGSQL.{port}"))
 }
 
-/// Does a server accept connections on the Unix-domain socket in `socketdir`?
+/// Does a server accept connections on the Unix-domain socket for `port` in
+/// `socketdir`?
 ///
 /// This works across PID namespaces on the same kernel, where PostgreSQL's own
 /// check – signalling the PID in `postmaster.pid` – does not. It does not work
 /// across kernels, e.g. from macOS into a Linux VM.
-pub(super) fn accepts_connections(socketdir: &Path) -> bool {
-    UnixStream::connect(socket_path(socketdir)).is_ok()
+///
+/// Returns an error if we cannot tell, e.g. because the socket's path is too
+/// long for this platform. Treating that as "no" could lead the caller to start
+/// a second server on the same data.
+pub(super) fn accepts_connections(socketdir: &Path, port: u16) -> io::Result<bool> {
+    match UnixStream::connect(socket_path(socketdir, port)) {
+        Ok(_) => Ok(true),
+        Err(err)
+            if matches!(
+                err.kind(),
+                io::ErrorKind::ConnectionRefused | io::ErrorKind::NotFound
+            ) =>
+        {
+            Ok(false)
+        }
+        Err(err) => Err(err),
+    }
 }
 
 /// SQLSTATE for "duplicate database".
@@ -158,7 +175,7 @@ impl Client {
     /// Connect to the cluster listening in `socketdir`, with trust
     /// authentication.
     pub fn connect(socketdir: &Path, user: &str, database: &str) -> Result<Self, ClientError> {
-        let stream = UnixStream::connect(socket_path(socketdir))?;
+        let stream = UnixStream::connect(socket_path(socketdir, PORT))?;
         let mut client = Client { stream, buf: BytesMut::new() };
 
         let mut message = BytesMut::new();

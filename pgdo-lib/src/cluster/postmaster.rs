@@ -33,30 +33,49 @@ pub(super) enum Postmaster {
     Unknown(u32),
 }
 
-/// Check the PID in the `postmaster.pid` file in `datadir`.
-pub(super) fn check(datadir: &Path) -> io::Result<Postmaster> {
-    let text = match fs::read_to_string(datadir.join("postmaster.pid")) {
+/// The fields of a `postmaster.pid` file that pgdo uses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct PidFile {
+    /// The server's PID. This is meaningful only in the server's PID namespace.
+    pub(super) pid: u32,
+    /// The port the server listens on, which determines its socket's name.
+    /// `None` if the file does not say, e.g. because the server is starting.
+    pub(super) port: Option<u16>,
+}
+
+/// Read the `postmaster.pid` file in `datadir`. `None` if there is none, i.e.
+/// no server is running – in any namespace – for this data directory.
+pub(super) fn read(datadir: &Path) -> io::Result<Option<PidFile>> {
+    let path = datadir.join("postmaster.pid");
+    let text = match fs::read_to_string(&path) {
         Ok(text) => text,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Postmaster::Absent),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(err),
     };
+    let mut lines = text.lines().map(str::trim);
     // The first line is the PID. It is negated for a server in single-user
     // mode.
-    let pid = text
-        .lines()
+    let pid = lines
         .next()
-        .and_then(|line| line.trim().parse::<i64>().ok())
+        .and_then(|line| line.parse::<i64>().ok())
         .and_then(|pid| u32::try_from(pid.unsigned_abs()).ok())
         .filter(|&pid| pid > 0)
         .ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!(
-                    "could not find a PID in {}",
-                    datadir.join("postmaster.pid").display()
-                ),
+                format!("could not find a PID in {}", path.display()),
             )
         })?;
+    // Then the data directory, the start time, and the port.
+    let port = lines.nth(2).and_then(|line| line.parse().ok());
+    Ok(Some(PidFile { pid, port }))
+}
+
+/// Check the PID in the `postmaster.pid` file in `datadir`.
+pub(super) fn check(datadir: &Path) -> io::Result<Postmaster> {
+    let Some(PidFile { pid, .. }) = read(datadir)? else {
+        return Ok(Postmaster::Absent);
+    };
     let datadir = fs::metadata(datadir)?;
     Ok(match cwd_is(pid, (datadir.dev(), datadir.ino()))? {
         Some(true) => Postmaster::Running(pid),

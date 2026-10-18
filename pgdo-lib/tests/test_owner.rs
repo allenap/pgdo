@@ -277,23 +277,86 @@ fn session_claims_cluster_visible_only_via_socket_with_unknown_namespace() -> Te
     setup.our_owner()?;
     let cluster = setup.cluster()?;
     cluster.start(&[])?;
-    // Make the server look like it belongs to another namespace: we can reach
-    // it via its socket, but its PID means nothing to us. PostgreSQL checks
-    // `postmaster.pid` only every minute, so moving it aside briefly is safe.
-    let pidfile = setup.datadir.join("postmaster.pid");
-    let hidden = setup.datadir.join("postmaster.pid.hidden");
-    std::fs::rename(&pidfile, &hidden)?;
-    let result = (|| -> TestResult {
+    let result = in_other_namespace(&setup.datadir, || {
         let session = setup.cluster()?.session(&[])?;
         let owner = std::fs::read_to_string(setup.ownerfile())?;
         assert_eq!(get(&owner, "namespace"), Some("unknown"));
         // We cannot stop a server in another namespace, so it's left running.
         assert_eq!(session.end()?, State::Unmodified);
         Ok(())
-    })();
-    std::fs::rename(&hidden, &pidfile)?;
+    });
     assert_eq!(cluster.status()?, ClusterStatus::Running);
     cluster.stop()?;
+    result
+}
+
+/// A server in another namespace that listens on a port other than pgdo's, e.g.
+/// because `PGPORT` was set when it started, must still be seen as running.
+/// Otherwise a session here would release its owner's claim and start a second
+/// server on the same data.
+#[test]
+fn session_joins_server_in_other_namespace_on_other_port() -> TestResult {
+    let setup = Setup::new()?;
+    let ours = setup.our_owner()?;
+    let cluster = setup.cluster()?;
+    cluster.start(&[("port".into(), 5433.into())])?;
+    setup.write_owner(&other_namespace(&ours))?;
+    let result = in_other_namespace(&setup.datadir, || {
+        let session = setup.cluster()?.session(&[])?;
+        // The owner's claim stands, and the server is left running.
+        assert_eq!(
+            get(&std::fs::read_to_string(setup.ownerfile())?, "pid_ns"),
+            get(&other_namespace(&ours), "pid_ns")
+        );
+        assert_eq!(session.end()?, State::Unmodified);
+        Ok(())
+    });
+    assert!(setup.datadir.join(".s.PGSQL.5433").exists());
+    cluster.stop()?;
+    result
+}
+
+/// If we cannot tell whether a server in another namespace is running – here,
+/// because the path of its socket is too long to connect to – refuse, rather
+/// than assume it is not and start a second server.
+#[test]
+fn session_refuses_when_it_cannot_tell_if_server_is_running() -> TestResult {
+    let tempdir = tempfile::tempdir()?;
+    let datadir = tempdir.path().join("d".repeat(120));
+    let cluster = Cluster::new(&datadir, Strategy::default())?;
+    cluster.create()?;
+    std::fs::write(
+        datadir.join("postmaster.pid"),
+        format!("{}\n{}\n0\n5432\n", dead_pid()?, datadir.display()),
+    )?;
+    assert!(matches!(
+        cluster.session(&[]),
+        Err(ClusterError::ServerStateUnknown { .. })
+    ));
+    assert!(!datadir.join("pgdo.owner").exists());
+    Ok(())
+}
+
+/// A PID that no process has. It could be reused, but not soon.
+fn dead_pid() -> TestResult<u32> {
+    let mut child = std::process::Command::new("true").spawn()?;
+    child.wait()?;
+    Ok(child.id())
+}
+
+/// Run `f` while the server running in `datadir` looks as if it belongs to
+/// another PID namespace: its `postmaster.pid` is still there, but its PID
+/// means nothing here. PostgreSQL rechecks `postmaster.pid` only every minute,
+/// so changing it briefly is safe.
+fn in_other_namespace(datadir: &Path, f: impl FnOnce() -> TestResult) -> TestResult {
+    let pidfile = datadir.join("postmaster.pid");
+    let original = std::fs::read_to_string(&pidfile)?;
+    let (_, rest) = original
+        .split_once('\n')
+        .ok_or("postmaster.pid has no lines")?;
+    std::fs::write(&pidfile, format!("{}\n{rest}", dead_pid()?))?;
+    let result = f();
+    std::fs::write(&pidfile, original)?;
     result
 }
 

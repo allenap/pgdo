@@ -354,12 +354,12 @@ fn running(
         // In the same namespace, we can check the server's PID.
         Ownership::SameNamespace => server_here(cluster, postmaster::check(&cluster.datadir)?)?,
         // From another namespace, only the socket can tell us.
-        Ownership::SameKernel => client::accepts_connections(&cluster.datadir),
+        Ownership::SameKernel => server_elsewhere(cluster)?,
         // With no (meaningful) owner, a server could have been started from
         // any namespace, so check both ways.
         Ownership::None | Ownership::Copy => {
             server_here(cluster, postmaster::check(&cluster.datadir)?)?
-                || client::accepts_connections(&cluster.datadir)
+                || server_elsewhere(cluster)?
         }
         // We cannot tell. Callers must deal with this case first.
         Ownership::OtherKernel(_) => unreachable!("cannot tell if cluster runs on another kernel"),
@@ -374,6 +374,30 @@ fn server_here(cluster: &Cluster, postmaster: Postmaster) -> Result<bool, Cluste
         Postmaster::Absent | Postmaster::Dead(_) | Postmaster::Other(_) => Ok(false),
         // We cannot check the PID, so fall back to `pg_ctl status`.
         Postmaster::Unknown(_) => cluster.running(),
+    }
+}
+
+/// Is a server for this cluster running, perhaps in another namespace, where
+/// its PID in `postmaster.pid` means nothing to us? Only its socket can tell.
+///
+/// The socket's name comes from the port in `postmaster.pid`, in case the
+/// server was started on a port other than [`PORT`][super::PORT]. But not the
+/// socket's directory: that is a path in the server's namespace, which may name
+/// another place here, e.g. when the data directory is a bind mount. pgdo puts
+/// the socket in the data directory, so look there.
+fn server_elsewhere(cluster: &Cluster) -> Result<bool, ClusterError> {
+    match postmaster::read(&cluster.datadir)? {
+        // A running server always has a `postmaster.pid`.
+        None => Ok(false),
+        Some(pidfile) => {
+            let port = pidfile.port.unwrap_or(super::PORT);
+            client::accepts_connections(&cluster.datadir, port).map_err(|source| {
+                ClusterError::ServerStateUnknown {
+                    path: client::socket_path(&cluster.datadir, port),
+                    source,
+                }
+            })
+        }
     }
 }
 
@@ -505,7 +529,7 @@ fn start_or_join(
     let current = owner::Owner::current(&cluster.datadir)?;
     let joining = if server_here(cluster, postmaster)? {
         Some(current.clone())
-    } else if client::accepts_connections(&cluster.datadir) {
+    } else if server_elsewhere(cluster)? {
         Some(current.clone().with_unknown_namespace())
     } else {
         None
