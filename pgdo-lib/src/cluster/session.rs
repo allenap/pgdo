@@ -838,8 +838,10 @@ mod tests {
         Ok(())
     }
 
-    /// Interrupted once the server has started, e.g. by Ctrl-C while `pg_ctl
-    /// start` waits for it: stop the server, and release the claim.
+    /// Interrupted just as the server has started, i.e. after `pg_ctl start`
+    /// has returned: stop the server, and release the claim. (An interrupt
+    /// while `pg_ctl start` waits – e.g. Ctrl-C, which kills `pg_ctl` – makes
+    /// it fail, which the same path handles.)
     #[test]
     fn session_interrupted_after_starting_stops_server() -> TestResult {
         let tempdir = tempfile::tempdir()?;

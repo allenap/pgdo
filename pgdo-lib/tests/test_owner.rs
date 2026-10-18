@@ -91,7 +91,8 @@ fn other_kernel(owner: &str) -> String {
 
 fn other_namespace(owner: &str) -> String {
     // On macOS there are no namespaces, so this adds one; that also differs.
-    with(owner, "pid_ns", "4026531111")
+    // PIDs in another namespace are unrelated to ours, and often small.
+    with(&with(owner, "pid_ns", "4026531111"), "pid", "7")
 }
 
 fn status(datadir: &Path) -> TestResult<ClusterStatus> {

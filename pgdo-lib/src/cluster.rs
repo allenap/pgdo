@@ -627,8 +627,8 @@ impl Cluster {
     /// Destroy the cluster if it exists, after stopping it.
     ///
     /// This removes everything in the data directory **except** the files that
-    /// sessions use to coordinate, i.e. `pgdo.lock`, then removes the data
-    /// directory if it is empty.
+    /// sessions use to coordinate, i.e. `pgdo.lock` and `pgdo.owner`, then
+    /// removes the data directory if that leaves it empty.
     /// A [`Session`] that ends with [`Finish::Destroy`] removes pgdo's files –
     /// safely – and the data directory too.
     pub fn destroy(&self) -> Result<State, ClusterError> {
