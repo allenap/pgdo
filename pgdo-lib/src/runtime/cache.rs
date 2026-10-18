@@ -34,7 +34,7 @@ static CACHE: LazyLock<RwLock<HashMap<PathBuf, Entry>>> = LazyLock::new(|| HashM
 /// understand the nuances of PostgreSQL's versioning scheme.
 ///
 /// [versioning]: https://www.postgresql.org/support/versioning/
-pub fn version<P: AsRef<Path>>(binary: P) -> Result<Version, RuntimeError> {
+pub(super) fn version<P: AsRef<Path>>(binary: P) -> Result<Version, RuntimeError> {
     let binary: PathBuf = binary.as_ref().canonicalize()?;
     let (size, hash) = {
         let mut file = File::open(&binary)?;

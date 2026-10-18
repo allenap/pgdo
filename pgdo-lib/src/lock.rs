@@ -2,16 +2,6 @@
 //!
 //! You must start with an [`UnlockedFile`].
 //!
-//! ```rust
-//! let lockdir = tempfile::tempdir()?;
-//! # use pgdo::lock::UnlockedFile;
-//! let mut lock = UnlockedFile::try_from(lockdir.path().join("foo").as_path())?;
-//! let lock = lock.lock_shared()?;
-//! let lock = lock.lock_exclusive()?;
-//! let lock = lock.unlock()?;
-//! # Ok::<(), std::io::Error>(())
-//! ```
-//!
 //! Dropping a [`LockedFileShared`] or [`LockedFileExclusive`] will ordinarily
 //! drop the underlying `flock`-based lock by virtue of dropping the [`File`]
 //! they each wrap. However, if the file descriptor was duplicated prior to
@@ -34,11 +24,11 @@ use nix::fcntl::{flock, FlockArg};
 use nix::Result;
 
 #[derive(Debug)]
-pub struct UnlockedFile(File);
+pub(crate) struct UnlockedFile(File);
 #[derive(Debug)]
-pub struct LockedFileShared(File);
+pub(crate) struct LockedFileShared(File);
 #[derive(Debug)]
-pub struct LockedFileExclusive(File);
+pub(crate) struct LockedFileExclusive(File);
 
 /// Implemented only by files that are locked, shared or exclusively, so that
 /// functions can require proof that a lock is held.
@@ -93,9 +83,8 @@ impl TryFrom<&std::path::PathBuf> for UnlockedFile {
     }
 }
 
-#[allow(unused)]
 impl UnlockedFile {
-    pub fn try_lock_shared(self) -> Result<Either<Self, LockedFileShared>> {
+    pub(crate) fn try_lock_shared(self) -> Result<Either<Self, LockedFileShared>> {
         match flock(self.0.as_raw_fd(), FlockArg::LockSharedNonblock) {
             Ok(()) => Ok(Right(LockedFileShared(self.0))),
             Err(Errno::EAGAIN) => Ok(Left(self)),
@@ -103,12 +92,13 @@ impl UnlockedFile {
         }
     }
 
-    pub fn lock_shared(self) -> Result<LockedFileShared> {
+    #[cfg(test)]
+    pub(crate) fn lock_shared(self) -> Result<LockedFileShared> {
         flock(self.0.as_raw_fd(), FlockArg::LockShared)?;
         Ok(LockedFileShared(self.0))
     }
 
-    pub fn try_lock_exclusive(self) -> Result<Either<Self, LockedFileExclusive>> {
+    pub(crate) fn try_lock_exclusive(self) -> Result<Either<Self, LockedFileExclusive>> {
         match flock(self.0.as_raw_fd(), FlockArg::LockExclusiveNonblock) {
             Ok(()) => Ok(Right(LockedFileExclusive(self.0))),
             Err(Errno::EAGAIN) => Ok(Left(self)),
@@ -116,15 +106,15 @@ impl UnlockedFile {
         }
     }
 
-    pub fn lock_exclusive(self) -> Result<LockedFileExclusive> {
+    #[cfg(test)]
+    pub(crate) fn lock_exclusive(self) -> Result<LockedFileExclusive> {
         flock(self.0.as_raw_fd(), FlockArg::LockExclusive)?;
         Ok(LockedFileExclusive(self.0))
     }
 }
 
-#[allow(unused)]
 impl LockedFileShared {
-    pub fn try_lock_exclusive(self) -> Result<Either<Self, LockedFileExclusive>> {
+    pub(crate) fn try_lock_exclusive(self) -> Result<Either<Self, LockedFileExclusive>> {
         match flock(self.0.as_raw_fd(), FlockArg::LockExclusiveNonblock) {
             Ok(()) => Ok(Right(LockedFileExclusive(self.0))),
             Err(Errno::EAGAIN) => Ok(Left(self)),
@@ -132,49 +122,20 @@ impl LockedFileShared {
         }
     }
 
-    pub fn lock_exclusive(self) -> Result<LockedFileExclusive> {
-        flock(self.0.as_raw_fd(), FlockArg::LockExclusive)?;
-        Ok(LockedFileExclusive(self.0))
-    }
-
-    pub fn try_unlock(self) -> Result<Either<Self, UnlockedFile>> {
-        match flock(self.0.as_raw_fd(), FlockArg::UnlockNonblock) {
-            Ok(()) => Ok(Right(UnlockedFile(self.0))),
-            Err(Errno::EAGAIN) => Ok(Left(self)),
-            Err(err) => Err(err),
-        }
-    }
-
-    pub fn unlock(self) -> Result<UnlockedFile> {
+    pub(crate) fn unlock(self) -> Result<UnlockedFile> {
         flock(self.0.as_raw_fd(), FlockArg::Unlock)?;
         Ok(UnlockedFile(self.0))
     }
 }
 
-#[allow(unused)]
 impl LockedFileExclusive {
-    pub fn try_lock_shared(self) -> Result<Either<Self, LockedFileShared>> {
-        match flock(self.0.as_raw_fd(), FlockArg::LockSharedNonblock) {
-            Ok(()) => Ok(Right(LockedFileShared(self.0))),
-            Err(Errno::EAGAIN) => Ok(Left(self)),
-            Err(err) => Err(err),
-        }
-    }
-
-    pub fn lock_shared(self) -> Result<LockedFileShared> {
+    pub(crate) fn lock_shared(self) -> Result<LockedFileShared> {
         flock(self.0.as_raw_fd(), FlockArg::LockShared)?;
         Ok(LockedFileShared(self.0))
     }
 
-    pub fn try_unlock(self) -> Result<Either<Self, UnlockedFile>> {
-        match flock(self.0.as_raw_fd(), FlockArg::UnlockNonblock) {
-            Ok(()) => Ok(Right(UnlockedFile(self.0))),
-            Err(Errno::EAGAIN) => Ok(Left(self)),
-            Err(err) => Err(err),
-        }
-    }
-
-    pub fn unlock(self) -> Result<UnlockedFile> {
+    #[cfg(test)]
+    pub(crate) fn unlock(self) -> Result<UnlockedFile> {
         flock(self.0.as_raw_fd(), FlockArg::Unlock)?;
         Ok(UnlockedFile(self.0))
     }

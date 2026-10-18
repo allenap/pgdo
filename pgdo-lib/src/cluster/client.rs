@@ -60,9 +60,9 @@ pub(super) fn accepts_connections(socketdir: &Path, port: u16) -> io::Result<boo
 }
 
 /// SQLSTATE for "duplicate database".
-pub(crate) const DUPLICATE_DATABASE: &str = "42P04";
+pub(super) const DUPLICATE_DATABASE: &str = "42P04";
 /// SQLSTATE for "undefined database" (a.k.a. "invalid catalog name").
-pub(crate) const UNDEFINED_DATABASE: &str = "3D000";
+pub(super) const UNDEFINED_DATABASE: &str = "3D000";
 
 /// Error communicating with a cluster.
 #[derive(thiserror::Error, Debug)]
@@ -159,18 +159,18 @@ impl ServerError {
 
 /// A row returned from a query. All values are text, or `None` for `NULL`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Row(Vec<Option<String>>);
+pub(super) struct Row(Vec<Option<String>>);
 
 impl Row {
     /// Get the value in the given column. Panics if the column is out of
     /// range; that's a programming error.
-    pub fn get(&self, column: usize) -> Option<&str> {
+    pub(super) fn get(&self, column: usize) -> Option<&str> {
         self.0[column].as_deref()
     }
 }
 
 /// A connection to a cluster.
-pub(crate) struct Client {
+pub(super) struct Client {
     stream: UnixStream,
     buf: BytesMut,
 }
@@ -178,7 +178,11 @@ pub(crate) struct Client {
 impl Client {
     /// Connect to the cluster listening in `socketdir`, with trust
     /// authentication.
-    pub fn connect(socketdir: &Path, user: &str, database: &str) -> Result<Self, ClientError> {
+    pub(super) fn connect(
+        socketdir: &Path,
+        user: &str,
+        database: &str,
+    ) -> Result<Self, ClientError> {
         let stream = UnixStream::connect(socket_path(socketdir, PORT))?;
         let mut client = Client { stream, buf: BytesMut::new() };
 
@@ -228,7 +232,7 @@ impl Client {
     /// This uses the simple query protocol, so `sql` may contain several
     /// statements, but cannot have parameters: escape values into it with
     /// [`postgres_protocol::escape`]. `COPY` is not supported.
-    pub fn query(&mut self, sql: &str) -> Result<Vec<Row>, ClientError> {
+    pub(super) fn query(&mut self, sql: &str) -> Result<Vec<Row>, ClientError> {
         let mut message = BytesMut::new();
         frontend::query(sql, &mut message)?;
         self.stream.write_all(&message)?;
@@ -270,7 +274,7 @@ impl Client {
     }
 
     /// Execute the given SQL, discarding any rows.
-    pub fn execute(&mut self, sql: &str) -> Result<(), ClientError> {
+    pub(super) fn execute(&mut self, sql: &str) -> Result<(), ClientError> {
         self.query(sql).map(|_| ())
     }
 

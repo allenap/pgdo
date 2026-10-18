@@ -910,6 +910,76 @@ mod tests {
         Ok(())
     }
 
+    /// Stops a cluster when dropped.
+    struct StopOnDrop<'a>(&'a Cluster);
+
+    impl Drop for StopOnDrop<'_> {
+        fn drop(&mut self) {
+            if let Err(err) = self.0.stop() {
+                eprintln!("Could not stop cluster: {err}");
+            }
+        }
+    }
+
+    /// Simulate a session destroying the cluster – removing its lock file –
+    /// while another session waits for the lock, and a third session starting
+    /// the cluster afresh, with a new lock file, before the waiting session
+    /// wakes. The waiting session must notice that the file it locked has
+    /// gone, and lock the current file instead. Otherwise it would hold a lock
+    /// no one else can see, and the third session – believing itself alone –
+    /// could stop the cluster under it.
+    #[test]
+    fn session_locks_current_lock_file_when_waiting_through_destroy() -> TestResult {
+        use crate::lock::UnlockedFile;
+        use std::os::unix::fs::MetadataExt;
+
+        let tempdir = tempfile::tempdir()?;
+        let datadir = tempdir.path().join("data");
+        std::fs::create_dir(&datadir)?;
+        let lockfile = datadir.join("pgdo.lock");
+
+        // Play the destroying session: hold an exclusive lock on the lock file.
+        let old_lock = UnlockedFile::try_from(lockfile.as_path())?.lock_exclusive()?;
+        let old_ino = std::fs::metadata(&lockfile)?.ino();
+
+        let waiting_cluster = Cluster::new(&datadir, Strategy::default())?;
+        let starting_cluster = Cluster::new(&datadir, Strategy::default())?;
+        // However this test ends, do not leave a server running in a data
+        // directory that is about to be deleted.
+        let _stop = StopOnDrop(&starting_cluster);
+        let (session, new_lock) = std::thread::scope(|scope| {
+            let waiting =
+                scope.spawn(|| waiting_cluster.start_session(&[], Takeover::Never, &|| false));
+            // Give the waiting session time to wait on the exclusive lock.
+            std::thread::sleep(Duration::from_millis(500));
+            assert!(!waiting.is_finished());
+            // Finish "destroying": remove the lock file.
+            std::fs::remove_file(&lockfile)?;
+            // Play the third session: create a new lock file, lock it, and
+            // start the cluster, then downgrade to a shared lock.
+            let new_lock = UnlockedFile::try_from(lockfile.as_path())?.lock_exclusive()?;
+            starting_cluster.start(&[])?;
+            let new_lock = new_lock.lock_shared()?;
+            // Now release the old lock, waking the waiting session.
+            drop(old_lock);
+            let session = waiting.join().unwrap()?;
+            Ok::<_, Box<dyn std::error::Error>>((session, new_lock))
+        })?;
+        assert_ne!(std::fs::metadata(&lockfile)?.ino(), old_ino);
+
+        // The third session ends. The waiting session must hold a lock on the
+        // current lock file, so an exclusive lock – which the third session
+        // would need to stop the cluster – is not available.
+        drop(new_lock);
+        let other = UnlockedFile::try_from(lockfile.as_path())?;
+        assert!(other.try_lock_exclusive()?.is_left());
+        assert_eq!(session.status()?, ClusterStatus::Running);
+
+        // Ending the session stops the cluster.
+        assert_eq!(session.end()?, State::Modified);
+        Ok(())
+    }
+
     /// Clocks on different kernels can disagree, e.g. a VM's after its host
     /// sleeps, so a live owner's heartbeats can look stale. Before taking over,
     /// a session watches for heartbeats, whatever their times.
