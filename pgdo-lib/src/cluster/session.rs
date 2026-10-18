@@ -910,6 +910,17 @@ mod tests {
         Ok(())
     }
 
+    /// Stops a cluster when dropped.
+    struct StopOnDrop<'a>(&'a Cluster);
+
+    impl Drop for StopOnDrop<'_> {
+        fn drop(&mut self) {
+            if let Err(err) = self.0.stop() {
+                eprintln!("Could not stop cluster: {err}");
+            }
+        }
+    }
+
     /// Simulate a session destroying the cluster – removing its lock file –
     /// while another session waits for the lock, and a third session starting
     /// the cluster afresh, with a new lock file, before the waiting session
@@ -933,6 +944,9 @@ mod tests {
 
         let waiting_cluster = Cluster::new(&datadir, Strategy::default())?;
         let starting_cluster = Cluster::new(&datadir, Strategy::default())?;
+        // However this test ends, do not leave a server running in a data
+        // directory that is about to be deleted.
+        let _stop = StopOnDrop(&starting_cluster);
         let (session, new_lock) = std::thread::scope(|scope| {
             let waiting =
                 scope.spawn(|| waiting_cluster.start_session(&[], Takeover::Never, &|| false));
