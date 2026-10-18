@@ -5,10 +5,13 @@ pub mod config;
 pub mod session;
 
 mod error;
+mod owner;
+mod postmaster;
 
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Read, Write};
 use std::os::unix::prelude::OsStringExt;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output};
 use std::{fmt, fs};
@@ -22,7 +25,7 @@ use crate::runtime::{
 };
 use crate::version;
 pub use error::ClusterError;
-pub use session::{Finish, Session};
+pub use session::{Finish, Session, Takeover};
 
 /// The outcome of an action on a cluster.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -78,6 +81,15 @@ pub const DATABASE_TEMPLATE1: &str = "template1";
 /// PostgreSQL cluster without specifying a database, but that is presently not
 /// possible.
 pub const DATABASE_POSTGRES: &str = "postgres";
+
+/// The port that pgdo's clusters listen on. They listen only on a Unix-domain
+/// socket in the data directory, so this does not conflict with any other
+/// server; it determines only the socket's name, `.s.PGSQL.5432`.
+///
+/// pgdo passes it explicitly – when starting a server, and to commands run
+/// against the cluster – so that `PGPORT` in the environment, or a `port`
+/// setting in `postgresql.conf`, cannot move the socket.
+pub const PORT: u16 = 5432;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ClusterStatus {
@@ -149,14 +161,20 @@ mod files {
     /// Marks an in-progress move from [`INIT`] into the data directory; see
     /// [`Cluster::create`][super::Cluster::create].
     pub const VERSION_INIT: &str = "PG_VERSION.init";
-    /// Reserved for recording which process owns a running cluster.
+    /// Records which kernel and namespace owns a running cluster; see the
+    /// `owner` module.
     pub const OWNER: &str = "pgdo.owner";
     /// PostgreSQL's version file; its presence marks a cluster.
     pub const VERSION: &str = "PG_VERSION";
 
     /// Is the given name one of pgdo's own files?
     pub fn is_pgdo(name: &std::ffi::OsStr) -> bool {
-        matches!(name.to_str(), Some(LOCK | OWNER | INIT | VERSION_INIT))
+        match name.to_str() {
+            Some(LOCK | OWNER | INIT | VERSION_INIT) => true,
+            // Temporary files written while claiming ownership.
+            Some(name) => name.starts_with("pgdo.owner."),
+            None => false,
+        }
     }
 
     /// Is the given name one of the files that sessions use to coordinate?
@@ -225,7 +243,11 @@ impl Cluster {
     /// not running", "missing", and "don't know". The latter results in
     /// [`ClusterError`].
     pub fn status(&self) -> Result<ClusterStatus, ClusterError> {
-        let output = self.ctl()?.arg("status").output()?;
+        // Run `pg_ctl` in its own process group, so that it does not receive
+        // signals sent from the terminal, e.g. SIGINT from Ctrl-C. A session
+        // checks the status as it ends, while stopping the cluster, and as it
+        // abandons a start; interrupting it then would leave the server running.
+        let output = self.ctl()?.process_group(0).arg("status").output()?;
         // See https://www.postgresql.org/docs/current/app-pg-ctl.html for the
         // meaning of these exit codes. We check for specific codes to avoid
         // masking errors from insufficient permissions or missing executables,
@@ -248,6 +270,11 @@ impl Cluster {
     /// The lock file used by [`Session`] to coordinate processes.
     pub(crate) fn lockfile(&self) -> PathBuf {
         self.datadir.join(files::LOCK)
+    }
+
+    /// The file recording which kernel and namespace owns the running cluster.
+    fn ownerfile(&self) -> PathBuf {
+        self.datadir.join(files::OWNER)
     }
 
     /// Return the path to the PID file used in this cluster.
@@ -329,6 +356,12 @@ impl Cluster {
         Ok(Modified)
     }
 
+    /// Was a [`create`][Self::create] interrupted while moving files into the
+    /// data directory? If so, calling `create` again will finish the job.
+    pub(crate) fn create_interrupted(&self) -> bool {
+        self.datadir.join(files::VERSION_INIT).exists()
+    }
+
     /// Check that the data directory contains nothing but pgdo's own files.
     fn check_datadir_empty(&self) -> Result<(), ClusterError> {
         let mut entries = fs::read_dir(&self.datadir)?
@@ -383,10 +416,12 @@ impl Cluster {
         // likely to be `sh`. Here's what they mean:
         //  -h <arg> -- host name; empty arg means Unix socket only.
         //  -k -- socket directory.
+        //  -p -- port, which determines the socket's name.
         //  -c name=value -- set a configuration parameter.
         let options = {
             let mut arg: Vec<u8> = b"-h '' -k ".into();
             arg.push_quoted(Sh, &self.datadir);
+            arg.extend(format!(" -p {PORT}").as_bytes());
             for (parameter, value) in options {
                 arg.extend(b" -c ");
                 arg.push_quoted(Sh, &format!("{parameter}={value}"));
@@ -440,7 +475,7 @@ impl Cluster {
     }
 
     /// Return a URL for connecting to the given database in this cluster, e.g.
-    /// `postgresql://?host=%2Fpath%2Fto%2Fcluster&dbname=postgres`.
+    /// `postgresql://?host=%2Fpath%2Fto%2Fcluster&port=5432&dbname=postgres`.
     ///
     /// The URL has no user; clients typically default to the current user.
     ///
@@ -451,7 +486,11 @@ impl Cluster {
         match self.datadir.to_str() {
             Some(datadir) => url::Url::parse_with_params(
                 "postgresql://",
-                [("host", datadir), ("dbname", database)],
+                [
+                    ("host", datadir),
+                    ("port", &PORT.to_string()),
+                    ("dbname", database),
+                ],
             )
             .map(Some),
             None => Ok(None),
@@ -491,6 +530,7 @@ impl Cluster {
         // Set a few standard PostgreSQL environment variables.
         command.env("PGDATA", &self.datadir);
         command.env("PGHOST", &self.datadir);
+        command.env("PGPORT", PORT.to_string());
         command.env("PGDATABASE", database);
 
         // Set `DATABASE_URL` if `self.datadir` is valid UTF-8, otherwise ensure
@@ -564,8 +604,12 @@ impl Cluster {
         // pg_ctl options:
         //  -w -- wait for shutdown to complete.
         //  -m <mode> -- shutdown mode.
+        // Run `pg_ctl` in its own process group, so that it does not receive
+        // signals sent from the terminal, e.g. SIGINT from Ctrl-C: interrupting
+        // it would leave the server stopping, or still running.
         let output = self
             .ctl()?
+            .process_group(0)
             .arg("stop")
             .arg("-s")
             .arg("-w")
@@ -583,12 +627,19 @@ impl Cluster {
     /// Destroy the cluster if it exists, after stopping it.
     ///
     /// This removes everything in the data directory **except** the files that
-    /// sessions use to coordinate, i.e. `pgdo.lock`, then removes the data
-    /// directory if it is empty.
+    /// sessions use to coordinate, i.e. `pgdo.lock` and `pgdo.owner`, then
+    /// removes the data directory if that leaves it empty.
     /// A [`Session`] that ends with [`Finish::Destroy`] removes pgdo's files –
     /// safely – and the data directory too.
     pub fn destroy(&self) -> Result<State, ClusterError> {
         self.stop()?;
+        self.remove()
+    }
+
+    /// Remove the cluster's files, as [`destroy`][Self::destroy] does, but
+    /// without stopping it first. The caller must know that no server is
+    /// running.
+    fn remove(&self) -> Result<State, ClusterError> {
         let entries = match fs::read_dir(&self.datadir) {
             Ok(entries) => entries,
             Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Unmodified),

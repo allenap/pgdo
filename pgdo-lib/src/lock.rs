@@ -40,6 +40,13 @@ pub struct LockedFileShared(File);
 #[derive(Debug)]
 pub struct LockedFileExclusive(File);
 
+/// Implemented only by files that are locked, shared or exclusively, so that
+/// functions can require proof that a lock is held.
+pub(crate) trait Held: AsRef<File> {}
+
+impl Held for LockedFileShared {}
+impl Held for LockedFileExclusive {}
+
 // Allow access to the underlying file, e.g. to check its metadata. Do not use
 // this to change or remove locks.
 impl AsRef<File> for UnlockedFile {
