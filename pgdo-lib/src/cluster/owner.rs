@@ -247,9 +247,10 @@ impl Record {
                 "pid_ns" => pid_ns = Some(value.parse().ok()?),
                 "ipc_ns" => ipc_ns = Some(value.parse().ok()?),
                 "namespace" if value == "unknown" => namespace_known = false,
-                // A value we do not understand, e.g. from a newer pgdo. Ignoring
-                // it would treat the namespace as known, and we might then try
-                // to stop a server we cannot see, so refuse the whole record.
+                // A value we do not understand, e.g. from a newer pgdo.
+                // Ignoring it would treat the namespace as known, and we might
+                // then try to stop a server we cannot see, so refuse the whole
+                // record.
                 "namespace" => return None,
                 "datadir_dev" => dev = Some(value.parse().ok()?),
                 "datadir_ino" => ino = Some(value.parse().ok()?),
@@ -374,21 +375,23 @@ pub(super) fn observe(
             Err(err) => Err(err),
         }
     };
-    let Some(initial) = identity()? else {
-        return Ok(Observed::Gone);
-    };
-    let poll = (window / 10).min(Duration::from_secs(1));
-    let deadline = Instant::now() + window;
-    loop {
-        std::thread::sleep(poll.min(deadline.saturating_duration_since(Instant::now())));
-        if interrupted() {
-            return Ok(Observed::Interrupted);
-        } else {
-            match identity()? {
-                None => return Ok(Observed::Gone),
-                Some(current) if current != initial => return Ok(Observed::Changed),
-                Some(_) if Instant::now() >= deadline => return Ok(Observed::Unchanged),
-                Some(_) => continue,
+    match identity()? {
+        None => Ok(Observed::Gone),
+        Some(initial) => {
+            let poll = (window / 10).min(Duration::from_secs(1));
+            let deadline = Instant::now() + window;
+            loop {
+                std::thread::sleep(poll.min(deadline.saturating_duration_since(Instant::now())));
+                if interrupted() {
+                    return Ok(Observed::Interrupted);
+                } else {
+                    match identity()? {
+                        None => return Ok(Observed::Gone),
+                        Some(current) if current != initial => return Ok(Observed::Changed),
+                        Some(_) if Instant::now() >= deadline => return Ok(Observed::Unchanged),
+                        Some(_) => continue,
+                    }
+                }
             }
         }
     }

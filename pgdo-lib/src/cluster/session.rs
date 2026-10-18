@@ -190,58 +190,62 @@ impl Session {
     }
 
     fn shutdown(&mut self) -> Result<State, ClusterError> {
-        let Some(lock) = self.lock.take() else {
-            return Ok(State::Unmodified);
-        };
-        // Keep the heartbeat going until this function returns, i.e. until
-        // the cluster is stopped and the owner file is gone; stopping can take
-        // a while. A heartbeat after the owner file is removed does nothing.
-        let _heartbeat = self.heartbeat.take();
-        match upgrade(lock)? {
-            // The cluster is in use elsewhere. There's nothing more to do.
+        match self.lock.take() {
             None => Ok(State::Unmodified),
-            // We have an exclusive lock, so we can stop or destroy the cluster.
-            // The lock is released when `lock` is dropped, which must happen
-            // only after everything else is done.
             Some(lock) => {
-                let Some(verified) = verify(&self.cluster, &lock)? else {
-                    // Our lock file was removed: while `upgrade` had released
-                    // our lock, another session destroyed the cluster. There is
-                    // nothing more to do.
-                    return Ok(State::Unmodified);
-                };
-                match ownership(&self.cluster, &verified)? {
-                    // Only a process in the owner's namespace can stop the
-                    // server: `pg_ctl` signals the PID in `postmaster.pid`,
-                    // which means nothing – or something else entirely – in
-                    // other namespaces. Leave it running; a session in the
-                    // owner's namespace will stop it when that session ends.
-                    Ownership::SameKernel | Ownership::OtherKernel(_) => {
-                        log::warn!(
-                            "Leaving cluster {} running: it was started in another \
-                             namespace, from where it must be stopped.",
-                            self.cluster.datadir.display()
-                        );
-                        Ok(State::Unmodified)
-                    }
-                    Ownership::SameNamespace | Ownership::None | Ownership::Copy => {
-                        match self.finish {
-                            Finish::Stop => {
-                                let state = stop(&self.cluster)?;
-                                owner::release(&self.cluster.ownerfile())?;
-                                Ok(state)
-                            }
-                            Finish::Destroy => {
-                                stop(&self.cluster)?;
-                                let state = self.cluster.remove()?;
-                                remove_datadir(&self.cluster)?;
-                                drop(lock);
-                                Ok(state)
-                            }
-                        }
-                    }
+                // Keep the heartbeat going until this function returns, i.e.
+                // until the cluster is stopped and the owner file is gone;
+                // stopping can take a while. A heartbeat after the owner file
+                // is removed does nothing.
+                let _heartbeat = self.heartbeat.take();
+                match upgrade(lock)? {
+                    // The cluster is in use elsewhere. There's nothing more to
+                    // do.
+                    None => Ok(State::Unmodified),
+                    Some(lock) => self.end_exclusively(lock),
                 }
             }
+        }
+    }
+
+    /// Stop or destroy the cluster, according to [`Finish`], now that this
+    /// session has an exclusive lock. The lock is released when `lock` is
+    /// dropped, which must happen only after everything else is done.
+    fn end_exclusively(&self, lock: lock::LockedFileExclusive) -> Result<State, ClusterError> {
+        match verify(&self.cluster, &lock)? {
+            // Our lock file was removed: while `upgrade` had released our lock,
+            // another session destroyed the cluster. There is nothing more to
+            // do.
+            None => Ok(State::Unmodified),
+            Some(verified) => match ownership(&self.cluster, &verified)? {
+                // Only a process in the owner's namespace can stop the server:
+                // `pg_ctl` signals the PID in `postmaster.pid`, which means
+                // nothing – or something else entirely – in other namespaces.
+                // Leave it running; a session in the owner's namespace will
+                // stop it when that session ends.
+                Ownership::SameKernel | Ownership::OtherKernel(_) => {
+                    log::warn!(
+                        "Leaving cluster {} running: it was started in another namespace, \
+                         from where it must be stopped.",
+                        self.cluster.datadir.display()
+                    );
+                    Ok(State::Unmodified)
+                }
+                Ownership::SameNamespace | Ownership::None | Ownership::Copy => match self.finish {
+                    Finish::Stop => {
+                        let state = stop(&self.cluster)?;
+                        owner::release(&self.cluster.ownerfile())?;
+                        Ok(state)
+                    }
+                    Finish::Destroy => {
+                        stop(&self.cluster)?;
+                        let state = self.cluster.remove()?;
+                        remove_datadir(&self.cluster)?;
+                        drop(lock);
+                        Ok(state)
+                    }
+                },
+            },
         }
     }
 }
@@ -331,16 +335,18 @@ enum Ownership {
 ///   cluster itself, and only one claim can succeed. If ours fails, the caller
 ///   looks again, and finds the new owner.
 fn ownership(cluster: &Cluster, _: &Verified<'_>) -> Result<Ownership, ClusterError> {
-    let Some(found) = owner::read(&cluster.ownerfile())? else {
-        return Ok(Ownership::None);
-    };
-    let current = owner::Record::current(&cluster.datadir)?;
-    Ok(match found.record.relation(&current) {
-        Relation::Copy => Ownership::Copy,
-        Relation::SameNamespace => Ownership::SameNamespace,
-        Relation::SameKernel => Ownership::SameKernel,
-        Relation::OtherKernel => Ownership::OtherKernel(found),
-    })
+    match owner::read(&cluster.ownerfile())? {
+        None => Ok(Ownership::None),
+        Some(found) => {
+            let current = owner::Record::current(&cluster.datadir)?;
+            Ok(match found.record.relation(&current) {
+                Relation::Copy => Ownership::Copy,
+                Relation::SameNamespace => Ownership::SameNamespace,
+                Relation::SameKernel => Ownership::SameKernel,
+                Relation::OtherKernel => Ownership::OtherKernel(found),
+            })
+        }
+    }
 }
 
 /// Is the cluster running? How we can tell depends on who owns it. Requires
@@ -583,23 +589,28 @@ fn start_or_join(
 /// running with no one using it, then release our claim. If it cannot be
 /// stopped, keep our claim: other kernels must not start another server.
 fn abandon_start(cluster: &Cluster, heartbeat: owner::Heartbeat) -> Result<(), ClusterError> {
-    match postmaster::check(&cluster.datadir)? {
-        Postmaster::Absent | Postmaster::Dead(_) | Postmaster::Other(_) => (),
+    let stopped = match postmaster::check(&cluster.datadir)? {
+        Postmaster::Absent | Postmaster::Dead(_) | Postmaster::Other(_) => true,
         // We claimed the cluster and started its server from this namespace,
         // so this is our server.
-        Postmaster::Running(_) | Postmaster::Unknown(_) => {
-            if let Err(err) = cluster.stop() {
+        Postmaster::Running(_) | Postmaster::Unknown(_) => match cluster.stop() {
+            Ok(_) => true,
+            Err(err) => {
                 log::warn!(
                     "Could not stop cluster {}, which may still be starting; leaving the \
                      cluster claimed: {err}",
                     cluster.datadir.display()
                 );
-                return Ok(());
+                false
             }
-        }
+        },
+    };
+    if stopped {
+        drop(heartbeat);
+        Ok(owner::release(&cluster.ownerfile())?)
+    } else {
+        Ok(())
     }
-    drop(heartbeat);
-    Ok(owner::release(&cluster.ownerfile())?)
 }
 
 /// Checks whether startup has been interrupted. See [`interrupt`].
@@ -645,68 +656,78 @@ fn startup(
                     // exclusive, this will wait until that lock is released (or
                     // changed to a shared lock).
                     let lock = lock_shared(lock, interrupted)?;
-                    let Some(verified) = verify(cluster, &lock)? else {
+                    match verify(cluster, &lock)? {
                         // The lock file was removed while we waited; try again.
-                        continue;
-                    };
-                    // If obtaining the lock blocked, i.e. the lock elsewhere
-                    // was exclusive, then the cluster may have been started by
-                    // the process that held that exclusive lock. We should
-                    // check.
-                    let ownership = ownership(cluster, &verified)?;
-                    if let Ownership::OtherKernel(found) = &ownership {
-                        // Taking over needs an exclusive lock. Release ours,
-                        // back off, and try again for one.
-                        refuse_other_kernel(found, takeover)?;
-                        drop(lock);
-                        backoff();
-                        continue;
-                    } else if running(cluster, &ownership, &verified)? {
-                        return Ok((lock, heartbeat(cluster)));
-                    } else {
-                        // Release all locks, back off, and try again.
-                        drop(lock);
-                        backoff();
-                        continue;
-                    }
-                }
-                Right(lock) => {
-                    let Some(verified) = verify(cluster, &lock)? else {
-                        // The lock file was removed before we locked it; try
-                        // again.
-                        continue;
-                    };
-                    let ownerfile = cluster.ownerfile();
-                    match ownership(cluster, &verified)? {
-                        Ownership::OtherKernel(found) => {
-                            refuse_other_kernel(&found, takeover)?;
-                            take_over(cluster, &found, interrupted)?;
-                            continue;
-                        }
-                        Ownership::Copy => {
-                            owner::release(&ownerfile)?;
-                            continue;
-                        }
-                        ownership @ (Ownership::SameNamespace | Ownership::SameKernel) => {
-                            if running(cluster, &ownership, &verified)? {
-                                // Use the running server.
-                                match downgrade(cluster, lock, &ownership, heartbeat(cluster))? {
-                                    Some(joined) => return Ok(joined),
-                                    None => continue,
-                                }
+                        None => continue,
+                        Some(verified) => {
+                            // If obtaining the lock blocked, i.e. the lock
+                            // elsewhere was exclusive, then the cluster may
+                            // have been started by the process that held that
+                            // exclusive lock. We should check.
+                            let ownership = ownership(cluster, &verified)?;
+                            if let Ownership::OtherKernel(found) = &ownership {
+                                // Taking over needs an exclusive lock. Release
+                                // ours, back off, and try again for one.
+                                refuse_other_kernel(found, takeover)?;
+                                drop(lock);
+                                backoff();
+                                continue;
+                            } else if running(cluster, &ownership, &verified)? {
+                                return Ok((lock, heartbeat(cluster)));
                             } else {
-                                // The owner's server has gone, e.g. it crashed.
-                                // Our exclusive lock shows that no session on
-                                // this kernel is using the cluster, so we can
-                                // take over.
-                                owner::release(&ownerfile)?;
+                                // Release all locks, back off, and try again.
+                                drop(lock);
+                                backoff();
                                 continue;
                             }
                         }
-                        Ownership::None => {
-                            match start_or_join(cluster, lock, options, interrupted)? {
-                                Some(started_or_joined) => return Ok(started_or_joined),
-                                None => continue,
+                    }
+                }
+                Right(lock) => {
+                    match verify(cluster, &lock)? {
+                        // The lock file was removed before we locked it; try
+                        // again.
+                        None => continue,
+                        Some(verified) => {
+                            let ownerfile = cluster.ownerfile();
+                            match ownership(cluster, &verified)? {
+                                Ownership::OtherKernel(found) => {
+                                    refuse_other_kernel(&found, takeover)?;
+                                    take_over(cluster, &found, interrupted)?;
+                                    continue;
+                                }
+                                Ownership::Copy => {
+                                    owner::release(&ownerfile)?;
+                                    continue;
+                                }
+                                ownership @ (Ownership::SameNamespace | Ownership::SameKernel) => {
+                                    if running(cluster, &ownership, &verified)? {
+                                        // Use the running server.
+                                        match downgrade(
+                                            cluster,
+                                            lock,
+                                            &ownership,
+                                            heartbeat(cluster),
+                                        )? {
+                                            Some(joined) => return Ok(joined),
+                                            None => continue,
+                                        }
+                                    } else {
+                                        // The owner's server has gone, e.g. it
+                                        // crashed. Our exclusive lock shows
+                                        // that no session on this kernel is
+                                        // using the cluster, so we can take
+                                        // over.
+                                        owner::release(&ownerfile)?;
+                                        continue;
+                                    }
+                                }
+                                Ownership::None => {
+                                    match start_or_join(cluster, lock, options, interrupted)? {
+                                        Some(started_or_joined) => return Ok(started_or_joined),
+                                        None => continue,
+                                    }
+                                }
                             }
                         }
                     }
