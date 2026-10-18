@@ -8,7 +8,7 @@ use crate::{args, runner};
 /// Execute an arbitrary command, creating and starting the cluster as
 /// necessary.
 #[derive(clap::Args)]
-#[clap(next_help_heading = Some("Options for exec"))]
+#[clap(long_about, next_help_heading = Some("Options for exec"))]
 pub struct Exec {
     #[clap(flatten)]
     pub cluster: args::ClusterArgs,
@@ -26,11 +26,11 @@ pub struct Exec {
     pub runtime: args::RuntimeArgs,
 
     /// The executable to invoke. By default it will start a shell.
-    #[clap(env = "SHELL", value_name = "COMMAND", display_order = 999)]
+    #[clap(long_help, env = "SHELL", value_name = "COMMAND", display_order = 999)]
     pub command: OsString,
 
     /// Arguments to pass to the executable.
-    #[clap(value_name = "ARGUMENTS", display_order = 1000)]
+    #[clap(long_help, value_name = "ARGUMENTS", display_order = 1000)]
     pub args: Vec<OsString>,
 }
 
@@ -50,7 +50,7 @@ impl Exec {
             runner::check_exit(
                 cluster
                     .exec(Some(&database.name), command, &args)
-                    .context("Executing command in cluster failed")?,
+                    .context("executing command in cluster failed")?,
             )
         })
     }

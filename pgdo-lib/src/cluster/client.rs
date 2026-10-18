@@ -67,13 +67,13 @@ pub(crate) const UNDEFINED_DATABASE: &str = "3D000";
 /// Error communicating with a cluster.
 #[derive(thiserror::Error, Debug)]
 pub enum ClientError {
-    #[error("Could not communicate with cluster")]
+    #[error("could not communicate with cluster")]
     IoError(#[from] io::Error),
     #[error(transparent)]
     ServerError(Box<ServerError>),
-    #[error("Cluster requires {0} authentication, which pgdo does not support")]
+    #[error("cluster requires {0} authentication, which pgdo does not support")]
     AuthenticationError(&'static str),
-    #[error("Unexpected message from cluster: {0}")]
+    #[error("unexpected message from cluster: {0}")]
     ProtocolError(String),
 }
 
@@ -217,7 +217,7 @@ impl Client {
                 Message::ErrorResponse(body) => Err(ServerError::from_fields(&body))?,
                 Message::ParameterStatus(_)
                 | Message::BackendKeyData(_)
-                | Message::NoticeResponse(_) => (),
+                | Message::NoticeResponse(_) => continue,
                 message => Err(unexpected(&message))?,
             }
         }
@@ -248,13 +248,17 @@ impl Client {
                         })
                         .collect()?;
                     rows.push(Row(row));
+                    continue;
                 }
-                Message::ErrorResponse(body) => error = Some(ServerError::from_fields(&body)),
+                Message::ErrorResponse(body) => {
+                    error = Some(ServerError::from_fields(&body));
+                    continue;
+                }
                 Message::RowDescription(_)
                 | Message::CommandComplete(_)
                 | Message::EmptyQueryResponse
                 | Message::NoticeResponse(_)
-                | Message::ParameterStatus(_) => (),
+                | Message::ParameterStatus(_) => continue,
                 message => Err(unexpected(&message))?,
             }
         }
@@ -275,11 +279,15 @@ impl Client {
         loop {
             if let Some(message) = Message::parse(&mut self.buf)? {
                 return Ok(message);
-            }
-            let mut chunk = [0u8; 8192];
-            match self.stream.read(&mut chunk)? {
-                0 => Err(io::Error::from(io::ErrorKind::UnexpectedEof))?,
-                n => self.buf.extend_from_slice(&chunk[..n]),
+            } else {
+                let mut chunk = [0u8; 8192];
+                match self.stream.read(&mut chunk)? {
+                    0 => Err(io::Error::from(io::ErrorKind::UnexpectedEof))?,
+                    n => {
+                        self.buf.extend_from_slice(&chunk[..n]);
+                        continue;
+                    }
+                }
             }
         }
     }

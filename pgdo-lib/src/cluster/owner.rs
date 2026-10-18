@@ -247,9 +247,10 @@ impl Record {
                 "pid_ns" => pid_ns = Some(value.parse().ok()?),
                 "ipc_ns" => ipc_ns = Some(value.parse().ok()?),
                 "namespace" if value == "unknown" => namespace_known = false,
-                // A value we do not understand, e.g. from a newer pgdo. Ignoring
-                // it would treat the namespace as known, and we might then try
-                // to stop a server we cannot see, so refuse the whole record.
+                // A value we do not understand, e.g. from a newer pgdo.
+                // Ignoring it would treat the namespace as known, and we might
+                // then try to stop a server we cannot see, so refuse the whole
+                // record.
                 "namespace" => return None,
                 "datadir_dev" => dev = Some(value.parse().ok()?),
                 "datadir_ino" => ino = Some(value.parse().ok()?),
@@ -311,9 +312,11 @@ pub(super) fn read(path: &Path) -> io::Result<Option<Found>> {
                 .duration_since(modified)
                 .unwrap_or_default();
             return Ok(Some(Found { record, age }));
-        }
-        if attempt < ATTEMPTS {
+        } else if attempt < ATTEMPTS {
             std::thread::sleep(Duration::from_millis(100));
+            continue;
+        } else {
+            continue;
         }
     }
     Err(io::Error::new(
@@ -372,21 +375,24 @@ pub(super) fn observe(
             Err(err) => Err(err),
         }
     };
-    let Some(initial) = identity()? else {
-        return Ok(Observed::Gone);
-    };
-    let poll = (window / 10).min(Duration::from_secs(1));
-    let deadline = Instant::now() + window;
-    loop {
-        std::thread::sleep(poll.min(deadline.saturating_duration_since(Instant::now())));
-        if interrupted() {
-            return Ok(Observed::Interrupted);
-        }
-        match identity()? {
-            None => return Ok(Observed::Gone),
-            Some(current) if current != initial => return Ok(Observed::Changed),
-            Some(_) if Instant::now() >= deadline => return Ok(Observed::Unchanged),
-            Some(_) => continue,
+    match identity()? {
+        None => Ok(Observed::Gone),
+        Some(initial) => {
+            let poll = (window / 10).min(Duration::from_secs(1));
+            let deadline = Instant::now() + window;
+            loop {
+                std::thread::sleep(poll.min(deadline.saturating_duration_since(Instant::now())));
+                if interrupted() {
+                    return Ok(Observed::Interrupted);
+                } else {
+                    match identity()? {
+                        None => return Ok(Observed::Gone),
+                        Some(current) if current != initial => return Ok(Observed::Changed),
+                        Some(_) if Instant::now() >= deadline => return Ok(Observed::Unchanged),
+                        Some(_) => continue,
+                    }
+                }
+            }
         }
     }
 }
@@ -435,7 +441,7 @@ fn create_temp(temps: impl IntoIterator<Item = PathBuf>) -> io::Result<(PathBuf,
         match fs::File::options().write(true).create_new(true).open(&temp) {
             Ok(file) => return Ok((temp, file)),
             // Someone else's temporary file; leave it be and try another name.
-            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => (),
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(err) => return Err(err),
         }
     }
@@ -462,7 +468,8 @@ pub(super) fn release(path: &Path) -> io::Result<()> {
 /// Update the modification time of the owner file at `path`, if it exists.
 ///
 /// This sets the time to "now", rather than to an explicit time: the former
-/// requires only permission to write to the file, the latter requires owning it.
+/// requires only permission to write to the file, the latter requires owning
+/// it.
 fn touch(path: &Path) -> io::Result<()> {
     use nix::sys::stat::{utimensat, UtimensatFlags};
     use nix::sys::time::TimeSpec;
@@ -497,12 +504,14 @@ impl Heartbeat {
                 if let Err(err) = touch(&path) {
                     log::warn!("Could not update {}: {err}", path.display());
                 }
-                // Wait for the interval to pass. If instead the sender was
-                // dropped, or sent a message, stop.
-                if !matches!(
+                // Wait for the interval to pass, then go round again. If
+                // instead the sender was dropped, or sent a message, stop.
+                if matches!(
                     stopped.recv_timeout(interval),
                     Err(mpsc::RecvTimeoutError::Timeout)
                 ) {
+                    continue;
+                } else {
                     break;
                 }
             })

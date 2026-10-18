@@ -9,6 +9,7 @@ use pgdo::runtime::constraint::Constraint;
 pub struct ClusterArgs {
     /// The directory in which the cluster lives.
     #[clap(
+        long_help,
         short = 'D',
         long = "datadir",
         env = "PGDATA",
@@ -39,6 +40,7 @@ pub struct ClusterModeArgs {
 pub struct DatabaseArgs {
     /// The database to connect to.
     #[clap(
+        long_help,
         short = 'd',
         long = "database",
         env = "PGDATABASE",
@@ -53,6 +55,7 @@ pub struct DatabaseArgs {
 pub struct RuntimeArgs {
     /// Select the default runtime, used when creating new clusters.
     #[clap(
+        long_help,
         long = "runtime-default",
         value_name = "CONSTRAINT",
         display_order = 80
@@ -64,14 +67,14 @@ pub struct RuntimeArgs {
 pub struct LifecycleArgs {
     /// Destroy the cluster after use. WARNING: This will DELETE THE DATA
     /// DIRECTORY. The default is to NOT destroy the cluster.
-    #[clap(long = "destroy", display_order = 100)]
+    #[clap(long_help, long = "destroy", display_order = 100)]
     pub destroy: bool,
 
     /// Take over a cluster last used on another host or VM, if it shows no
     /// signs of use there when watched for 30 seconds. DANGER: If it is in fact
     /// still running there, this WILL CORRUPT THE CLUSTER. The default is to
     /// refuse.
-    #[clap(long = "force", display_order = 101)]
+    #[clap(long_help, long = "force", display_order = 101)]
     pub force: bool,
 }
 
@@ -100,11 +103,11 @@ impl LifecycleArgs {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 pub enum ClusterMode {
     /// Resets fsync, full_page_writes, and synchronous_commit to defaults.
-    #[value(name = "slower-but-safer", alias = "safe")]
+    #[value(name = "slower-but-safer", alias = "safe", verbatim_doc_comment)]
     Slow,
 
     /// Disable fsync, full_page_writes, and synchronous_commit. DANGER!
-    #[value(name = "faster-but-less-safe", alias = "fast")]
+    #[value(name = "faster-but-less-safe", alias = "fast", verbatim_doc_comment)]
     Fast,
 }
 

@@ -293,8 +293,8 @@ impl Cluster {
 
     /// Create the cluster if it does not already exist.
     ///
-    /// `initdb` refuses to use a directory that is not empty, but pgdo keeps its
-    /// own files – e.g. `pgdo.lock` – in the data directory. So this runs
+    /// `initdb` refuses to use a directory that is not empty, but pgdo keeps
+    /// its own files – e.g. `pgdo.lock` – in the data directory. So this runs
     /// `initdb` in a subdirectory, `pgdo.init`, then moves the result up:
     ///
     /// 1. Move `pgdo.init/PG_VERSION` to `PG_VERSION.init`. This marks a move
@@ -316,44 +316,46 @@ impl Cluster {
     pub fn create(&self) -> Result<State, ClusterError> {
         if exists(self) {
             // Nothing more to do; the cluster is already in place.
-            return Ok(Unmodified);
-        }
+            Ok(Unmodified)
+        } else {
+            fs::create_dir_all(&self.datadir)?;
+            let initdir = self.datadir.join(files::INIT);
+            let version_init = self.datadir.join(files::VERSION_INIT);
 
-        fs::create_dir_all(&self.datadir)?;
-        let initdir = self.datadir.join(files::INIT);
-        let version_init = self.datadir.join(files::VERSION_INIT);
-
-        if !version_init.exists() {
-            // No move is in progress, but `initdb` may have been interrupted;
-            // discard anything it left behind.
-            match fs::remove_dir_all(&initdir) {
-                Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err)?,
-                _ => (),
-            }
-            self.check_datadir_empty()?;
-            self.initdb(&initdir)?;
-            fs::rename(initdir.join(files::VERSION), &version_init)?;
-        }
-
-        // Move everything else. If resuming, `pgdo.init` may already be gone.
-        match fs::read_dir(&initdir) {
-            Ok(entries) => {
-                for entry in entries {
-                    let entry = entry?;
-                    fs::rename(entry.path(), self.datadir.join(entry.file_name()))?;
+            if !version_init.exists() {
+                // No move is in progress, but `initdb` may have been
+                // interrupted; discard anything it left behind.
+                match fs::remove_dir_all(&initdir) {
+                    Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err)?,
+                    _ => (),
                 }
-                // Match the permissions that `initdb` chose; PostgreSQL will
-                // refuse to start if the data directory is too permissive.
-                fs::set_permissions(&self.datadir, fs::metadata(&initdir)?.permissions())?;
-                fs::remove_dir(&initdir)?;
+                self.check_datadir_empty()?;
+                self.initdb(&initdir)?;
+                fs::rename(initdir.join(files::VERSION), &version_init)?;
             }
-            Err(err) if err.kind() == io::ErrorKind::NotFound => (),
-            Err(err) => Err(err)?,
-        }
 
-        // Finally, make the data directory a cluster.
-        fs::rename(&version_init, self.datadir.join(files::VERSION))?;
-        Ok(Modified)
+            // Move everything else. If resuming, `pgdo.init` may already be
+            // gone.
+            match fs::read_dir(&initdir) {
+                Ok(entries) => {
+                    for entry in entries {
+                        let entry = entry?;
+                        fs::rename(entry.path(), self.datadir.join(entry.file_name()))?;
+                    }
+                    // Match the permissions that `initdb` chose; PostgreSQL
+                    // will refuse to start if the data directory is too
+                    // permissive.
+                    fs::set_permissions(&self.datadir, fs::metadata(&initdir)?.permissions())?;
+                    fs::remove_dir(&initdir)?;
+                }
+                Err(err) if err.kind() == io::ErrorKind::NotFound => (),
+                Err(err) => Err(err)?,
+            }
+
+            // Finally, make the data directory a cluster.
+            fs::rename(&version_init, self.datadir.join(files::VERSION))?;
+            Ok(Modified)
+        }
     }
 
     /// Was a [`create`][Self::create] interrupted while moving files into the
@@ -386,7 +388,8 @@ impl Cluster {
             .arg("init")
             // Silent; `--silent` flag accepted only in PostgreSQL >=9.2.
             .arg("-s")
-            // Options for `initdb`; `--options` flag accepted only in PostgreSQL >=10.
+            // Options for `initdb`; `--options` flag accepted only in
+            // PostgreSQL >=10.
             .arg("-o")
             // Passing multiple flags in a single `arg(...)` is intentional.
             // These constitute the single value for the `-o` flag above.
@@ -409,59 +412,60 @@ impl Cluster {
         // Check if we're running already.
         if self.running()? {
             // We didn't start this cluster; say so.
-            return Ok(Unmodified);
+            Ok(Unmodified)
+        } else {
+            // Construct the options that `pg_ctl` will pass through to
+            // `postgres`. These have to be carefully escaped for the target
+            // shell – which is likely to be `sh`. Here's what they mean:
+            //  -h <arg> -- host name; empty arg means Unix socket only.
+            //  -k -- socket directory.
+            //  -p -- port, which determines the socket's name.
+            //  -c name=value -- set a configuration parameter.
+            let options = {
+                let mut arg: Vec<u8> = b"-h '' -k ".into();
+                arg.push_quoted(Sh, &self.datadir);
+                arg.extend(format!(" -p {PORT}").as_bytes());
+                for (parameter, value) in options {
+                    arg.extend(b" -c ");
+                    arg.push_quoted(Sh, &format!("{parameter}={value}"));
+                }
+                OsString::from_vec(arg)
+            };
+
+            // Track the logs so that we can see if there's a retryable failure.
+            let logfile = self.logfile();
+            let logfile_name = logfile
+                .file_name()
+                .unwrap_or_else(|| "<unknown.log>".as_ref())
+                .display();
+            let mut log: logfile::LogFile = logfile.as_path().try_into()?;
+
+            // Next, invoke `pg_ctl` to start the cluster.
+            let mut command = self.ctl()?;
+            //  -l <file> -- log file.
+            //  -s -- no informational messages.
+            //  -w -- wait until startup is complete.
+            //  -o <string> -- options to pass through to `postgres`.
+            command
+                .arg("start")
+                .arg("-l")
+                .arg(&logfile)
+                .arg("-s")
+                .arg("-w")
+                .arg("-o")
+                .arg(options);
+
+            // Append new logs to the command's `Output` so that the retry
+            // machinery has visibility of it.
+            let append_logs_to_stderr = |output: &mut Output| {
+                writeln!(&mut output.stderr)?;
+                writeln!(&mut output.stderr, "-- {logfile_name} --")?;
+                log.read_to_end(&mut output.stderr)?;
+                Ok(())
+            };
+
+            bugs::retry_pg_ctl(&mut command, append_logs_to_stderr)
         }
-        // Construct the options that `pg_ctl` will pass through to `postgres`.
-        // These have to be carefully escaped for the target shell – which is
-        // likely to be `sh`. Here's what they mean:
-        //  -h <arg> -- host name; empty arg means Unix socket only.
-        //  -k -- socket directory.
-        //  -p -- port, which determines the socket's name.
-        //  -c name=value -- set a configuration parameter.
-        let options = {
-            let mut arg: Vec<u8> = b"-h '' -k ".into();
-            arg.push_quoted(Sh, &self.datadir);
-            arg.extend(format!(" -p {PORT}").as_bytes());
-            for (parameter, value) in options {
-                arg.extend(b" -c ");
-                arg.push_quoted(Sh, &format!("{parameter}={value}"));
-            }
-            OsString::from_vec(arg)
-        };
-
-        // Track the logs so that we can see if there's a retryable failure.
-        let logfile = self.logfile();
-        let logfile_name = logfile
-            .file_name()
-            .unwrap_or_else(|| "<unknown.log>".as_ref())
-            .display();
-        let mut log: logfile::LogFile = logfile.as_path().try_into()?;
-
-        // Next, invoke `pg_ctl` to start the cluster.
-        let mut command = self.ctl()?;
-        //  -l <file> -- log file.
-        //  -s -- no informational messages.
-        //  -w -- wait until startup is complete.
-        //  -o <string> -- options to pass through to `postgres`.
-        command
-            .arg("start")
-            .arg("-l")
-            .arg(&logfile)
-            .arg("-s")
-            .arg("-w")
-            .arg("-o")
-            .arg(options);
-
-        // Append new logs to the command's `Output` so that the retry machinery
-        // has visibility of it.
-        let append_logs_to_stderr = |output: &mut Output| {
-            writeln!(&mut output.stderr)?;
-            writeln!(&mut output.stderr, "-- {logfile_name} --")?;
-            log.read_to_end(&mut output.stderr)?;
-            Ok(())
-        };
-
-        bugs::retry_pg_ctl(&mut command, append_logs_to_stderr)
     }
 
     /// Connect to this cluster, as the current user, using pgdo's minimal
@@ -480,8 +484,8 @@ impl Cluster {
     /// The URL has no user; clients typically default to the current user.
     ///
     /// It is not possible to return a URL for a cluster when its
-    /// [`datadir`][`Self::datadir`] is not valid UTF-8, in which case `Ok(None)`
-    /// is returned.
+    /// [`datadir`][`Self::datadir`] is not valid UTF-8, in which case
+    /// `Ok(None)` is returned.
     pub fn url(&self, database: &str) -> Result<Option<url::Url>, url::ParseError> {
         match self.datadir.to_str() {
             Some(datadir) => url::Url::parse_with_params(
@@ -597,30 +601,32 @@ impl Cluster {
 
     /// Stop the cluster if it's running.
     pub fn stop(&self) -> Result<State, ClusterError> {
-        // If the cluster's not already running, don't do anything.
-        if !self.running()? {
-            return Ok(Unmodified);
-        }
-        // pg_ctl options:
-        //  -w -- wait for shutdown to complete.
-        //  -m <mode> -- shutdown mode.
-        // Run `pg_ctl` in its own process group, so that it does not receive
-        // signals sent from the terminal, e.g. SIGINT from Ctrl-C: interrupting
-        // it would leave the server stopping, or still running.
-        let output = self
-            .ctl()?
-            .process_group(0)
-            .arg("stop")
-            .arg("-s")
-            .arg("-w")
-            .arg("-m")
-            .arg("fast")
-            .output()?;
+        if self.running()? {
+            // pg_ctl options:
+            //  -w -- wait for shutdown to complete.
+            //  -m <mode> -- shutdown mode.
+            // Run `pg_ctl` in its own process group, so that it does not
+            // receive signals sent from the terminal, e.g. SIGINT from Ctrl-C:
+            // interrupting it would leave the server stopping, or still
+            // running.
+            let output = self
+                .ctl()?
+                .process_group(0)
+                .arg("stop")
+                .arg("-s")
+                .arg("-w")
+                .arg("-m")
+                .arg("fast")
+                .output()?;
 
-        if output.status.success() {
-            Ok(Modified) // We did actually stop the cluster; say so.
+            if output.status.success() {
+                Ok(Modified) // We did actually stop the cluster; say so.
+            } else {
+                Err(ClusterError::CommandError(output))
+            }
         } else {
-            Err(ClusterError::CommandError(output))
+            // The cluster is not running, so there is nothing to do.
+            Ok(Unmodified)
         }
     }
 
@@ -767,10 +773,10 @@ pub fn determine_superuser_role_names(
     }
 
     if superusers.is_empty() {
-        return Err(ClusterError::CommandError(output));
+        Err(ClusterError::CommandError(output))
+    } else {
+        Ok(superusers)
     }
-
-    Ok(superusers)
 }
 
 pub type Options<'a> = &'a [(config::Parameter<'a>, config::Value)];

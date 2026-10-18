@@ -226,6 +226,7 @@ mod tests {
             match check() {
                 Err(_) if std::time::Instant::now() < deadline => {
                     std::thread::sleep(std::time::Duration::from_millis(10));
+                    continue;
                 }
                 result => return result,
             }

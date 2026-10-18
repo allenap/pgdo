@@ -54,7 +54,10 @@ pub fn version<P: AsRef<Path>>(binary: P) -> Result<Version, RuntimeError> {
         (size, hash)
     };
 
-    // Try to check if we already know the version.
+    // Try to check if we already know the version. Return early from within
+    // this block, rather than putting the rest of the function in an `else`:
+    // the read guard, `cache`, would then still be held when we take the write
+    // lock below, and that would deadlock.
     if let Ok(cache) = CACHE.read() {
         if let Some(entry) = cache.get(&binary) {
             if entry.size == size && entry.hash == hash {
