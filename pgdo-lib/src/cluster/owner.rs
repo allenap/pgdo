@@ -247,20 +247,26 @@ impl Owner {
                 "pid_ns" => pid_ns = Some(value.parse().ok()?),
                 "ipc_ns" => ipc_ns = Some(value.parse().ok()?),
                 "namespace" if value == "unknown" => namespace_known = false,
+                // A value we do not understand, e.g. from a newer pgdo. Ignoring
+                // it would treat the namespace as known, and we might then try
+                // to stop a server we cannot see, so refuse the whole record.
                 "namespace" => return None,
                 "datadir_dev" => dev = Some(value.parse().ok()?),
                 "datadir_ino" => ino = Some(value.parse().ok()?),
                 _ => (),
             }
         }
-        (version? == VERSION).then_some(())?;
-        Some(Self {
-            fingerprint: Fingerprint { boot_id, pid_ns, ipc_ns },
-            namespace_known,
-            hostname: hostname?,
-            pid: pid?,
-            datadir: (dev?, ino?),
-        })
+        if version == Some(VERSION) {
+            Some(Self {
+                fingerprint: Fingerprint { boot_id, pid_ns, ipc_ns },
+                namespace_known,
+                hostname: hostname?,
+                pid: pid?,
+                datadir: (dev?, ino?),
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -321,8 +327,8 @@ pub(super) fn read(path: &Path) -> io::Result<Option<Found>> {
 pub(super) fn ago(duration: Duration) -> String {
     let secs = duration.as_secs();
     match secs {
-        0 => "just now".to_owned(),
-        1..=59 => format!("{secs}s ago"),
+        0..=10 => "just now".to_owned(),
+        11..=59 => format!("{secs}s ago"),
         60..=3599 => format!("{}m {}s ago", secs / 60, secs % 60),
         3600..=86399 => format!("{}h {}m ago", secs / 3600, secs % 3600 / 60),
         _ => format!("{}d {}h ago", secs / 86400, secs % 86400 / 3600),
@@ -585,6 +591,8 @@ mod tests {
     fn ago_describes_durations() {
         let ago = |secs| super::ago(Duration::from_secs(secs));
         assert_eq!(super::ago(Duration::from_millis(999)), "just now");
+        assert_eq!(ago(10), "just now");
+        assert_eq!(ago(11), "11s ago");
         assert_eq!(ago(45), "45s ago");
         assert_eq!(ago(73), "1m 13s ago");
         assert_eq!(ago(302), "5m 2s ago");
