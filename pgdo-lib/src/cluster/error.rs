@@ -100,7 +100,20 @@ impl ClusterError {
                     .into(),
             ),
             Self::ClientError(err) => err.help(),
-            _ => None,
+            // Listed in full, so that a new variant must decide whether it
+            // needs help.
+            Self::IoError(_)
+            | Self::UnsupportedRuntime(_)
+            | Self::VersionError(_)
+            | Self::RuntimeNotFound(_)
+            | Self::RuntimeDefaultNotFound
+            | Self::RuntimeError(_)
+            | Self::ConfigError(_)
+            | Self::Interrupted
+            | Self::LockError(_)
+            | Self::CommandError(_)
+            | Self::CurrentUserError(_)
+            | Self::UrlError(_) => None,
         }
     }
 }

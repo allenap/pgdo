@@ -53,16 +53,13 @@ fn report(err: &anyhow::Error) {
 
 /// Help for an error: from the first error in its chain that offers any.
 fn help(err: &anyhow::Error) -> Option<String> {
-    use pgdo::cluster::{client::ClientError, ClusterError};
+    use pgdo::cluster::ClusterError;
+    // The library's other errors with help, e.g. `ClientError`, reach us only
+    // inside a `ClusterError`, whose `help` includes theirs.
     err.chain().find_map(|cause| {
         cause
             .downcast_ref::<ClusterError>()
             .and_then(ClusterError::help)
-            .or_else(|| {
-                cause
-                    .downcast_ref::<ClientError>()
-                    .and_then(ClientError::help)
-            })
             .or_else(|| {
                 cause
                     .downcast_ref::<runner::StrategyError>()
@@ -85,4 +82,31 @@ struct Options {
     // https://github.com/clap-rs/clap/issues/975#issuecomment-1426424232
     #[clap(flatten)]
     default: command::Default,
+}
+
+#[cfg(test)]
+mod tests {
+    use pgdo::cluster::ClusterError;
+
+    use super::{help, runner::StrategyError};
+
+    #[test]
+    fn help_finds_help_anywhere_in_chain() {
+        let err = anyhow::Error::new(ClusterError::StalePidFile { pid: 1 })
+            .context("could not start")
+            .context("could not run");
+        assert_eq!(help(&err), ClusterError::StalePidFile { pid: 1 }.help());
+
+        let constraint = "15".parse().expect("valid constraint");
+        let err = anyhow::Error::new(StrategyError::ConstraintNotSatisfied(constraint))
+            .context("could not choose a runtime");
+        assert!(help(&err).is_some());
+    }
+
+    #[test]
+    fn help_is_none_when_no_error_in_chain_has_help() {
+        let err = anyhow::Error::new(ClusterError::Interrupted).context("could not start");
+        assert_eq!(help(&err), None);
+        assert_eq!(help(&anyhow::anyhow!("something else")), None);
+    }
 }

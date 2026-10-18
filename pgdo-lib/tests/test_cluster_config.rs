@@ -82,3 +82,21 @@ fn cluster_setting_get() -> TestResult {
     cluster.stop()?;
     Ok(())
 }
+
+/// When the server rejects a setting, its own hint – here, the units it accepts
+/// – is part of the error's help.
+#[for_all_runtimes]
+#[test]
+fn cluster_parameter_set_invalid_has_help_from_server() -> TestResult {
+    let datadir = tempfile::tempdir()?;
+    let cluster = Cluster::new(&datadir, runtime)?;
+    cluster.start(&[])?;
+    let result = config::Parameter::from("shared_buffers").set(&cluster, "1 parsec");
+    cluster.stop()?;
+    let help = result.expect_err("invalid setting accepted").help();
+    assert!(
+        matches!(&help, Some(help) if help.contains("kB")),
+        "{help:?}"
+    );
+    Ok(())
+}
