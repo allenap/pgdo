@@ -173,7 +173,10 @@ fn see(pid: u32) -> io::Result<Option<Seen>> {
             match (vnodes, bsdinfo) {
                 (Ok(vnodes), Ok(bsdinfo)) => {
                     let cwd = vnodes.pvi_cdir.vip_vi.vi_stat;
-                    let dev = u64::from(cwd.vst_dev);
+                    // `vst_dev` is unsigned, but `dev_t` is signed, and
+                    // `MetadataExt::dev` sign-extends it. Do the same, so that
+                    // the two compare equal for every device.
+                    let dev = i64::from(cwd.vst_dev.cast_signed()).cast_unsigned();
                     let name = bsdinfo
                         .pbi_comm
                         .iter()
