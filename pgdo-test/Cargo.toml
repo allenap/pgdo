@@ -19,8 +19,8 @@ name = "pgdo_test"
 path = "src/lib.rs"
 
 [dependencies]
-ctor = "1.0.8"
-log = "0.4.33"
+ctor = "1.0.13"
+log = "0.4.35"
 postgres = "0.19.14"
 pgdo-test-macros = { path = "../pgdo-test-macros" }
 simple_logger = "5.2.0"
