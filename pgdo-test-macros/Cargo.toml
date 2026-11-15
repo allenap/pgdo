@@ -21,7 +21,7 @@ path = "src/lib.rs"
 
 [dependencies]
 quote = "1.0.46"
-syn = "2.0.118"
+syn = { version = "2.0.118", features = ["full"] }
 pgdo-lib = { path = "../pgdo-lib" }
 
 [build-dependencies]
