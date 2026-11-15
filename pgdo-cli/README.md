@@ -56,6 +56,7 @@ Options for shell:
       --mode <MODE>                   Run the cluster in a "safer" or "faster" mode [possible values: slower-but-safer, faster-but-less-safe]
       --runtime-default <CONSTRAINT>  Select the default runtime, used when creating new clusters
       --destroy                       Destroy the cluster after use. WARNING: This will DELETE THE DATA DIRECTORY. The default is to NOT destroy the cluster
+      --force                         Take over a cluster last used on another host or VM, if it shows no signs of use there when watched for 30 seconds. DANGER: If it is in fact still running there, this WILL CORRUPT THE CLUSTER. The default is to refuse
 
 $ pgdo runtimes
    15.19      /opt/homebrew/Cellar/postgresql@15/15.19/bin
@@ -121,10 +122,8 @@ If you feel the urge to hack on this code, here's how to get started:
 
 ### Running the tests
 
-Right now, the pgdo package doesn't have many/any automated tests. That will
-surely change, but for now, please test your changes manually with as many
-PostgreSQL runtimes as you can. See [pgdo-lib][] for platform-specific notes on
-installing runtimes.
+Run `cargo test`. Most tests run against every PostgreSQL runtime they can find;
+see [pgdo-lib][] for platform-specific notes on installing runtimes.
 
 ### Making a release
 
