@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Require Rust 1.98 or later, now declared as each crate's `rust-version`.
+
 ## 0.7.0 – 2026-10-18
 
 pgdo 0.7.0 reworks how processes share a cluster, so that a data directory

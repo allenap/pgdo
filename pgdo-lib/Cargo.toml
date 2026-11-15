@@ -8,6 +8,7 @@ license.workspace = true
 name = "pgdo-lib"
 readme = "README.md"
 repository.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 [lib]
