@@ -13,6 +13,5 @@ categories = [
 edition = "2021"
 keywords = ["database", "postgres", "postgresql"]
 license = "Apache-2.0"
-readme = "README.md"
 repository = "https://github.com/allenap/pgdo"
 version = "0.7.0"
