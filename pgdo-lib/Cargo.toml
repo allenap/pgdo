@@ -17,19 +17,18 @@ path = "src/lib.rs"
 
 [dependencies]
 backoff = "0.4.0"
-bytes = "1.11"
-either = "1.16.0"
+bytes = "1.12"
+either = "1.19.0"
 fallible-iterator = "0.2"
-glob = "0.3.3"
-globset = "0.4.18"
-log = "0.4.33"
+glob = "0.3.4"
+globset = "0.4.21"
+log = "0.4.35"
 nix = { version = "0.31.3", features = ["fs", "hostname", "signal", "user"] }
 postgres-protocol = "0.6.12"
-rand = "0.10.2"
-regex = "1.13.0"
-shell-quote = "0.7.2"
-tempfile = "3.27.0"
-thiserror = "2.0.18"
+rand = "0.10.3"
+regex = "1.13.1"
+shell-quote = "0.8.0"
+thiserror = "2.0.21"
 url = "2.5.8"
 
 [dev-dependencies]
@@ -39,6 +38,6 @@ postgres = "0.19.14"
 tempfile = "3"
 
 [dev-dependencies.tokio]
-version = "1.52.3"
+version = "1.54.1"
 features = ["rt"]
 default-features = false
