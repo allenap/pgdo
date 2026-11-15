@@ -844,7 +844,7 @@ version = "0.7.0"
 dependencies = [
  "pgdo-lib",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.9",
 ]
 
 [[package]]
