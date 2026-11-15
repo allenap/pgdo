@@ -1,16 +1,9 @@
-<p style="font-size: 2rem; margin-bottom: 0.75rem">⚠️ ALPHA QUALITY ⚠️</p>
+<p style="font-size: 2rem; margin-bottom: 0.75rem">📦 ARCHIVED 📦</p>
 
-This project is in the early stages of development. It is far from feature
-complete. It likely contains many bugs and inconsistencies. Documentation is
-limited or non-existent. It will change in ways that break backwards
-compatibility. **It is not ready for production use**.
-
-That said, if you want to try it out, please do! But bear in mind that it is
-being updated frequently, at least at the time I'm writing this, and you should
-expect to update it frequently too. **Please check out known issues and file
-new ones [here](https://github.com/allenap/pgdo/issues)**.
-
-Thanks! Gavin.
+This project is no longer maintained, and its repository is archived. The last
+release, 0.7.1, supports PostgreSQL 15 and later, and was tested with 15 to 18.
+It should keep working for a while, but it will not be updated for new versions
+of PostgreSQL or Rust. You are welcome to fork it.
 
 ---
 
@@ -63,6 +56,7 @@ Options for shell:
       --mode <MODE>                   Run the cluster in a "safer" or "faster" mode [possible values: slower-but-safer, faster-but-less-safe]
       --runtime-default <CONSTRAINT>  Select the default runtime, used when creating new clusters
       --destroy                       Destroy the cluster after use. WARNING: This will DELETE THE DATA DIRECTORY. The default is to NOT destroy the cluster
+      --force                         Take over a cluster last used on another host or VM, if it shows no signs of use there when watched for 30 seconds. DANGER: If it is in fact still running there, this WILL CORRUPT THE CLUSTER. The default is to refuse
 
 $ pgdo runtimes
    15.19      /opt/homebrew/Cellar/postgresql@15/15.19/bin
@@ -128,10 +122,8 @@ If you feel the urge to hack on this code, here's how to get started:
 
 ### Running the tests
 
-Right now, the pgdo package doesn't have many/any automated tests. That will
-surely change, but for now, please test your changes manually with as many
-PostgreSQL runtimes as you can. See [pgdo-lib][] for platform-specific notes on
-installing runtimes.
+Run `cargo test`. Most tests run against every PostgreSQL runtime they can find;
+see [pgdo-lib][] for platform-specific notes on installing runtimes.
 
 ### Making a release
 

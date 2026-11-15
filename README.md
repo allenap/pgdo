@@ -1,16 +1,9 @@
-<p style="font-size: 2rem; margin-bottom: 0.75rem">⚠️ ALPHA QUALITY ⚠️</p>
+<p style="font-size: 2rem; margin-bottom: 0.75rem">📦 ARCHIVED 📦</p>
 
-This project is in the early stages of development. It is far from feature
-complete. It likely contains many bugs and inconsistencies. Documentation is
-limited or non-existent. It will change in ways that break backwards
-compatibility. **It is not ready for production use**.
-
-That said, if you want to try it out, please do! But bear in mind that it is
-being updated frequently, at least at the time I'm writing this, and you should
-expect to update it frequently too. **Please check out known issues and file
-new ones [here](https://github.com/allenap/pgdo/issues)**.
-
-Thanks! Gavin.
+This project is no longer maintained, and its repository is archived. The last
+release, 0.7.1, supports PostgreSQL 15 and later, and was tested with 15 to 18.
+It should keep working for a while, but it will not be updated for new versions
+of PostgreSQL or Rust. You are welcome to fork it.
 
 ---
 
