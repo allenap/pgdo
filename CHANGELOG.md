@@ -1,8 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.7.1 – 2026-11-15
+
+The final release: pgdo is no longer maintained, and its repository is
+archived.
 
 - Require Rust 1.98 or later, now declared as each crate's `rust-version`.
+- Upgrade dependencies, including shell-quote 0.8. pgdo-lib no longer depends
+  on `tempfile`.
+- The READMEs, which are also the crates' front pages on crates.io and docs.rs,
+  say that pgdo is archived.
 
 ## 0.7.0 – 2026-10-18
 
