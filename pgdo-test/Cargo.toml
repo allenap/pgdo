@@ -8,6 +8,7 @@ license.workspace = true
 name = "pgdo-test"
 readme = "README.md"
 repository.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 # Don't accidentally publish this crate.

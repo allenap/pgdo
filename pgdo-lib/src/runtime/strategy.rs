@@ -73,7 +73,7 @@ impl StrategyLike for RuntimesOnPathEnv {
     fn runtimes(&self) -> Runtimes<'_> {
         Box::new(
             env::var_os("PATH")
-                .map(|path| {
+                .map_or_default(|path| {
                     env::split_paths(&path)
                         .filter(|bindir| bindir.join("pg_ctl").exists())
                         // Throw away runtimes that we can't determine the
@@ -82,7 +82,6 @@ impl StrategyLike for RuntimesOnPathEnv {
                         .filter(Runtime::is_supported)
                         .collect::<Vec<_>>()
                 })
-                .unwrap_or_default()
                 .into_iter(),
         )
     }
@@ -107,14 +106,13 @@ impl RuntimesOnPlatform {
     pub fn find() -> Vec<PathBuf> {
         glob::glob("/usr/lib/postgresql/*/bin/pg_ctl")
             .ok()
-            .map(|entries| {
+            .map_or_default(|entries| {
                 entries
                     .filter_map(Result::ok)
                     .filter(|path| path.is_file())
                     .filter_map(|path| path.parent().map(Path::to_owned))
                     .collect()
             })
-            .unwrap_or_default()
     }
 
     /// Find runtimes using platform-specific knowledge (macOS).
@@ -143,14 +141,13 @@ impl RuntimesOnPlatform {
                 ))
                 .ok()
             })
-            .map(|entries| {
+            .map_or_default(|entries| {
                 entries
                     .filter_map(Result::ok)
                     .filter(|path| path.is_file())
                     .filter_map(|path| path.parent().map(Path::to_owned))
                     .collect()
             })
-            .unwrap_or_default()
     }
 }
 

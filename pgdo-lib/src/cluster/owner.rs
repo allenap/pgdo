@@ -165,8 +165,7 @@ impl Record {
             fingerprint: Fingerprint::current(),
             namespace_known: true,
             hostname: nix::unistd::gethostname()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default(),
+                .map_or_default(|name| name.to_string_lossy().into_owned()),
             pid: std::process::id(),
             datadir: (metadata.dev(), metadata.ino()),
         })
