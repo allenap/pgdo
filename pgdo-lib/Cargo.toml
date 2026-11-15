@@ -28,7 +28,6 @@ postgres-protocol = "0.6.12"
 rand = "0.10.3"
 regex = "1.13.1"
 shell-quote = "0.7.2"
-tempfile = "3.27.0"
 thiserror = "2.0.21"
 url = "2.5.8"
 
