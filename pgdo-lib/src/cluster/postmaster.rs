@@ -261,7 +261,8 @@ mod tests {
                 .current_dir(dir)
                 .stdout(std::process::Stdio::null())
                 .spawn()
-                .map(Self)
+                .map(Self)?
+                .running("postgres")
         }
 
         fn spawn_program(program: &Path, dir: &Path) -> std::io::Result<Self> {
@@ -269,7 +270,31 @@ mod tests {
                 .arg("60")
                 .current_dir(dir)
                 .spawn()
-                .map(Self)
+                .map(Self)?
+                .running(&program.file_name().unwrap_or_default().to_string_lossy())
+        }
+
+        /// Wait until this process runs the program called `name`. Between
+        /// forking and exec'ing, a child process already has its working
+        /// directory, but it still has the name of the thread that forked it.
+        fn running(self, name: &str) -> std::io::Result<Self> {
+            use std::time::{Duration, Instant};
+            let deadline = Instant::now() + Duration::from_secs(10);
+            if SUPPORTED {
+                loop {
+                    match see(self.pid())? {
+                        Some(Seen::Process { name: seen, .. }) if seen == name => break,
+                        _ if Instant::now() > deadline => {
+                            return Err(std::io::Error::other(format!("{name} did not start")));
+                        }
+                        _ => {
+                            std::thread::sleep(Duration::from_millis(10));
+                            continue;
+                        }
+                    }
+                }
+            }
+            Ok(self)
         }
 
         fn pid(&self) -> u32 {
